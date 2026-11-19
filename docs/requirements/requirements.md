@@ -19,6 +19,8 @@
 
 > **[NEW 2026-11-17] Batch 37 (D65) — Option Spreads panel in the right dock (CCS/PCS credit-spread ladders driven by a Target + streaming TWS quotes/greeks) — OWNER-REQUESTED 2026-11-17, **FINAL 2026-11-17 (Q106–Q110 answered) — `Status: READY_FOR_PLAN`**.** The right dock's "Account Summary" (the Portfolio panel) is replaced by **"Option Spreads"** (Q110(a) — the Portfolio panel, its data path and its tests are deleted in the same batch under the owner's standing no-unused-code rule): sub-headers **CCS**/**PCS**, four 20-wide credit spreads each, columns `Financial instrument | ASK | BID | Delta | Gamma`, a **Target** (default `1.00`) that spread 3 must sit at, and an **ON/OFF** toggle at the panel's right (red off / green on) that starts and stops the app maintaining the ladder and streaming its legs, cancelling the lines it no longer uses. **Answers: Q106 = (a)** SPX/SPXW always, whatever the chart shows; **Q107 = (b)** 0DTE only with an explicit *no 0DTE today* empty state (the analyst's nearest-expiry fallback was **overridden, not adopted**); **Q108 = (b)** the Target test matches on net **mid, ask or bid** (analyst's mid-only recommendation **overridden**), with the owner-delegated **direction rule decided by the analyst** in `### Direction Rule (Q108(b))`; **Q110 = (a)** replace the Portfolio panel; **Q109 = (a)** PCS mirrors CCS with the short leg first. The owner's **no-unused-code rule** (A197) is standing from D65 and inherited by every later phase, gated by `AC-D65.12`/`AC-D65.13`; **amended 2026-11-17 after the owner's plan review** with the connection lifecycle (`AC-D65.14`), the seed/spot/timeout rules (`AC-D65.15`), quote validity (`AC-D65.16`), Target validation (`AC-D65.17`), the pre-drop backup + full file set (`AC-D65.18`) and the owner-run acceptance gate (`AC-D65.19`) — **amended 2026-11-18: the gate is a LIVE-TWS, READ-ONLY run, because the owner stated *"there is no paper-TWS"* (A211 revised)**. Verified today: **no option infrastructure exists** (no `tickOptionComputation` handler, no option contract builder, no chain lookup) and market-data lines are a hard budget (warn 90 / refuse 100). **Display/analysis only: zero order interaction (D45/D46 stand).** D1–P22 are NOT reopened. See Phase P23, `### Direction Rule (Q108(b))`, `### Unused-Code Rule (standing)`, Journeys 62–63, `AC-D65.1`–`AC-D65.19`, A186–A212, R138–R153, `design_gaps.md` DG117–DG123, `open_questions.md` Q106–Q110.
 
+> **[NEW 2026-11-19] Batch 38 (D67–D104) — a 38-item defect batch folded in as six phases, HIGHs first — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19; analyst-verified in code 2026-11-19 (`Status: READY_FOR_PLAN` for **P25–P30**).** **[AMENDED 2026-11-19: Q118 answered = RESTORE; P30's DRAFT is lifted and no blocking question remains in the batch.]** The findings are recorded **only here**, as defect entries inside the phase that builds them: **P25 / D67–D70** silent wrong chart data (forming week/month candle, a pop-out close that steals the main feed, out-of-order bridge flush, whitespace rows); **P26 / D71–D76** reconnect replay and wave lifecycle (all-or-nothing replay, cap-yield parking, 162/silence retry consistency, bounded tag/failure sets, queue-only coalescing, the not-ready loop); **P27 / D77–D83** planner and pacing hygiene (duplicate chunks, the unreachable prime retry, mode-blind cache read, inexact refund, stamp-before-send, window edges, zero-length span); **P28 / D84–D95** connection, startup and window lifecycle (attach-while-disconnected, pop-outs outliving the app, a failed backup bricking startup, pre-handshake close, dead replay, stream-health/retry scheduling, zombie pop-out, honest self-description, client state, malformed port, single instance); **P29 / D96–D100** persisted state and alarm evaluation (delete-before-serialize, alarm-at-level, post-outage evaluation, replay duplication, group-update kwargs); **P30 / D101–D104** UI surface integrity (the control cluster that never mounts, the floating search popup, the wiped drawing selection, stale engine docstrings). **Attribution is "owner-supplied audit findings, 2026-11-19" only** — no external review file is cited and none is created. **Verification is per-finding and stated in each phase's ledger**: most items were reproduced in code on 2026-11-19; D85 and the TWS duration ceiling behind D67 were orchestrator-verified; **D91 and D98 are UNCONFIRMED** and each names the observation that settles it. **Live-TWS checks are named owner-run gates (G1–G6), never suite gates**; every other criterion is offscreen-assertable. **D1–P24 are NOT reopened**, no order path is added, and the Existing Repository marker sentence and Current Tech Stack are unchanged. **Q118 is ANSWERED 2026-11-19 — "Restore them (Recommended)"** — so P30 restores the control cluster (`D101.1`) and fixes the `aria-pressed` latch as an in-scope defect (`D101.2`, `AC-D101.2`), and no blocking question remains in the batch. One non-blocking display default is **Q119** (D67's forming-candle arm), recommended and owner-overridable. See Phases P25–P30, Journeys 65–85, `AC-D67.1`–`AC-D104.3`, A220–A249, R160–R190, `design_gaps.md` DG128–DG136.
+
 > > Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped. **2026-10-05:** new defect **D19** — the toolbar pinned the central widget, so the D17/D18 fix was not effective in the real app — is **clarified and finalised** (B5–B6 answered 2026-10-05: the toolbar gets a **horizontal scroll / elide wrapper in place**, staying one ~36px row inside the central widget so its minimum width no longer pins the layout; the watchlist cap **stays at 50% of the chart area**). See `open_questions.md` B5–B6 (answered) and D19 / `AC-D19.1`–`AC-D19.7`. **2026-10-06:** new defect **D20** — the D19 wrapper's horizontal scrollbar clipped the toolbar label descenders — is **clarified and finalised** (B7–B8 answered 2026-10-06: the content row stays **~36px** with the horizontal scrollbar in its **own reserved lane below**, total strip **~50–52px**, superseding `AC-D19.4`'s `<= ~40px`; the scrollbar is **as-needed** in its reserved lane). See `open_questions.md` B7–B8 (answered) and D20 / `AC-D20.1`–`AC-D20.6`.
 
 > **2026-10-06 (later) — Batch 15 (D21) CLARIFIED AND FINALISED 2026-10-06 (B9–B13 answered).** After D20 was
@@ -564,6 +566,14 @@ repository files, which remain authoritative if the two disagree.
   duration/bar size) → `IBApiClient.historicalData` → `_on_historical_bar` /
   `_on_historical_data_end` → `BarCache.save_bars` → `ChartPanel.update_chart` →
   `ChartPanel._refresh_candles` (shared by the price **and** volume panels).
+
+**Current work in this run (updated 2026-11-19 — navigation only, no criteria changed).** The open work is the
+**Batch 38** defect record (D67–D104), delivered as phases **P25–P30**. It is a **defect-only batch against the
+existing tree**: no new feature area, no stack change, and **no order path** (D45/D46 remain the end state). The
+existing-repo facts above — including the **`ibapi` 10.51.1 pin, live-only port 7496, LWC-only chart engine and
+the user-space SQLite database** — are exactly what this batch must preserve; where a defect touches them (the
+port guard's wording, the startup path's backup, the engine's docstrings) the change is to make the description
+match the code, never to change the stack.
 
 ## Constraints
 
@@ -6748,5 +6758,900 @@ The Option Spreads panel is built, wired and green. The owner restated its displ
 | R157 — this section's withdrawn "rebuild" premise leaks into Plan scope (e.g. a work item restoring deleted files) | M | M | Header, problem statement and A216 say **delta**; `AC-D66.8`'s diff-scope check bounds the change; the withdrawn text is not restated anywhere |
 | R158 — the phase is read as "P23 again", inviting re-litigation | M | M | A214 + non-goals; Q106–Q117 are all answered and closed |
 | R159 — the PCS anchor on row 2 with no visible numbers makes "which row is the Target" ambiguous when scanning | L | M | `AC-D66.2` fixes the row; DG126 keeps the optional row-marker suggestion as a legibility refinement only |
+
+Status: READY_FOR_PLAN
+
+## Phase P25 — Silent wrong data on the chart: forming week/month candle, stolen live feed, out-of-order flush, whitespace rows (D67–D70) — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19 (analyst-verified in code 2026-11-19; orchestrator-verified TWS behaviour 2026-11-19) — one non-blocking display default (Q119)
+
+> **Attribution.** These are **owner-supplied audit findings, 2026-11-19**. Each is reproduced below from the working tree (HEAD `94d6119`) by the analyst on 2026-11-19 unless the ledger marks it otherwise. The defect entries in this section **are** the record; no external review file is cited, and none should be created for them.
+>
+> **Verification ledger (this phase).**
+>
+> | id | finding | status | what settles it |
+> |---|---|---|---|
+> | D67 | forming weekly/monthly candle is primed from at most a 24-hour window | **VERIFIED (code)** and **ORCHESTRATOR-VERIFIED (TWS, 2026-11-19)**: `1 min` bars accept at most `1 D` / `86400 S`; `2 D` and `7 D` are **rejected** with error 321; realtime/historical bars arrive oldest-first | `ui/ticker_session.py::TickerSession.prime_aggregator` (`_PRIME_MAX_SPAN_1MIN_S = 86_400`), `::on_historical_bar`'s `_prime_period_start` guard |
+> | D68 | closing a pacing-deferred pop-out unsubscribes the **main** chart's live feed | **VERIFIED (code)** — confirmed independently in code by the orchestrator | `ui/popout_window.py::PopoutChartWindow.detach` / `.attach` |
+> | D69 | bridge flush emits out of arrival order | **VERIFIED (code)** | `ui/lwc_bridge.py::LwBridge.flush` / `._stage` |
+> | D70 | `update_bar` keeps `None`-close rows, contradicting the whitespace contract | **VERIFIED (code)** | `ui/lwc_bridge.py::apply_ops_to_bars` vs `chart_assets/lwc/envelope.js::mergeRows` |
+
+### Problem Statement (P25 slice)
+Four defects share one property: **the chart shows something that is not what the user thinks it is, and says nothing.** A forming weekly or monthly candle is built from at most the last 24 hours of data, so its open is a recent price and its volume is a fraction of the period — indistinguishable from a real period candle. Closing a paces-deferred pop-out silently decrements the main chart's realtime hold, so the main chart stops ticking while its badge still reads live. The bridge can replay a stale bar after the full replace that superseded it. And the replay reconstructor accepts a whitespace row as a bar in one branch only, so the Python mirror and the page disagree. None of these raise an error or show a message.
+
+### Goals (P25)
+- A forming `1 week` / `1 month` candle is either the period's real aggregation or visibly marked partial; a 24-hour window is never presented as the period's candle (D67).
+- Realtime holds are per-owner and exactly balanced: a pop-out releases at most the one hold it acquired (D68).
+- A coalesced bridge flush preserves arrival order for the series it touches, so a stale live update can never be applied after the replace that superseded it (D69).
+- The replay reconstructor and the page agree exactly on what counts as a bar: a `None`-close row is never a bar in either (D70).
+
+### Non-Goals (P25)
+- **No new chart UI surface.** D67's "partial" marker is the smallest honest cue the existing chart can carry (Plan chooses the mechanism); no legend, badge tray or per-candle tooltip system is added. If no honest marker exists without new UI, the priority is the first goal's "real aggregation" arm.
+- **No change to backfill, planning or pacing** — the wave lifecycle is P26, the planner is P27. D67 may add a fetch or a cache read; it may not retune the wave.
+- No reopening of D48's weekly/monthly aggregation rules, D16's no-silent-hole contract, or `AC-D53.*` (P24 and earlier stand).
+- No order path, no persistence change, no stack change.
+
+### Constraints (P25)
+- **Verified IBKR limits are facts, not assumptions.** `1 min` bars are capped at `1 D`; therefore "just fetch the whole period" is not available at 1-minute granularity. Any mechanism requiring a longer span must be proved against TWS before it is relied on, or the partial arm applies.
+- **Oldest-first arrival is verified**, so a cache-seeded merge must de-duplicate by timestamp and must not assume it is appending to the end of the series.
+- **Offscreen-first.** Every criterion below is assertable offscreen with injected bars, a fake realtime manager and a fake pacing manager; the two live checks are named as owner-run gates, not suite gates.
+- The chart engine stays LWC-only; the bridge stays the only transport.
+
+### Glossary (P25 additions)
+- **Forming period candle** — the candle for the week/month that contains "now"; it is incomplete until the period closes.
+- **Period aggregation** — open = first in-period bar's open, high/low = in-period extremes, close = latest, volume = sum over the period.
+- **Partial marker** — a visible, non-numeric cue that a candle does not cover its whole period. It never replaces or alters the values; it states that they are incomplete.
+- **RT hold** — one owner's claim on a session's single realtime-bar subscription (`TickerSession.ensure_rt_subscribed` / `release_rt`); N owners ⇒ N holds ⇒ one subscription.
+- **Whitespace row** — a candle-series row whose `close` is `None`, used to reserve space for a collapsed non-trading gap; it is not a bar.
+
+### Defect entries (P25)
+
+#### D67 — A forming `1 week` / `1 month` candle is built from at most the last 24 hours
+- **Audit finding:** R-02 (owner-supplied audit findings, 2026-11-19).
+- **Reported (owner-supplied audit findings, 2026-11-19):** the forming week/month candle opens at a recent price instead of the period's open, and its volume covers only the primed window.
+- **Observed in code (verified 2026-11-19):** `prime_aggregator` chooses `bar_size = "1 min"` for spans above `_PRIME_MAX_SPAN_S` and clamps the requested duration to `_PRIME_MAX_SPAN_1MIN_S` (86,400 s = `1 D`). `on_historical_bar` pushes only bars with `ts >= _prime_period_start`, so nothing before the primed window enters the aggregator; no production path seeds the forming period from already-cached bars. The forming candle is therefore produced from ≤24 h of data and rendered exactly like a complete one.
+- **Why the obvious fix is unavailable:** a longer `1 min` request is rejected — `1 D` / `86400 S` is the maximum accepted duration for that bar size, and `2 D` / `7 D` return error 321 (verified against TWS, 2026-11-19). Enlarging the prime at 1-minute granularity is impossible.
+- **Expected behaviour:** either the forming candle is the period's real aggregation (from a legal fetch or from cached bars), or it is visibly marked partial. A 24-hour-window open/volume must never be rendered unmarked as the period's candle.
+- **Decided default (Q119, non-blocking):** prefer real aggregation when the cache (or a legal coarser-bar fetch proved against TWS) can cover the period; otherwise mark it partial. Switching the *display* off entirely (no forming candle) is rejected — it hides the live price from a weekly/monthly chart, which the owner has not asked for.
+
+#### D68 — A pop-out that never acquired an RT hold releases one at close, killing the main chart's feed
+- **Audit finding:** R-06 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** closing a pacing-deferred pop-out unsubscribes the main chart's live feed.
+- **Observed in code (verified 2026-11-19):** `PopoutChartWindow.attach` tracks `hold_acquired` for its own unwind path only; on the pacing-limited branch it schedules `_retry_rt_subscribe` and returns **without acquiring a hold**. `detach` (called from `closeEvent`) calls `session.release_rt()` unconditionally. `TickerSession.release_rt` decrements the holder count and unsubscribes at zero, so the pop-out's release consumes the main chart's hold.
+- **Expected behaviour:** a pop-out releases exactly the hold it acquired — one, or none. Closing a viewer never silently stops another viewer's feed.
+- **Interaction with D49.2:** the transactional attach already records acquisition state; this defect is that the *detach* path does not consult it. No new mechanism is needed.
+
+#### D69 — `LwBridge.flush` emits the outbox before the live buffer regardless of arrival order
+- **Audit finding:** R-19 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** a stale `update_bar` can clobber a newer `set_bars` inside one coalesce window.
+- **Observed in code (verified 2026-11-19):** `_stage` routes live ops (`update_bar`) into `_live_buf` keyed by `(series, ts)` and every other op (`set_bars`, `clear`) into an append-only `_outbox`. `flush` builds `staged = list(self._outbox)` then `staged.extend(self._live_buf.values())`, so an `update_bar` that arrived **before** a `set_bars` is emitted **after** it.
+- **Expected behaviour:** arrival order is preserved for the series an envelope touches. A coalesced update may be dropped in favour of a later full replace, but it may never be applied on top of it.
+
+#### D70 — `apply_ops_to_bars` accepts a whitespace row in the `update_bar` branch
+- **Audit finding:** R-33 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the reconstructor contradicts its own whitespace contract.
+- **Observed in code (verified 2026-11-19):** the `set_bars` branch filters `if c is not None`; the `update_bar` branch writes `(ts, open, high, low, close)` unconditionally, including `close is None`. The docstring states a whitespace placeholder "is not a bar and is skipped".
+- **Expected behaviour:** the rule is branch-independent. The Python reconstruction and the page's `mergeRows` produce identical series for identical ops — that identity is what makes the replay check meaningful.
+
+### User Journeys (P25)
+
+#### Journey 65 — D67: read a weekly chart mid-week and be able to trust the forming candle
+- **Preconditions:** app on HEAD with the P25 change set; `1 week` selected; the cache holds this week's intraday bars for the symbol (or it does not — both legs are exercised); IBKR connected for the live gate only.
+- **Steps:** 1) Load the weekly chart on a Tuesday. 2) Read the forming candle's open, high, low, close and volume. 3) Compare the open with Monday's first bar close-to-open sequence and the volume with the sum of the week's daily volumes. 4) Repeat with `1 month` mid-month. 5) Repeat after clearing the intraday cache so the partial arm applies.
+- **Postconditions:** in the "cache covers the period" case the candle's open equals the period's first bar open and its volume equals the period sum; in the "cannot cover" case the candle carries the partial marker and no value is fabricated; in neither case is a 24-hour-window open presented unmarked as the period open.
+- **Edge Cases:** the period begins **today** (the primed window does cover the period — full values, no marker); a cache hole inside the period (the aggregation uses what exists and the candle is partial, never interpolated); a DST-transition week; a month whose first trading day is a holiday; RTH vs ETH mode (the aggregation must use the chart's own mode, not mix); cache retention pruned the period's early days (partial); a period boundary tick arriving live (the candle rolls over and the previous one becomes complete).
+
+#### Journey 66 — D68: close a pop-out and watch the main chart keep ticking
+- **Preconditions:** main chart live on ES; open a second pop-out for the same symbol while the realtime budget is exhausted so its subscribe is pacing-deferred; the pop-out stays open until the deferral elapses or is closed first.
+- **Steps:** 1) Confirm the main chart's badge is live and bars advance. 2) Open the pop-out; observe the pacing-limited status line. 3) Close the pop-out **before** its retry fires. 4) Watch the main chart for the next few ticks. 5) Repeat with a pop-out that did acquire its hold.
+- **Postconditions:** in case (3) the main chart keeps ticking and the fake realtime manager records **no** unsubscribe for the main reqId; in case (5) exactly one unsubscribe is recorded at close. The holder count returns to its pre-open value in both cases.
+- **Edge Cases:** two pop-outs on the same symbol, one pacing-deferred, closed in either order; the pop-out's retry fires after it was closed (must not acquire); the main chart is closed first (the pop-out's hold must keep the feed alive until it too closes); a pop-out closed while its own subscribe is mid-flight.
+
+#### Journey 67 — D69/D70: one coalesce window, one stale update, one rebuild
+- **Preconditions:** offscreen; a bridge with no Qt event loop so flushes are explicit; a candle series of 100 bars.
+- **Steps:** 1) Stage an `update_bar` for bar 50, then a `set_bars` that replaces the series (arrival order: update first). 2) `flush()`. 3) Reconstruct with `apply_ops_to_bars` and compare with the page's merge of the same envelope. 4) Repeat in the opposite arrival order. 5) Inject an `update_bar` whose `close` is `None` and repeat the comparison.
+- **Postconditions:** the replace wins in step (2) and the trailing stale update is absent or superseded; the update applies last in step (4); the whitespace update is not a bar in either implementation in step (5).
+- **Edge Cases:** several series in one envelope (order preserved per series); `clear` followed by `update_bar` (empty series then one bar); an update whose `ts` is absent from the new `set_bars` (it must not resurrect a removed bar); an empty flush (no envelope emitted).
+
+### Acceptance Criteria (P25 — testable offscreen unless named as a gate)
+- **AC-D67.1 (period aggregation when the data exists)** Given a `1 week` chart whose cache covers this week from the period's first bar, When the chart renders, Then the forming candle's **open** equals the first in-period bar's open, its **high/low** are the period's extremes, its **close** is the latest bar's close, and its **volume** equals the sum of the in-period bars' volumes; the same holds for `1 month` over a month. (Measurable: injected cache fixtures per timeframe asserting the four values against independently computed aggregates; a "period starts today" case asserting full values with no marker.)
+- **AC-D67.2 (no 24-hour candle presented as a period candle)** Given the cache cannot cover the period (empty, pruned, or holey), When the forming candle renders, Then it carries the partial marker **and** the rendered values are exactly the aggregate of the bars actually used — never a value derived from an unmarked 24-hour assumption; no marker appears on a candle whose data is complete. (Measurable: same fixtures with the cache cleared/pruned, asserting the marker's presence plus the exact aggregated values; a negative case asserting the marker is absent when complete.)
+- **AC-D67.3 (no illegal request)** Given the D67 change set, When a priming request is issued, Then its `bar_size` / `duration` pair is one TWS accepts — the `1 min` arm never exceeds `1 D` — and a rejected combination is never retried as-is. (Measurable: fake client asserting the issued `(bar_size, duration)` tuples against the accepted set; plus the named live gate **G1**.)
+- **AC-D68.1 (hold neutrality on a deferred pop-out)** Given a main chart holding one RT hold, When a pop-out opened while pacing-deferred is closed before its retry, Then the main subscription is still live (no `unsubscribe` for its reqId; the fake realtime manager's live set unchanged; the session's holder count equals its pre-open value). (Measurable: fake realtime manager call log + holder-count assertion; `AC-D49.2`'s unwind cases stay green.)
+- **AC-D68.2 (exactly one release for an acquired hold)** Given a pop-out that acquired its hold, When it closes, Then exactly one `release_rt` happens and the main chart's hold survives; Given two pop-outs on the same symbol, Then closing both returns the count to its pre-open value and closing one leaves one. (Measurable: per-close holder counts and unsubscribe counts in both orders.)
+- **AC-D69.1 (arrival order preserved)** Given an `update_bar` then a `set_bars` staged in one window, When `flush()` runs, Then applying the emitted envelope leaves exactly the `set_bars` rows (no stale bar re-applied); Given `set_bars` then `update_bar`, Then the update applies last. (Measurable: envelope inspection + `apply_ops_to_bars` reconstruction compared against an independently computed expected series.)
+- **AC-D69.2 (no op lost)** Given a window containing updates for bars 1..3 and a replace, Then every op that survives coalescing is emitted exactly once, and no series is emitted twice in one envelope. (Measurable: op-multiplicity assertion per envelope.)
+- **AC-D70.1 (whitespace is never a bar)** Given a replay log containing an `update_bar` with `close = None`, When it is reconstructed, Then the series contains no row for that timestamp and the result equals the page's merge of the same ops. (Measurable: Python reconstruction + the vendored JS merge run over the same fixture; a parity assertion on both outputs.)
+- **AC-D70.2 (branch independence)** Given the same whitespace row delivered via `set_bars` and via `update_bar`, Then both paths exclude it — one rule, two branches. (Measurable: two fixtures, one assertion each plus the shared expected series.)
+- **AC-D70.3 (history intact)** Given `requirements.md`, Then `### D41`–`### D66`, Journeys 1–64, `AC-D1.1`–`AC-D66.8`, A1–A219, R1–R159 and the Existing Repository marker sentence with its Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)
+
+### Live gates (owner-run — named, not assumed)
+- **G1 (D67).** **Run:** the owner loads a `1 week` SPY chart mid-week with TWS connected. **Observation that settles it:** the forming candle's open matches the first bar of the week in the daily/intraday view and its volume is of the same order as the sum of the week's daily volumes (or, when the cache cannot cover the period, the partial marker is visible). A candle whose open equals a recent intraday price with no marker fails the gate. Note: the platform's `1 min` duration ceiling is already proved (`1 D` accepted, `2 D`/`7 D` rejected with 321) — this gate is about the rendered result, not the request.
+- **G2 (D68).** **Run:** on macOS, with the main chart live, open a pop-out and close it within the same second. **Observation that settles it:** the main chart's live badge stays green and its last price keeps changing on the next ticks; the pop-out leaves no subscription in TWS's API line count.
+
+### Assumptions (P25 — A220–A224)
+- **A220 — D67's "partial" is a marker, not a value change.** The partial arm alters no number; it states incompleteness. If the chart cannot carry such a cue without new UI, aggregation-from-cache is the required arm and the phase must say which candles remain unmarked.
+- **A221 — The forming period's aggregation uses the chart's own mode.** RTH and ETH bars are never mixed into one period candle; the mode used is the chart's current toggle, matching `AC-D16.9`'s mode scoping.
+- **A222 — A cache-seeded merge de-duplicates by timestamp.** Verified arrival order is oldest-first, but a seed followed by a live fetch can overlap; the merge must be idempotent by `ts` (the `bars` PK is already mode-aware, so persistence is idempotent too).
+- **A223 — RT holds are per-owner, not per-view.** The requirement is a balanced count per session; whether the pop-out stores its own `hold_acquired` flag (D49.2's pattern) or the session tracks owners is Plan's choice, provided D68's ACs hold.
+- **A224 — D69/D70 are bridge-internal fixes.** No wire-format change (`v: 1` envelope, `ops` array) and no page-contract change: the page keeps receiving ops in emitted order, and the Python replay check keeps reconstructing the same series.
+
+### Risks / Unknowns (P25)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R160 — the "partial" marker becomes a new UI surface by accretion (a badge here, a tooltip there) | M | M | A220 caps it to one cue on the candle itself; no criterion accepts a second surface; P25's non-goals forbid it explicitly |
+| R161 — aggregation from cache silently mixes modes or double-counts overlapping bars, producing a *new* wrong candle while fixing the old one | H | M | A221/A222 + `AC-D67.1`'s per-mode fixtures; `AC-D67.2` requires the values to equal the *used* set exactly, so an overlap shows up as a doubled volume |
+| R162 — the D68 fix passes offscreen but a retry acquires a hold after the pop-out closed, so the new leak replaces the old | M | M | Journey 66's "retry after close" edge + `AC-D68.1`; the retry path must consult the same acquisition state as detach |
+| R163 — D69's ordering fix drops a legitimate update (over-eager coalescing) so a live bar stops advancing | M | M | `AC-D69.2` counts surviving ops; "drop the stale one" is allowed, "drop a newer one" fails the reconstruction comparison |
+| R164 — a whitespace fix in `apply_ops_to_bars` diverges from the vendored page code, so the replay check starts lying about the page | M | L | `AC-D70.1` compares both implementations on the same fixture; the JS side is the reference for the contract |
+
+Status: READY_FOR_PLAN
+
+## Phase P26 — Reconnect replay and backfill-wave lifecycle: all-or-nothing replay, cap-yield parking, retry bookkeeping (D71–D76) — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19 (analyst-verified in code 2026-11-19) — READY_FOR_PLAN
+
+> **Attribution.** **Owner-supplied audit findings, 2026-11-19**, reproduced in the working tree on 2026-11-19. The defect entries are the record.
+>
+> **Verification ledger (this phase).**
+>
+> | id | finding | status | evidence |
+> |---|---|---|---|
+> | D71 | replay is not all-or-nothing with ≥2 pacing-gated entries, and duplicates live subscriptions | **VERIFIED (code)** — budget pre-check counts only `RT_BARS`; the loop reissues every pending entry, including option legs whose reissue calls the market-data throttle; superseded reqIds are never cancelled; the caller re-runs the whole replay on refusal | `ibkr/subscription_manager.py::SubscriptionManager.replay_all`, `ui/main_window.py::MainWindow._replay_subscriptions` / `._option_reissue_leg` / `._option_reissue_spot` |
+> | D72 | a healthy cap-yielded wave is later finalised as "timed out" and its queued plans are dropped | **VERIFIED (code)** — the cap-yield return and the non-completing end marker both leave the watchdog armed | `ui/ticker_session.py::TickerSession._issue_wave_chunks` / `::on_historical_data_end`, `ui/main_window.py::MainWindow._finalize_stranded_history_wave` |
+> | D73 | the 162 retry keeps the failed chunk's partial bars, the silence path removes them | **VERIFIED (code)** | `ui/ticker_session.py::TickerSession.on_historical_error` (162 branch) vs `::_retry_silent_chunk` |
+> | D74 | the cancel-tag set grows for the process lifetime; the failure set leaks across waves | **VERIFIED (code)** — `_cancelled_history_req_ids` is added to and never cleared; `queue_wave_plans` does not reset `_backfill_failed_req_ids` | `ui/ticker_session.py::TickerSession._cancel_history_requests` / `::queue_wave_plans` / `::is_superseded`, `ui/main_window.py::MainWindow._teardown_session` |
+> | D75 | same-triple reload coalescing ignores queue-only waves, so a parked wave is cancelled | **VERIFIED (code)** — the gate requires `_history_req_ids` | `ui/main_window.py::MainWindow._load_chart_resolved` |
+> | D76 | the `IBKRNotReady` continuation is a fixed 1 s loop that re-arms the watchdog every tick | **VERIFIED (code)** — `wait = 1.0` then `_schedule_wave_continuation(1.0)` → `_arm_history_wave_watchdog(1.0)`, whose bound is the 120 s base, restarted each second | `ui/ticker_session.py::TickerSession._issue_wave_chunks` / `::_schedule_wave_continuation` / `::_history_wave_watchdog_bound_ms` |
+
+### Problem Statement (P26 slice)
+The reconnect replay and the backfill wave both have a **lifecycle contract written in their own docstrings that the code does not keep**. The replay claims all-or-nothing under pacing but pre-checks one budget while spending another, so a two-line replay can take one line per retry, leave the superseded reqIds live, and duplicate TWS subscriptions. The wave claims the watchdog bounds only genuinely stranded work, but a cap-yield (a *designed*, healthy outcome) leaves the watchdog armed and is later finalised as a timeout, dropping the plans the design promised to park. Around them, retry bookkeeping is inconsistent between the two retry paths (the 162 retry keeps partial bars the silence retry removes), two sets grow without bound or without reset, a queue-only wave is invisible to the coalescing gate, and the not-ready retry loop can hold the watchdog open forever.
+
+### Goals (P26)
+- Reconnect replay is **all-or-nothing** exactly as documented: a deferral reissues nothing, a successful pass reissues every entry once, and no superseded reqId remains live (D71).
+- A cap-yielded wave **parks** — no timeout finalise, no fabricated shortfall, queue preserved, indicator parked, resumed by the next load (D72).
+- Both retry paths handle partial bars identically: a retried chunk's bars appear exactly once (D73).
+- Cancel tags and failure sets are **bounded by the wave that produced them**; a shortfall names only this wave's failures (D74).
+- A same-triple reload coalesces whenever the session has a wave in flight **or** parked (D75).
+- A wave that cannot issue because the transport is not ready is still **bounded** — the watchdog can fire, or the retry budget exhausts and surfaces once (D76).
+
+### Non-Goals (P26)
+- No change to the planner (`find_missing_spans` / `plan_requests`) or pacing arithmetic — that is P27.
+- No change to the watchdog's *bound formula* or its tuning (P15 closed the 10 s target; the 120 s base is not reopened). D72 and D76 change **when it is armed**, not how long it is.
+- No new user-facing surface; D72 reuses the D53 indicator and the existing shortfall line.
+- No reopening of `AC-D16.4`, `AC-D53.*`, `AC-D54.*`, or the P17 silence-retry criteria beyond D73's consistency fix.
+
+### Constraints (P26)
+- **The docstrings are the contract.** D71's all-or-nothing claim, D72's "park and resume" wording and D76's "bounded" claim are already written down; where the code and the words disagree, the words win unless this phase says otherwise.
+- **Never sleep on the GUI thread.** Every deferral stays `QTimer.singleShot` / timer-based; pacing refusals stay exceptions with a wait attached.
+- **Offscreen with a fake clock and a fake pacing manager.** No criterion requires live TWS; two gates are owner-run and named.
+- Generation fencing, per-chunk persist-and-render, and the `_wave_may_complete` rule are existing behaviour and must survive unchanged.
+
+### Glossary (P26 additions)
+- **Replay pass** — one invocation of the subscription registry's replay; a pass either reissues nothing (deferred) or every eligible entry (success).
+- **Cap-yield / parked wave** — a wave that stops issuing because the per-load historical cap is spent, leaving plans queued for a later load. A **healthy** state, not a stall.
+- **Stalled wave** — a wave with in-flight request(s) that stop answering, or a continuation that never lands. The only state the watchdog is meant to bound.
+- **Cancel tag** — an id recorded as cancelled so a later inventoried error code on it is classified as a superseded acknowledgement rather than a user-facing error.
+
+### Defect entries (P26)
+
+#### D71 — Reconnect replay is neither all-or-nothing nor duplicate-free
+- **Audit finding:** R-01 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** with ≥2 throttle-gated entries the replay never terminates and duplicates live TWS subscriptions.
+- **Observed in code (verified 2026-11-19):**
+  1. `replay_all` computes `rt_needed = sum(1 for … if e.req_type == RT_BARS)` and asks `pacing_manager.realtime_wait_for_slots(rt_needed)`; **option-leg and S0 entries are not counted**.
+  2. It then iterates *every* pending entry and calls `entry.reissue()`. The option hooks call `MarketDataManager.req_mkt_data`, which calls `pacing_manager.throttle()` and raises `PacingExceeded` mid-loop.
+  3. Replayed entries before the raise are already re-registered under new ids, and their **old reqIds are never cancelled** (`_option_reissue_leg` only drops the old id from its own map). The old TWS line stays live.
+  4. `MainWindow._replay_subscriptions` catches `PacingExceeded` and schedules `_replay_subscriptions` again — the **whole** replay — so each pass can advance by one entry and trip on the next, while the entries that already succeeded are reissued again on the next pass.
+- **Expected behaviour:** the documented contract. A pass issues **either zero or all** eligible reissues; a deferral is a single retry after the reported wait; the live subscription count after settling equals the count before the replay; every superseded reqId is cancelled exactly once; no pass duplicates an already-live line.
+- **Note on scope:** the fix must cover **all** entry types placed in the registry (`RT_BARS`, `S0_TICKS`, `OPTION_LEGS`), not only RT bars — the budget that gates the pass must be the union of what the pass will spend.
+
+#### D72 — A cap-yielded wave is strand-finalised as "Historical backfill timed out"
+- **Audit finding:** R-04 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the watchdog finalises a healthy cap-yielded wave and drops queued plans.
+- **Observed in code (verified 2026-11-19):** `_issue_wave_chunks`' cap branch (`_wave_issued_this_load >= cap`) returns after a status message **without disarming** the watchdog armed at load time. `on_historical_data_end` returns at `if not self._wave_may_complete(): return` — also without disarming. When the timer fires, `_on_session_history_wave_timeout` → `_finalize_stranded_history_wave(reason="Historical backfill timed out")` cancels reqIds, **clears `_wave_plan_queue`** and finalises with a shortfall. The parked remainder the design promised ("resume on the next load") is destroyed and the user is told the backfill timed out.
+- **Expected behaviour:** cap-yield disarms the strand bound (the wave is not stalled), keeps the queue, parks the D53 indicator with its parked/queued state, and surfaces the existing per-load-budget message — never a timeout shortfall. A subsequent load resumes issuing oldest-first.
+
+#### D73 — The 162 retry keeps the failed chunk's partial bars; the silence retry removes them
+- **Audit finding:** R-11 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the retry duplicates bars in `_pending_bars`; the on-disk primary key masks it while the in-memory flush double-counts.
+- **Observed in code (verified 2026-11-19):** the `code == 162` branch pops the plan, discards the reqId from `_history_req_ids` and re-queues the plan — but does not pop `_req_bars[req_id]` nor identity-remove those bars from `_pending_bars`. `_retry_silent_chunk` does both (it pops the chunk and filters `_pending_bars` by object identity). When the retried request delivers the same timestamps again, `_pending_bars` holds each of them twice.
+- **Expected behaviour:** one rule for both retry paths — a chunk that will be re-requested surrenders its partial bars before the re-issue (the persisted rows stay; the PK keeps the cache correct).
+- **Note:** the requirement is the **invariant**, not the mechanism: after any retry, `_pending_bars` contains at most one bar per `(symbol, timeframe, ts)`.
+
+#### D74 — The cancel-tag set is unbounded; the failure set is never reset by a new wave
+- **Audit finding:** R-13 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** cancel tags grow indefinitely; `_backfill_failed_req_ids` is not reset by `queue_wave_plans`, so a prefetch wave can report a previous load's failures.
+- **Observed in code (verified 2026-11-19):** `_cancelled_history_req_ids` is added to on every cancel and only ever `discard`ed for one reissued id; nothing clears it while the session lives, and `MainWindow._teardown_session` merges it into `_superseded_history_reqs`, which also only grows. `queue_wave_plans` resets `_retried_plans`, `_req_bars`, `_history_req_issued`, `_history_req_last_activity` and `_wave_issued_this_load` — but not `_backfill_failed_req_ids`.
+- **Expected behaviour:** both are scoped to the wave/generation that produced them. Late acknowledgements for the **current** wave still classify as superseded (that is the set's purpose); identifiers from long-finished waves are forgotten. A shortfall line counts only this wave's failures.
+
+#### D75 — Same-triple reload coalescing ignores a queue-only (parked) wave
+- **Audit finding:** R-14 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** a cap-parked wave is cancelled and its queued plans and pending-prefetch marker are dropped by an identical reload.
+- **Observed in code (verified 2026-11-19):** the coalesce gate is `bool(new_session._history_req_ids) and symbol == … and timeframe == … and extended_hours == …`. A parked wave has zero in-flight ids, so the gate is false and the load falls through to the cancel path, which clears the plan queue and `_pending_prefetch`.
+- **Expected behaviour:** the gate means "this triple has work that this load would duplicate" — a queue-only wave qualifies. Only a genuine triple change cancels and re-plans.
+
+#### D76 — The `IBKRNotReady` continuation re-arms the watchdog every second, so it never bounds the wave
+- **Audit finding:** R-16 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the not-ready continuation is a fixed 1 s retry loop that re-arms the watchdog every tick.
+- **Observed in code (verified 2026-11-19):** `_issue_wave_chunks` catches `(PacingExceeded, IBKRNotReady)`, uses `wait = getattr(e, "wait_seconds", None)` and falls back to `1.0` for `IBKRNotReady`. `_schedule_wave_continuation(1.0)` starts a ~1 s timer **and** calls `_arm_history_wave_watchdog(1.0)`, whose bound is `max(base_ms, wait_ms + margin_ms)` — with the 600 s window that is the 120 s base, restarted on every tick. A transport that never becomes ready therefore keeps the wave "fresh" forever while the user sees a pacing/continuing message.
+- **Expected behaviour:** readiness failures are bounded like any other stall. Either the watchdog is armed only for the deferral it is covering (not restarted on a fixed short tick), or a bounded not-ready retry budget exhausts and surfaces once. Silent indefinite looping is the defect.
+
+### User Journeys (P26)
+
+#### Journey 68 — D71: reconnect with the option panel ON and two lines pacing-gated
+- **Preconditions:** app with a live main chart, one watchlist row and the Option Spreads panel ON (several option legs registered); a fake pacing manager in the offscreen cases, a real TWS for gate G3.
+- **Steps:** 1) Force a transport drop and reconnect. 2) Observe the replay attempt. 3) If a deferral is reported, wait out the reported interval. 4) Count the live subscriptions and compare with the pre-drop count. 5) Repeat the drop during the deferral.
+- **Postconditions:** the replay completes in one successful pass; the live count matches the pre-drop count; every option leg carries exactly one live line; no "replay pacing-limited" message repeats after the deferral elapses; no old reqId is left in flight.
+- **Edge Cases:** the budget frees up exactly at the reported instant (one retry, no early refusal); a second disconnect during the deferral (the pending retry must not double-run — the deferral is replaced, not stacked); an entry whose reissue itself raises (`IBKRNotReady`) — the pass must not be half-applied; zero gated entries (the pre-change path, unchanged).
+
+#### Journey 69 — D72/D76: park a wave at the per-load cap and leave it alone
+- **Preconditions:** offscreen with a clock seam; a deep-history load whose plan count exceeds `per_load_historical_cap()`.
+- **Steps:** 1) Load the chart; let the wave issue up to the cap. 2) Read the status message and the D53 indicator. 3) Advance the clock past the old watchdog bound without issuing anything. 4) Observe whether a timeout finalise occurs. 5) Load the same chart again and confirm the parked chunks resume. 6) Separately, make the transport report not-ready for longer than the bound and observe what surfaces.
+- **Postconditions:** no "timed out" shortfall on the parked wave; the queue length is unchanged; the indicator reads parked rather than in flight; the next load issues the oldest queued chunk first. For (6) the wave ends through a bounded path with one surfaced message.
+- **Edge Cases:** the cap is reached on the very first `_issue_wave_chunks` call (queue never had an in-flight id); a disconnect while parked (the parked queue is *deliberately* dropped by the disconnect path — unchanged); a different triple loaded while parked (cancel is correct there); the not-ready period ends after the bound but before any finalise.
+
+#### Journey 70 — D73/D74/D75: retries, tags and a parked reload
+- **Preconditions:** offscreen; fake client able to emit 162 for a chosen reqId after N bars; a session with a previous wave's failures recorded.
+- **Steps:** 1) Deliver 5 bars then a 162, then let the retry succeed with the same 5 bars plus 5 more. 2) Read `_pending_bars` and the persisted rows. 3) Park a wave at the cap and reload the identical triple. 4) Run many waves in one session and inspect the cancel-tag set and the next wave's shortfall line.
+- **Postconditions:** each timestamp appears once in `_pending_bars`; the cache row count is unchanged by the retry; the parked reload neither cancels nor re-spends; the tag set is bounded and the new wave's shortfall names only its own failures.
+- **Edge Cases:** the retry is refused twice (finalises short, partial bars surrendered); the 162 arrives with zero partial bars; the parked wave is reloaded with a different mode (a genuine new wave — cancel); a prefetch wave starts immediately after a failed load.
+
+### Acceptance Criteria (P26 — offscreen unless named as a gate)
+- **AC-D71.1 (all-or-nothing under pressure)** Given a registry with entries of more than one type (RT + option legs) and a pacing manager that will refuse after the first send, When one replay pass runs, Then **zero** reissues are attempted, exactly one retry is scheduled for the reported wait, and after the wait a single pass reissues **every** entry once. (Measurable: fake pacing manager + fake market-data manager counting sends, cancels and their order; envelope-free assertions on the registry's contents.)
+- **AC-D71.2 (no duplicate, no orphan)** Given the same fixtures after a completed replay, Then the number of live subscriptions equals the pre-replay number, each old reqId was cancelled exactly once, and no new reqId is registered twice. (Measurable: live-set size + per-id cancel counts; a second replay from the settled state produces the same numbers.)
+- **AC-D71.3 (no live traffic without pressure)** Given a replay with pressure available throughout, Then the replay is byte-identical in outcome to the pre-change behaviour (same entries, same rebinds, one pass). (Measurable: the existing replay suites stay green, unchanged.)
+- **AC-D72.1 (a parked wave is not timed out)** Given a wave that stops issuing at the per-load cap, When the clock advances past twice the watchdog bound, Then no stranded finalise occurs, `_wave_plan_queue` is intact, the D53 indicator reports the parked/queued state, and no timeout shortfall is recorded. (Measurable: clock-controlled fake timers; assertion on the finalise spy never being called and on the queue's length.)
+- **AC-D72.2 (a real stall is still bounded)** Given a wave with an in-flight request that never answers and no queue progress, When the bound elapses, Then the wave is finalised **once** with the stranded reason and the `AC-D16.4` shortfall, and the queue is dropped exactly as today. (Measurable: finalise spy call count + reason string + shortfall line.)
+- **AC-D72.3 (parking is resumable)** Given a parked wave, When the identical chart is loaded again, Then the oldest queued plan is issued and the indicator leaves the parked state; the total requests issued across both loads never exceeds the budget the pacing manager allows. (Measurable: issued-plan order + pacing-manager call log.)
+- **AC-D73.1 (one bar per timestamp after a 162 retry)** Given a chunk that delivers N bars and then a 162, When the retry succeeds and the wave finalises, Then `_pending_bars` holds each timestamp exactly once and the persisted row count equals the number of distinct timestamps. (Measurable: multiset assertion on `_pending_bars` + cache row count via the mode-aware key.)
+- **AC-D73.2 (paths agree)** Given the same scenario driven through the silence path instead of the 162 path, Then the post-condition is identical. (Measurable: the two fixtures assert the same invariant, not two different expectations.)
+- **AC-D74.1 (bounded tags)** Given two hundred waves in one session, When the waves finish, Then the cancel-tag set's size is bounded by a constant or by the live-wave window (it does not grow linearly with wave count), **and** a late acknowledgement for an id cancelled in the current wave still classifies as superseded (debug, no status-bar error). (Measurable: size assertion after N waves + a classification case for a current-wave id.)
+- **AC-D74.2 (failure set scoped to the wave)** Given wave A with two failed chunks followed by wave B with none, When wave B finalises, Then its shortfall line reports zero failures and the failure set is empty. (Measurable: shortfall text + set contents after each finalise.)
+- **AC-D75.1 (parked wave coalesces)** Given a session with queued plans and no in-flight ids for the current triple, When the identical triple is loaded, Then no cancel occurs, the queue is unchanged, `_pending_prefetch` survives, and no new request is issued for the parked plans. (Measurable: cancel spy not called; queue identity/contents; pending-prefetch flag.)
+- **AC-D75.2 (a genuine change still cancels)** Given a parked wave and a load of a different symbol/timeframe/mode, Then the existing cancel path runs and the old queue is cleared. (Measurable: cancel spy call + generation advance.)
+- **AC-D76.1 (a not-ready loop cannot outlive the bound)** Given a client that reports not-ready indefinitely, When the bound's worth of time passes, Then the wave is either finalised once with a surfaced reason or a bounded retry budget has exhausted with one surfaced message — in no case does it keep rescheduling indefinitely. (Measurable: clock-controlled retry counter; assertion that the retry count is bounded by the bound, not by elapsed seconds.)
+- **AC-D76.2 (a short not-ready period still converges)** Given not-ready for two seconds, Then the wave issues as soon as readiness lands, with one continuation, and the watchdog is armed for the deferral it is actually covering. (Measurable: issue-order assertion + arm-call arguments.)
+- **AC-D76.3 (history intact)** Given `requirements.md`, Then `### D41`–`### D70`, `AC-D1.1`–`AC-D70.3`, A1–A224, R1–R164, the Existing Repository marker sentence and the Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)
+
+### Live gates (owner-run — named, not assumed)
+- **G3 (D71).** **Run:** with the Option Spreads panel ON and the chart live, force a reconnect (restart TWS) while several option lines are pacing-gated. **Observation that settles it:** after the reported wait the app settles once — the status line stops repeating "replay pacing-limited", the panel's lines all resume updating, and TWS's API line count returns to its pre-drop value (no growth). A second replay message after the wait, or a line count above the pre-drop value, fails the gate.
+- **G4 (D72).** **Run:** load a deep-history chart until the per-load cap message appears, then leave the app idle for at least four minutes. **Observation that settles it:** no "Historical backfill timed out" shortfall appears, the D53 indicator still reports the parked/queued count, and loading the same chart again issues the remaining chunks.
+
+### Assumptions (P26 — A225–A229)
+- **A225 — The replay's budget must cover every type it will reissue.** The pass's pre-check is the union of the spend of all pending entries (RT slots *and* the market-data minimum-interval gate for option/S0 lines), not the RT budget alone. This is the only reading of "all-or-nothing" that D71's own docstring supports.
+- **A226 — A superseded reqId is cancelled by the replay itself.** The owner of the entry (the reissue hook's caller) must cancel the old id; leaving it to a later error is what creates the duplicate. The existing post-issue-cancel pacing rule (issued slots are never refunded) is unchanged.
+- **A227 — "Parked" is a first-class wave state.** A cap-yield is a healthy, expected outcome and must be distinguishable from in-flight and from stalled without reading logs. The D53 indicator is the existing surface for it; P26 adds no new widget.
+- **A228 — The 162 and silence retry paths share one partial-bar rule.** The requirement is the invariant (one bar per timestamp in the in-memory wave list); each path may keep its own call shape.
+- **A229 — Bounded does not mean "small".** The cancel-tag rule may keep the current and previous generation; the AC asserts boundedness and correctness, not a specific number.
+
+### Risks / Unknowns (P26)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R165 — D71's fix is read as "count option legs in the RT budget", which would consume realtime slots for market-data lines and change a different budget | H | M | A225 states the union semantics explicitly; `AC-D71.1` uses a fake manager that distinguishes the two gates and would fail a mixed-up implementation |
+| R166 — disarming the watchdog on cap-yield also disarms it for a wave that later stalls while parked-but-unfinished work exists | H | M | `AC-D72.2` keeps the stalled case bounded; the distinction is "no in-flight request and an explicit cap-yield" versus "in-flight request that stopped answering" |
+| R167 — the parked state is implemented by skipping the finalise only, so the indicator keeps claiming "backfilling" and the user thinks work is running | M | M | `AC-D72.1` asserts the indicator's parked state, not just the absence of a timeout |
+| R168 — bounding the cancel-tag set drops the tag for an id whose late ack arrives afterwards, turning a benign superseded ack into a user-visible error | M | M | `AC-D74.1`'s second clause keeps the current-wave classification; the bound must be at least the live generation plus the previous one |
+| R169 — the D76 fix surfaces a not-ready stall as an error the owner reads as a data problem | L | M | the surfaced wording names the transport (not the symbol's data) and fires once; `AC-D76.1` counts messages |
+
+Status: READY_FOR_PLAN
+
+## Phase P27 — Planner, pacing and backfill hygiene: duplicate chunks, the prime retry that cannot fire, window edges (D77–D83) — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19 (analyst-verified in code 2026-11-19) — READY_FOR_PLAN
+
+> **Attribution.** **Owner-supplied audit findings, 2026-11-19**, reproduced in the working tree on 2026-11-19. The defect entries are the record.
+>
+> **Verification ledger (this phase).**
+>
+> | id | finding | status | evidence |
+> |---|---|---|---|
+> | D77 | two spans that coincide produce the same `(endDateTime, duration, bar_size)` chunk under two reqIds | **VERIFIED (code)** — spans are appended from three independent passes with no overlap detection, and `plan_requests` emits per span without de-duplicating | `services/backfill_service.py::find_missing_spans`, `::plan_requests`, `::_floor_missing_span` |
+> | D78 | a deferred prime retry can never fire when the pacing wait exceeds the 15 s backstop | **VERIFIED (code)** — the backstop starts immediately at 15 s and clears the retry args; the retry is scheduled for `wait_s` | `ui/ticker_session.py::TickerSession.prime_aggregator`, `::_on_prime_timeout`, `::_on_prime_retry` |
+> | D79 | `get_last_timestamp` is mode-blind | **VERIFIED (code)** — no production caller | `data/bar_cache.py::BarCache.get_last_timestamp` |
+> | D80 | `refund_historical_slot` pops the newest slot regardless of reqId | **VERIFIED (code)** — the pre-issue branch is unreachable today | `ibkr/pacing.py::PacingManager.refund_historical_slot`, `ui/ticker_session.py::TickerSession._cancel_history_requests` |
+> | D81 | `req_mkt_data` / `req_contract_details` burn a reqId and stamp pacing before the send succeeds | **VERIFIED (code)** | `ibkr/market_data.py::MarketDataManager.req_mkt_data`, `::req_contract_details` |
+> | D82 | planner window edges: a bar at the close counts in-window; the trailing hole rule differs from the internal rule | **VERIFIED (code)** | `services/backfill_service.py::_bar_level_missing_spans` |
+> | D83 | a zero-length span yields one full-duration chunk | **VERIFIED (code)** — `chunk_count = max(1, …)` | `services/backfill_service.py::plan_requests` |
+
+### Problem Statement (P27 slice)
+The planner and the pacing layer decide **how much data the app asks TWS for**. Two of these defects cost real budget: overlapping spans emit the same chunk twice (double historical budget and double per-load cap spend for data already asked for), and a zero-length span asks for a full window when nothing is missing. One makes the prime's own retry dead code: whenever the pacing wait exceeds 15 s — the common case right after a backfill — the backstop fires first and cancels the retry, so the forming period is primed from whatever a fail-open attach provides. The remaining three are hygiene that becomes expensive when it is copied: a mode-blind cache read, a refund that frees someone else's slot, and a reqId/pacing stamp taken before the request actually crosses the wire. A fourth is an edge asymmetry in the planner's gap rule that makes a bar at the session close count as in-window and lets the trailing edge use a tighter threshold than the interior.
+
+### Goals (P27)
+- The planner emits **each distinct request once**: overlapping spans never produce two reqIds for the same chunk, and the phase's cost is proportional to what is actually missing (D77).
+- A deferred prime retry is **not cancelled by a shorter unrelated backstop**: the backstop covers the prime it is actually waiting for (D78).
+- The planner's window edges follow one stated rule: half-open session windows and a single gap threshold, documented and tested (D82), and a zero-length span produces no request (D83).
+- Budget bookkeeping is **exact**: a refund frees the slot the refunding request holds (or the path is removed as unreachable), and a request is stamped only after it is issued (D80, D81).
+- No mode-blind cache API survives a call-site audit (D79).
+
+### Non-Goals (P27)
+- No change to the wave lifecycle (P26) or to the watchdog.
+- No new planner feature: no smarter span merging beyond de-duplication, no "predict the next hole", no calendar change. `AC-D16.7`'s year-end exception and the futures presence model are untouched.
+- No pacing-constant retuning (`MAX_HISTORICAL_PER_600S`, `HISTORICAL_MIN_INTERVAL_S`, `MAX_REQ_PER_SEC` stay).
+- No reopening of `AC-D16.*`, `AC-D42.*`, `AC-D48.*`, `AC-D52.*`.
+
+### Constraints (P27)
+- **De-duplication must not change which data is fetched.** The set of covered intervals is identical before and after D77; only the request count changes. A merged span may not fetch *more* than the union of the originals.
+- **`plan_requests` stays pure** (no DB, no clock, no Qt) — it is the planner's testable seam.
+- **The prime backstop is a fail-open guard; it must not be lengthened into a new stall.** D78 must make the retry reachable without letting an unanswered prime hold the chart hostage.
+- Offscreen only; the planner and pacing changes are fully assertable with injected timestamps and a monkeypatched clock.
+
+### Glossary (P27 additions)
+- **Request identity** — `(endDateTime, duration, bar_size)` for a given symbol/timeframe/mode; two plans with the same identity are the same request.
+- **Span overlap** — two `MissingSpan`s whose intervals intersect; de-duplication may merge or drop, but must never double-emit.
+- **Half-open window** — `[start, end)`: a bar timestamped exactly at the window's end belongs to the next window.
+- **Prime backstop** — the fixed timer that fails the prime open so the live feed attaches even when priming never answers.
+
+### Defect entries (P27)
+
+#### D77 — Overlapping spans produce duplicate chunks
+- **Audit finding:** R-03 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** `find_missing_spans` appends the floor span, the day-presence spans and the bar-level spans with no overlap detection, and `plan_requests` chunks per span, so `plan_requests` can emit the same `(endDateTime, duration, bar_size)` twice.
+- **Observed in code (verified 2026-11-19):** `find_missing_spans` appends the floor span (when `min_sessions > 0`), then the presence spans, then `_bar_level_missing_spans(...)` — with no merge or overlap test. `plan_requests` sorts spans by `end_ts` and chunks each independently. When the cache holds only bars **outside** the current mode's session window, `present_days` is empty, so the floor span runs to *now* while the presence pass (which enumerates from `min(_et_date(ts))` over **all** cached bars) emits a span that also ends at *now*: the newest chunk of each is the identical request under two reqIds.
+- **Expected behaviour:** one request per distinct identity per planning call. The **union** of requested intervals is unchanged — nothing is dropped, nothing extra is fetched.
+
+#### D78 — A deferred prime retry can never fire when the pacing wait exceeds the backstop
+- **Audit finding:** R-12 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the deferred retry is unreachable whenever the pacing wait is longer than 15 s.
+- **Observed in code (verified 2026-11-19):** on `PacingExceeded`, `prime_aggregator` sets `_prime_retry_pending`/`_prime_retry_args`, starts `_prime_timer` at `15_000` ms and schedules `_on_prime_retry` at `max(1000, wait_s*1000)` ms. `_on_prime_timeout` clears `_prime_retry_pending`/`_prime_retry_args` and fails open. For any `wait_s > 15`, the backstop wins and the retry becomes a no-op. The comment claims the retry covers the common case ("a load following a backfill wave almost always lands here"), but that is exactly when the wait exceeds the backstop.
+- **Expected behaviour:** the prime gets its retry. The backstop either covers the retry's own deferral or a backstop firing fails the prime open **once** while letting a scheduled retry that is still legitimate proceed — one of the two, decided by Plan, but never "the retry exists and cannot run".
+
+#### D79 — `get_last_timestamp` is mode-blind and unused
+- **Audit finding:** R-26 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** no production callers, and the query ignores the mode-aware key.
+- **Observed in code (verified 2026-11-19):** `BarCache.get_last_timestamp(symbol, timeframe)` selects `MAX(ts)` from `bars` filtered by symbol and timeframe only, while the table's key is `(symbol, timeframe, ext_hours, ts)`. A definition-only symbol with no callers is dead code under the standing no-unused-code rule.
+- **Expected behaviour:** either it is deleted (preferred — nothing calls it), or it becomes mode-aware with a caller. Keeping a mode-blind cache API alive because it "might be handy" is the failure mode the rule exists to prevent.
+
+#### D80 — `refund_historical_slot` pops the newest slot regardless of reqId
+- **Audit finding:** R-27 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** a refund frees whichever slot happens to be newest.
+- **Observed in code (verified 2026-11-19):** the method takes no reqId and does `self._hist_times.pop()` (newest first). Its only caller refunds when the cancelled id was **not** in `_history_req_issued`. In today's code every registered id is marked issued right after the request returns, so the refund branch is unreachable — which means the defect is latent, not live, and the "safety net" itself is the reason to fix or remove it.
+- **Expected behaviour:** a refund frees exactly the slot its request holds, or the unreachable path is deleted. In no case may a refund inflate or deflate another request's budget.
+
+#### D81 — `reqId` allocation and the pacing stamp precede the send
+- **Audit finding:** R-28 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** `req_mkt_data` / `req_contract_details` burn a reqId and stamp pacing before the request crosses the wire.
+- **Observed in code (verified 2026-11-19):** both call `self._require_api_ready()`, then `id_manager.get_id()`, then `pacing_manager.throttle()` — which stamps the minimum-interval clock on success — then `self.client.reqMktData/reqContractDetails(...)`. A raise from the client call leaves the interval stamped and the id consumed, so the next request is spaced against a request that never happened and the id space leaks.
+- **Expected behaviour:** budget is consumed only by work that was actually issued. `record_historical_slot` already follows this rule (stamp after the send); the market-data paths should match it. `req_sec_def_opt_params`'s own comment ("readiness first, then get_id, then throttle") shows the intended ordering discipline — the requirement extends it to "and stamp only after the send".
+
+#### D82 — Planner window edges: inclusive close, two different gap thresholds
+- **Audit finding:** R-29 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** a bar starting exactly at the close counts in-window; trailing holes need ≥1 period while internal gaps use >1.5 periods.
+- **Observed in code (verified 2026-11-19):** `in_window = sorted(t for t in day_ts if ws <= t <= bound)` — the session window's end is **inclusive**, so a bar timestamped exactly at the close is counted in the closing session and again in the next window when that window's own start shares the instant. The module docstring says "a gap of more than 1.5 bar periods … between a session edge and the nearest bar — is a missing span", but the trailing edge uses `bound - (last + period) >= period` (≥1 period), while the leading edge uses `> gap_threshold` (1.5 periods).
+- **Expected behaviour:** one documented rule. Session/day windows are **half-open** `[start, end)` (the `now` bound stays inclusive); the trailing edge uses the same 1.5-period threshold as the leading and internal edges so the docstring and the code agree. The effect is measurable: a single missing bar at the close is not requested, a two-period hole is.
+- **Note:** the planner only *requests*; under-requesting is a silent hole (`AC-D16.1`), over-requesting is budget waste. Both directions are asserted.
+
+#### D83 — A zero-length span yields a full-duration chunk
+- **Audit finding:** R-30 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** a zero-length span produces a full-duration request.
+- **Observed in code (verified 2026-11-19):** `chunk_count = max(1, -(-span_seconds // chunk_seconds))` — with `span_seconds == 0` this is `max(1, 0) = 1`, and the plan's anchor is `span.end_ts`, so the request covers one full configured duration for an empty interval. Negative spans are already skipped; zero is not.
+- **Expected behaviour:** a span with no positive length produces no plan.
+
+### User Journeys (P27)
+
+#### Journey 71 — D77/D83: plan a load from a cache that is entirely out-of-mode
+- **Preconditions:** offscreen; a cache seeded with bars only outside the current mode's session window (e.g. ETH bars loaded, then the chart switched to RTH), with `min_sessions > 0`.
+- **Steps:** 1) Run `find_missing_spans(...)` and `plan_requests(...)`. 2) List the request identities. 3) Compare with an independently computed set of missing intervals. 4) Repeat with a cache that covers part of the floor and with an empty cache.
+- **Postconditions:** every missing interval is covered by at least one request; no identity appears twice; the union of requested intervals equals the union of missing spans; the request count is the minimum needed for that coverage.
+- **Edge Cases:** the floor span and the presence span coincide exactly (the reported case); they overlap partially; the cache holds one in-mode bar (presence non-empty, floor still open); the empty cache with the floor enabled (one span, not two); a zero-length span in the list (no plan).
+
+#### Journey 72 — D78: prime right after a backfill wave, when the wait exceeds the backstop
+- **Preconditions:** offscreen with a monkeypatched `historical_wait_seconds` returning e.g. 40 s; the backstop at its production value; a chart load that issues a prime.
+- **Steps:** 1) Load; observe the prime refused for pacing. 2) Advance the clock by 15 s (the backstop). 3) Observe the prime state and whether a retry is still pending. 4) Advance to the reported wait and observe whether a priming request issues. 5) Repeat with a wait below 15 s.
+- **Postconditions:** whichever resolution Plan picks, the prime either retries and issues at the reported wait, or the phase states that the retry is replaced by the backstop and the dead retry code is removed. A state where "the retry is scheduled but provably cannot run" fails.
+- **Edge Cases:** the retry itself is refused (fail open, no third attempt); a new load arrives during the deferral (the newer load supersedes); disconnect during the deferral; a wait of exactly 15 s (boundary).
+
+#### Journey 73 — D80/D81: two requests, one refused send
+- **Preconditions:** offscreen; a fake client whose `reqMktData` raises for a chosen contract; a pacing manager with a live interval clock.
+- **Steps:** 1) Issue a market-data request that succeeds. 2) Immediately issue one that raises. 3) Issue a third that succeeds. 4) Read the interval between (1) and (3) and the id sequence. 5) Cancel a pre-issue registration and observe the slot count.
+- **Postconditions:** the failed send consumes no interval and no id; the third request is spaced from the first, not from the failed one; a refund (if the path survives) frees exactly the cancelled request's slot.
+- **Edge Cases:** the client raises after partially sending (indistinguishable — the safe default is "no refund, id consumed by the attempt"); two cancels back to back; a refund when no slot is held (returns False, no inflation).
+
+### Acceptance Criteria (P27 — offscreen)
+- **AC-D77.1 (one request per identity)** Given any set of spans produced by `find_missing_spans`, When `plan_requests` runs, Then no two plans share `(endDateTime, duration, bar_size)`, and the union of the plans' covered intervals equals the union of the input spans. (Measurable: identity-multiset assertion + interval-union comparison against an independently computed set, over the coinciding-spans fixture and a partially-overlapping fixture.)
+- **AC-D77.2 (coverage unchanged)** Given the same input, Then every interval that was covered before the change is still covered — de-duplication may not drop a hole. (Measurable: per-fixture coverage check; a regression fixture where the floor span starts earlier than the presence span must still fetch the earlier part.)
+- **AC-D77.3 (budget effect)** Given a coinciding-span scenario, Then exactly **one** request is spent where the pre-change planner spent two, and the per-load cap is charged once. (Measurable: plan count + a fake pacing manager's `record_historical_slot` call count.)
+- **AC-D78.1 (the retry is reachable)** Given a pacing refusal with `wait > 15 s` and a fake clock, When the clock reaches the reported wait, Then the prime issues a request — or, if the resolution removes the retry, Then no retry is scheduled and the phase records that the backstop is the single path. The forbidden outcome is a pending retry that cannot run. (Measurable: fake clock + `_prime_req_id`/`_prime_retry_pending` assertions at three instants: 15 s, wait−ε, wait.)
+- **AC-D78.2 (the backstop still fails open)** Given a prime that is issued and never answers, When the backstop elapses, Then the live feed attaches exactly once and no second attempt follows. (Measurable: attach spy call count; `AC-D65.15`'s timeout cases stay green.)
+- **AC-D78.3 (no new stall)** Given any pacing refusal, Then the time from refusal to either an issued prime or a fail-open attach is bounded by the reported wait plus the backstop — the fix may not introduce an unbounded wait. (Measurable: clock-controlled bound assertion.)
+- **AC-D79.1 (no mode-blind API)** Given the codebase, When the change set is applied, Then `get_last_timestamp` either no longer exists or takes the mode and has at least one production caller; no production module queries `bars` by symbol+timeframe while ignoring `ext_hours`. (Measurable: symbol presence check + a static scan for `MAX(ts)` queries lacking `ext_hours`.)
+- **AC-D80.1 (exact refund)** Given a refund path, When it runs, Then the number of held slots decreases by exactly one and the freed slot is the refunding request's own (or the path is removed and its caller with it). (Measurable: slot-count assertion under a monkeypatched clock; a two-request fixture where the other request's slot must survive.)
+- **AC-D81.1 (no stamp without a send)** Given a client whose request call raises, When the request is attempted, Then the pacing interval clock and the realtime/historical budgets are unchanged by the attempt, and the next successful request is spaced from the previous **successful** one. (Measurable: fake clock readings before/after + a successful-request spacing assertion.)
+- **AC-D81.2 (ids are not burned on failure)** Given the same failing send, Then either no id is consumed by the failed attempt or the phase records why an allocated id is acceptable — the AC's measurable half is that the id sequence has no gap caused by a failed send. (Measurable: `id_manager` sequence assertion.)
+- **AC-D82.1 (half-open windows)** Given a bar timestamped exactly at a session's end, When the planner runs, Then the bar belongs to exactly one window — never two — and the resulting spans contain no duplicate coverage at the boundary. (Measurable: fixture with a close-instant bar; per-window membership assertion.)
+- **AC-D82.2 (one gap threshold)** Given a trailing hole of exactly one period and of two periods, When the planner runs, Then the one-period hole is not reported and the two-period hole is — the same rule the module docstring states for interior and leading edges. (Measurable: two fixtures asserting span presence/absence; the docstring and the code must state the same number.)
+- **AC-D83.1 (empty span, no request)** Given a span whose end equals its start, When `plan_requests` runs, Then it emits no plan for it, and a list containing only such spans produces an empty plan list. (Measurable: plan-count assertion.)
+- **AC-D83.2 (history intact)** Given `requirements.md`, Then `### D41`–`### D76`, `AC-D1.1`–`AC-D76.3`, A1–A229, R1–R169, the Existing Repository marker sentence and the Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)
+
+### Live gates
+- None. Every criterion in this phase is assertable against injected timestamps and a monkeypatched clock. No live observation is claimed or required.
+
+### Assumptions (P27 — A230–A234)
+- **A230 — De-duplication preserves coverage.** The planner may merge spans or drop duplicates, whichever keeps the union identical; `AC-D77.1`/`AC-D77.2` pin both halves.
+- **A231 — D78 may resolve as "delete the retry".** If Plan finds that keeping the deferred retry would require lengthening the backstop (which would let an unanswered prime hold the chart), removing the retry and documenting the single backstop path is an accepted resolution — but then the code comment claiming the retry covers the common case must go with it.
+- **A232 — The half-open rule applies to equity session windows and to futures day windows.** The one exception is the `now` bound, which stays inclusive so today's open session is not over-fetched (existing behaviour).
+- **A233 — `refund_historical_slot`'s unreachable status is itself the finding.** Deleting the caller and the helper is acceptable and preferred over keeping an inexact API "for safety"; if kept, it must be exact.
+- **A234 — `req_sec_def_opt_params` keeps its current ordering discipline** (readiness → id → throttle → send) and gains only the "no stamp without a send" half if Plan applies D81 globally.
+
+### Risks / Unknowns (P27)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R170 — span merging over-fetches (a merged span's chunking covers a closure the original spans excluded), spending budget to save budget | M | M | `AC-D77.1`'s interval-union equality; merging is allowed only when it preserves the union exactly |
+| R171 — the D82 threshold change stops repairing a real one-period hole, reintroducing a silent hole the D16 contract forbids | H | M | `AC-D82.2` asserts the two-period hole **is** reported and the D16 suite stays green; the one-period case is called out as intentional (a single missing bar is not a session hole) and is recorded, not hidden |
+| R172 — making the prime retry reachable lengthens the worst-case wait before a live feed appears | M | M | `AC-D78.3` bounds refusal→attach by the reported wait plus the backstop; `AC-D78.2` keeps the fail-open path intact |
+| R173 — the "no stamp without a send" rule makes a partially-sent request look unstamped, so the next request bursts into a 162 | M | L | A233's safe default: a raised send consumes nothing; a partially-sent request is indistinguishable, so the rule is applied only when the call raises **before** returning — and the 162 retry path (D73) already tolerates a rejection |
+| R174 — deleting `get_last_timestamp` breaks an unlisted caller (a test, a probe script) | L | M | `AC-D79.1`'s static scan covers `tests/` and the repo-root probes; deletion includes their assertions |
+
+Status: READY_FOR_PLAN
+
+## Phase P28 — Connection, startup and window lifecycle: the feed that attaches while disconnected, pop-outs that outlive the app, and a backup that bricks startup (D84–D95) — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19 (analyst-verified in code 2026-11-19; two items orchestrator-verified) — READY_FOR_PLAN
+
+> **Attribution.** **Owner-supplied audit findings, 2026-11-19**. Items marked ORCHESTRATOR-VERIFIED were observed by the orchestrator on 2026-11-19 (macOS window behaviour; the code read for the pop-out release). Everything else is reproduced by the analyst in the working tree.
+>
+> **Verification ledger (this phase).**
+>
+> | id | finding | status | evidence |
+> |---|---|---|---|
+> | D84 | a prime timeout / fail-open attaches a realtime feed while disconnected | **VERIFIED (code)** — `RealtimeBarsManager.subscribe` has no readiness gate (every `MarketDataManager` method does), the attach paths check only the 200-rejection latch and symbol currency, and `_on_disconnected` stops no prime timer | `ibkr/realtime_bars.py::RealtimeBarsManager.subscribe`, `ibkr/market_data.py::MarketDataManager._require_api_ready`, `ui/main_window.py::MainWindow._attach_live_feed` / `::_on_disconnected` |
+> | D85 | closing the main window leaves pop-outs open and the app alive | **ORCHESTRATOR-VERIFIED on macOS, 2026-11-19** — the parent close leaves the child visible and `lastWindowClosed` never fires; **also VERIFIED (code)**: `closeEvent` iterates sessions but never closes `self._popouts` | `ui/main_window.py::MainWindow.closeEvent`, `ui/popout_window.py` (`WA_DeleteOnClose`, parented, no `closeAll`) |
+> | D86 | a failed pre-drop backup bricks startup | **VERIFIED (code)** — `DB()` is constructed at import, the migration calls `backup_before_drop` unguarded, and `main.py` has no handler around the import/construction | `data/db.py:180` (`DB()__init__`), `data/db.py` module-level `db = DB()`, `main.py` (module import) |
+> | D87 | `connectionClosed` before the handshake schedules no reconnect and stops polling | **VERIFIED (code)** — both guarded by `was_connected` | `ibkr/client.py::IBApiClient.connectionClosed` |
+> | D88 | `RealtimeBarsManager.replay_all` is dead and broken | **VERIFIED (code)** — no production caller; it clears its own map before re-subscribing and rebinds nothing | `ibkr/realtime_bars.py::RealtimeBarsManager.replay_all` vs `ibkr/subscription_manager.py::SubscriptionManager.replay_all` |
+> | D89 | reconnect replay does not update RT stream health; a pre-reconnect retry timer can fire afterwards | **VERIFIED (code)** — the reissue hooks never touch `stream_health`, and the reconnect path does not stop `_rt_retry_timer` | `ui/ticker_session.py::TickerSession._reissue_rt`, `ui/main_window.py::MainWindow._on_connected` / `::_retry_rt_subscribe` |
+> | D90 | repeated RT errors restart the retry timer; a permanently failing subscription retries forever | **VERIFIED (code)** — `_schedule_rt_retry` restarts the single-shot timer on every error, and `next_retry_delay_s` caps the delay but not the attempt count | `ui/main_window.py::MainWindow._on_rt_stream_error` / `::_schedule_rt_retry`, `ibkr/stream_health.py::StreamHealth.next_retry_delay_s` |
+> | D91 | `_open_popout` has no failure handling around `attach()` | **UNCONFIRMED as an observable zombie** — structurally verified (no try/except); settled by forcing `PopoutStore.save` to raise inside `attach()` and observing a hidden, unregistered, never-shown window | `ui/main_window.py::MainWindow._open_popout` |
+> | D92 | the app still calls itself a live trading terminal | **VERIFIED (code/docs)** — window title `IBKR Trading Terminal`, the port guard's message and the usage guide all claim live trading, while D45/D46 leave zero order interaction | `ui/main_window.py` (`setWindowTitle`), `config/settings.py::check_live_port`, `usage.md:16` |
+> | D93 | `close()` leaves stale state; `connect()` does not cancel a pending reconnect timer | **VERIFIED (code)** | `ibkr/client.py::IBApiClient.close` / `::connect` |
+> | D94 | a non-numeric `IBKR_PORT` crashes at import with a bare `ValueError` instead of the fatal dialog | **VERIFIED (code)** — `IBKR_PORT = int(os.getenv("IBKR_PORT", 7496))` at module import | `config/settings.py` (module top) |
+> | D95 | no single-instance lock and no uniqueness on pop-out identity | **VERIFIED (code)** — no lock file anywhere; the `popouts` table has no unique constraint | `main.py`, `data/db.py` (`CREATE TABLE popouts`) |
+
+### Problem Statement (P28 slice)
+This phase is about **process and transport lifecycle**. Three are severe: a prime that fails open after a disconnect attaches a realtime feed on a dead socket (there is no readiness gate on the realtime manager, and disconnect does not stop prime timers, so every disconnect can open a line that will never deliver); closing the main window leaves its child pop-outs on screen with torn-down sessions, so the app never quits; and a single failed pre-drop backup — a machine-level condition, not a code bug — prevents the app from starting at all, before any dialog exists to explain it. The rest are lifecycle hygiene: a handshake failure before `connected` leaves the client permanently dead, a dead replay implementation that contradicts the live one, stream health that reconnect does not update, a retry timer that starves or never stops, a suspected zombie window, stale client state, a port typo that kills the process instead of showing the fatal dialog, and no single-instance guard against two processes sharing one database.
+
+### Goals (P28)
+- No realtime line is opened while the transport is not ready, and no prime timer survives a disconnect (D84).
+- Closing the main window closes every pop-out and quits cleanly (D85).
+- A failed pre-drop backup **skips the drop and starts**, surfacing one message; the retired tables stay (D86).
+- A socket close before the handshake still reconnects and keeps polling (D87).
+- One replay implementation exists and is the live one (D88).
+- Stream health reflects the replayed subscription, and no stale retry timer can churn it (D89).
+- Retry scheduling is monotonic: an error storm cannot starve the retry, and a permanently failing stream ends in a terminal, surfaced state rather than an eternal loop (D90).
+- A failed pop-out open leaves no window behind (D91, verified by the named forced-failure case).
+- The app describes itself honestly and the port guard is described for what it proves (D92).
+- Client state is reset on close; `connect` cancels any pending reconnect (D93).
+- A malformed port setting reaches the fatal dialog (D94), and two instances cannot share one database (D95).
+
+### Non-Goals (P28)
+- No reconnect **policy** change: backoff base/cap, the TWS-gone classification, and the D40 pause/resume semantics are unchanged. D87/D93 change *when* the existing policy runs, not what it is.
+- No multi-instance feature (no "run two windows by design"); D95 is a guard, not a feature.
+- No change to the option panel's lifecycle (`AC-D65.14` stands).
+- No order path; no new persistence tables beyond what D95 needs (if any).
+- No reopening of D85's macOS-specific window behaviour as a design question — the owner-verified observation is the requirement.
+
+### Constraints (P28)
+- **Startup must never die before a dialog can speak.** Any condition that can raise during DB construction or settings parsing must either be caught before `QApplication` messaging is unavailable or be re-raised as the existing fatal-dialog shape.
+- **D86 must not weaken the D65 backup contract.** The rule "no schema drop before a verified copy exists" stays absolute; the change is that failing to prove the copy is not fatal to the app.
+- **Window lifecycle is Qt-version-sensitive.** `WA_DeleteOnClose`, parented windows and `lastWindowClosed` behave differently per platform; `AC-D85.*` is asserted offscreen on window counts and confirmed by the macOS gate.
+- **No polling storms.** Any new readiness gate must reuse the existing `api_ready` seam rather than inventing a second one.
+
+### Glossary (P28 additions)
+- **Readiness gate** — `IBApiClient.api_ready` (handshake complete); every market-data request already checks it before allocating an id.
+- **Terminal stream state** — a realtime subscription that has exhausted its retry budget and stops retrying, with a visible, once-only message (contrast: FAILED-with-retry).
+- **Zombie window** — a constructed pop-out that never reaches `show()`, is never registered, and holds a session reference; it is invisible but alive.
+- **Single-instance guard** — a lock that lets one process own the user-space database, refusing a second with a message.
+
+### Defect entries (P28)
+
+#### D84 — A prime timeout or fail-open attaches a realtime feed while disconnected
+- **Audit finding:** R-05 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the fail-open path attaches a realtime feed on a disconnected transport.
+- **Observed in code (verified 2026-11-19):** `MarketDataManager` gates every request on `_require_api_ready()`; `RealtimeBarsManager.subscribe` gates only on realtime pacing, so it issues `reqRealTimeBars` regardless of connection state. `MainWindow._attach_live_feed` checks the symbol and the 200-rejection latch but never `_ibkr_connected`; `_attach_live_feed_if_current` likewise. `_on_disconnected` does not stop any session's `_prime_timer`, so a 15 s backstop can fire after the drop and reach `_on_session_prime_complete` → attach.
+- **Expected behaviour:** the post-disconnect attach is a no-op; a prime timer cannot survive the disconnect that invalidated its request; no reqId is allocated for a realtime line while the transport is not ready.
+
+#### D85 — Closing the main window leaves the pop-outs (and the process) alive
+- **Audit finding:** R-08 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** closing the main window does not close pop-outs; the app stays alive on torn-down sessions.
+- **Observed:** orchestrator-verified on macOS (2026-11-19) — the child window remains visible and `lastWindowClosed` never fires; in code, `closeEvent` tears down sessions, cancels realtime, disconnects the client and accepts the event, but never closes `self._popouts`, and the pop-outs are `QMainWindow`s with `WA_DeleteOnClose` parented to the main window.
+- **Expected behaviour:** closing the main window closes every pop-out (each through its own close path, so its persisted record and holds are released once), after which no top-level window remains and the application quits. A pop-out already closed is not double-closed.
+
+#### D86 — A failed pre-drop backup prevents the application from starting
+- **Audit finding:** R-09 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** `data/db.py:180` calls `backup_before_drop` unguarded, `DB()` is constructed at import, `main.py` does not catch, so `BackupVerificationError` kills startup for a legacy database still holding the retired tables.
+- **Observed in code (verified 2026-11-19):** the migration block runs inside `DB.__init__` when any retired table exists and calls `db_backup.backup_before_drop(self.db_path)` with no handler; `data/db.py` ends with a module-level `db = DB()`; `main.py` imports `ui.main_window` (which imports the DB) at module level, so the failure happens during import, before `main()`'s `QMessageBox` path can run.
+- **Expected behaviour (the finding's own expectation):** skip the drop and start. The retired tables remain; the verified-copy contract is not weakened (no drop without proof); one message states that the migration was skipped and why; the next launch retries.
+
+#### D87 — A socket close before the handshake leaves the client dead
+- **Audit finding:** R-10 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** `connectionClosed` before `nextValidId` schedules no reconnect and stops polling.
+- **Observed in code (verified 2026-11-19):** `connectionClosed` sets `_connected = False`, calls `stop_polling()`, and only if `was_connected` records TWS-gone and calls `_schedule_reconnect()`. If the socket closes while the handshake is pending, `was_connected` is False, polling has been stopped, and nothing reschedules — the client never retries.
+- **Expected behaviour:** a close in any state leads to a retry attempt (with the existing backoff) and to a state the UI can show. The pre-handshake case is a transient failure, not a terminal one.
+
+#### D88 — `RealtimeBarsManager.replay_all` is dead and does not rebind
+- **Audit finding:** R-15 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** delete or rewrite.
+- **Observed in code (verified 2026-11-19):** no production caller — reconnect replay goes through `SubscriptionManager.replay_all`, which carries the reissue/rebind hooks. The realtime manager's own `replay_all` clears `_subscriptions` and re-subscribes, returning nothing and rebinding nothing; a caller would leave every session's `_rt_req_id` pointing at a dead id.
+- **Expected behaviour:** one replay implementation. Under the standing no-unused-code rule the dead one goes, together with the test that pins it (repointed at the live path).
+
+#### D89 — Reconnect replay does not update stream health, and a stale retry timer can fire afterwards
+- **Audit finding:** R-17 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** replay leaves health stale; a pre-reconnect retry timer can fire after and churn the replayed subscription.
+- **Observed in code (verified 2026-11-19):** `_reissue_rt` re-subscribes and re-registers routing, but never calls `stream_health.mark_subscribed(...)`, so a session that had failed before the drop keeps `FAILED` with its old attempt count after a successful replay (and the badge with it). `_on_connected` restores the watchlist, resumes options and replays, but does not stop `_rt_retry_timer`; `_retry_rt_subscribe` only no-ops when the *window's* health is not FAILED, so a session-level replay can be followed by a window-level retry that unsubscribes the fresh line.
+- **Expected behaviour:** a replayed subscription is a fresh subscription for health purposes (awaiting first bar, backoff reset), and no pre-drop timer can act on a post-drop subscription.
+
+#### D90 — RT retry scheduling starves, then never terminates
+- **Audit finding:** R-18 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** repeated errors keep restarting the retry timer; a permanently failing subscription retries forever burning realtime slots.
+- **Observed in code (verified 2026-11-19):** `_on_rt_stream_error` → `_schedule_rt_retry` → `self._rt_retry_timer.start(delay_ms)`; `start()` on an active single-shot timer restarts it, so an error stream arriving faster than the delay means the timer never fires (starvation — the stream never retries). `StreamHealth.next_retry_delay_s` caps the delay at 60 s but increments forever, so a permanently failing contract retries indefinitely, each retry burning a realtime slot.
+- **Expected behaviour:** errors cannot postpone a retry indefinitely (coalesce them: the first error schedules, later ones do not move the deadline), and the budget is finite — after a stated number of attempts the stream enters a terminal state with one message and stops consuming slots until a user action or a reconnect.
+
+#### D91 — `_open_popout` has no failure handling, leaving a suspected hidden zombie
+- **Audit finding:** R-21 (owner-supplied audit findings, 2026-11-19).
+- **Reported (suspected):** an `attach()` failure leaves a hidden zombie window; settle by forcing `PopoutStore.save` to raise.
+- **Observed in code (verified 2026-11-19, structurally):** `_open_popout` constructs the window, calls `popout.attach()` then `popout.show()`, with no try/except. If `attach()` raises after the Qt window exists (persistence or resource failure), the window is never shown, never registered, and its session reference is retained. **UNCONFIRMED as an observable defect** — no reproduction was run; the settling experiment is the forced `PopoutStore.save` raise, after which the window count/registry must show the leak.
+- **Expected behaviour:** a failed open closes the constructed window, releases whatever it acquired, registers nothing, and reports once. The settling experiment becomes a regression test.
+
+#### D92 — The app still calls itself a live trading terminal
+- **Audit finding:** R-25 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the window title, the port-guard message and the usage guide claim live trading although the app cannot trade, and the port guard proves nothing about the account.
+- **Observed (verified 2026-11-19):** `setWindowTitle("IBKR Trading Terminal")`; `check_live_port` raises *"NDThinkChart trades live only — fix IBKR_PORT"*; `usage.md:16` describes "A PyQt6 trading terminal … (the app refuses any other port and trades live only — paper-trading logins are not supported)". Since D45/D46 the app places, modifies and cancels nothing.
+- **Expected behaviour:** every self-description says what the app does — a read-only market-data/charting client for a live TWS session — and the port guard is described as a configuration guard (it proves the configured port is 7496, nothing about the account behind it). No behaviour changes.
+
+#### D93 — `close()` leaves stale state; `connect()` does not cancel a pending reconnect
+- **Audit finding:** R-31 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** stale state after close; connect can run alongside a pending backoff attempt.
+- **Observed in code (verified 2026-11-19):** `close()` sets `_connected = False`, stops polling and cancels the reconnect timer, but leaves `_connection_state`, `_last_disconnect_class` and `_reconnect_attempt` as they were. `connect()` sets its params, `_connected = False`, the CONNECTING state, calls `super().connect(...)` and starts polling — it never cancels `_reconnect_timer`, so a backoff attempt armed before a manual connect can fire afterwards and connect again.
+- **Expected behaviour:** a closed client reports DISCONNECTED with no residual classification or backoff; a manual connect cancels any pending reconnect first. One connection attempt in flight at a time.
+
+#### D94 — A non-numeric `IBKR_PORT` crashes at import with a bare `ValueError`
+- **Audit finding:** R-37 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the fatal dialog never appears.
+- **Observed in code (verified 2026-11-19):** `IBKR_PORT = int(os.getenv("IBKR_PORT", 7496))` runs at module import, so `IBKR_PORT=abc` raises `ValueError: invalid literal for int()` during import, before `main()`'s `check_live_port` try/except and before any `QApplication`.
+- **Expected behaviour:** a malformed port setting reaches the same fatal-dialog shape as a wrong port, naming the offending value; the process exits with a non-zero code and no traceback-only failure.
+
+#### D95 — No single-instance lock; pop-out rows are not unique
+- **Audit finding:** R-38 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** two instances can duplicate pop-out rows and hit "database is locked".
+- **Observed in code (verified 2026-11-19):** no lock file or named mutex anywhere in `main.py`; the `popouts` table is `(id, symbol, timeframe, mode, ext_hours, geometry, updated_at)` with no unique constraint, and `PopoutStore.save` upserts by id, so two processes each creating a row for the same triple produce two rows and contend on the write lock.
+- **Expected behaviour:** one process owns the user-space database; a second instance refuses to start with a message naming the running instance. Residual: the row shape is not required to gain a constraint if the lock makes duplicates impossible (Plan decides; the AC asserts the outcome).
+
+### User Journeys (P28)
+
+#### Journey 74 — D84: disconnect during a load, watch the fail-open prime not attach
+- **Preconditions:** offscreen; a chart load in flight whose prime is issued; a fake transport that reports disconnected.
+- **Steps:** 1) Load; the prime is issued. 2) Disconnect before the prime answers. 3) Advance the clock past the prime backstop. 4) Observe whether a realtime subscribe was attempted and whether any prime timer remains.
+- **Postconditions:** no `reqRealTimeBars` is issued while disconnected; the session's prime markers are cleared; reconnect (the next step) attaches once, with an id allocated at that point.
+- **Edge Cases:** the prime answers in the same instant as the disconnect; the pre-handshake case (D87) where `api_ready` is False but the socket is open; a reconnect arriving before the backstop; the panel's option legs in the same state (they must also not attach).
+
+#### Journey 75 — D85: quit the app with two pop-outs open
+- **Preconditions:** offscreen with a QApplication; main window with two pop-outs registered.
+- **Steps:** 1) Close the main window. 2) Observe the pop-out windows and the registry. 3) Observe the top-level window count. 4) Repeat with one pop-out already closed.
+- **Postconditions:** every pop-out is closed exactly once, the registry is empty, and no top-level window remains; each pop-out's session hold is released once (P25/D68's rule).
+- **Edge Cases:** a pop-out whose close raises (the loop continues; the app still quits); a pop-out being closed while the main window is mid-teardown; a pop-out on a symbol whose session was already torn down.
+
+#### Journey 76 — D86: launch against a legacy database whose backup cannot be verified
+- **Preconditions:** offscreen; a database file containing the retired tables; a backup path that raises `BackupVerificationError` (monkeypatched).
+- **Steps:** 1) Construct the DB (the import-time path). 2) Observe whether it raises. 3) Inspect the retired tables and the schema. 4) Construct again with the backup working and observe the drop run.
+- **Postconditions:** with the failing backup the DB constructs, the retired tables are still present, one message is recorded, and no drop ran; with a working backup the drop runs once and the tables are gone.
+- **Edge Cases:** a read-only backup directory; a partially-written copy (verification fails); a database with no retired tables (nothing to do — unchanged); two consecutive failing launches (each surfaces once, neither drops).
+
+#### Journey 77 — D90/D89: a stream that keeps failing, and a reconnect in the middle
+- **Preconditions:** offscreen; a fake client that can emit repeated errors for one reqId and a fake timer seam.
+- **Steps:** 1) Emit errors faster than the retry delay and observe whether a retry ever fires. 2) Emit errors until the attempt budget is exhausted and observe the terminal state and message count. 3) Reconnect and observe the replayed subscription's health and any stale timer.
+- **Postconditions:** errors do not postpone the retry indefinitely; after the budget the stream stops retrying and says so once; after a reconnect the stream is awaiting-first-bar with a reset backoff, and the pre-drop timer does not fire.
+- **Edge Cases:** an error arrives in the same tick as the retry (the retry proceeds; no double subscribe); a reconnect while FAILED with attempts already spent (reset); a user-initiated reload (resets the budget).
+
+### Acceptance Criteria (P28 — offscreen unless named as a gate)
+- **AC-D84.1 (no attach while not ready)** Given `_ibkr_connected` is False (or `api_ready` is False), When a prime completes, times out or fails open, Then no realtime subscription is created (the fake realtime manager records zero subscribes) and `_rt_req_id` stays `None`. (Measurable: call log + session field assertions for the timeout, fail-open and error paths.)
+- **AC-D84.2 (prime timers die with the transport)** Given a session with an armed prime backstop, When the transport drops, Then no prime timer remains armed for that session and no post-drop attach occurs when the old deadline passes. (Measurable: `_prime_timer.isActive()` after disconnect + a clock advance.)
+- **AC-D84.3 (readiness gate is the shared one)** Given a not-ready client, When `RealtimeBarsManager.subscribe` is called, Then it refuses through the same `api_ready` seam the market-data manager uses (same exception type/shape), and no reqId is allocated. (Measurable: exception identity + id sequence unchanged.)
+- **AC-D85.1 (closing the main window closes the pop-outs)** Given two registered pop-outs, When the main window's `closeEvent` runs, Then both windows are closed, each pop-out's close path runs exactly once (its persisted record deleted once, its hold released once), the registry is empty, and no top-level window remains. (Measurable: window counts + per-pop-out close spy counts; plus the named live gate **G5**.)
+- **AC-D85.2 (idempotent close)** Given one pop-out already closed, Then the main close does not touch it again and does not raise. (Measurable: close spy count for the surviving pop-out only.)
+- **AC-D86.1 (a failed backup skips the drop and starts)** Given a legacy database and a backup that raises `BackupVerificationError`, Then DB construction completes, the retired tables are still present, the drop did not run, and exactly one message names the skip and its cause. (Measurable: table-presence query + message capture + a drop spy.)
+- **AC-D86.2 (the verified path is unchanged)** Given a backup that succeeds, Then the drop runs exactly once and the verified copy exists — `AC-D65.18`'s contract intact. (Measurable: existing D65 backup tests green, unmodified.)
+- **AC-D86.3 (no silent data loss)** Given the skip path, Then no row in any surviving table is modified or removed. (Measurable: row-count comparison before/after.)
+- **AC-D87.1 (pre-handshake close still retries)** Given a client whose socket closes before `nextValidId`, When `connectionClosed` runs, Then a reconnect attempt is scheduled and polling is not left stopped with nothing pending. (Measurable: fake timer/`_reconnect_timer` assertion + a `_poll` re-arm assertion for the socket-up case.)
+- **AC-D88.1 (one replay path)** Given the codebase after the change, Then `RealtimeBarsManager.replay_all` no longer exists (or is the single implementation the window calls), and no test pins the deleted behaviour. (Measurable: symbol check + the replay suite's subject.)
+- **AC-D89.1 (health follows the replay)** Given a session whose stream was FAILED with recorded attempts, When a reconnect replay reissues it, Then its health is awaiting-first-bar with the attempt count reset, and the badge reflects the new state. (Measurable: `StreamHealth` field assertions + badge text.)
+- **AC-D89.2 (no stale timer)** Given `_rt_retry_timer` armed before a reconnect, When the reconnect completes, Then the timer is stopped and its callback cannot unsubscribe the replayed reqId. (Measurable: timer-active assertion + a fake unsubscribe spy after firing the old callback.)
+- **AC-D90.1 (no starvation)** Given repeated errors arriving faster than the retry delay, When the delay elapses, Then exactly one retry fires at the originally scheduled instant (errors may not move the deadline). (Measurable: fake clock + retry spy count/instants.)
+- **AC-D90.2 (finite budget, terminal state)** Given errors beyond the attempt budget, When the last attempt fails, Then the stream stops retrying, the state is terminal and distinct from "failed and retrying", and exactly one message is shown. (Measurable: attempt-count cap + message count + no further subs after a clock advance.)
+- **AC-D90.3 (recovery resets)** Given a terminal stream, When the user reloads the chart or reconnects, Then the budget resets and a fresh subscribe is attempted. (Measurable: attempt counter reset + one subscribe.)
+- **AC-D91.1 (a failed open leaves nothing behind)** Given `PopoutStore.save` forced to raise during open, When the pop-out is requested, Then the constructed window is closed, the registry is unchanged, no session hold is retained, and one message is shown. (Measurable: the forced-failure case asserting window count, registry length and holder count; this is the experiment that settles the UNCONFIRMED status.)
+- **AC-D92.1 (honest self-description)** Given the app and its user docs, Then the window title, the port-guard message and the usage guide describe a read-only market-data client, state that the app places no orders, and describe the port guard as a configuration check — with zero remaining claims of live trading. (Measurable: exact-string assertions on the title and the guard message at the sources that produce them, plus a grep over the usage docs for the retired claims; the D65 badge/STALE wording is untouched.)
+- **AC-D93.1 (clean close)** Given a connected client, When `close()` runs, Then the state is DISCONNECTED, no reconnect timer is pending and the disconnect classification/attempt count are reset. (Measurable: field assertions after close.)
+- **AC-D93.2 (one attempt in flight)** Given a pending reconnect timer, When `connect()` is called manually, Then the pending timer is cancelled first and only one connection attempt is in flight. (Measurable: timer-cancel spy + a count of `super().connect` calls.)
+- **AC-D94.1 (malformed port reaches the dialog)** Given `IBKR_PORT=abc`, When the app starts, Then the process exits non-zero through the fatal-dialog path naming the offending value, with no bare `ValueError` traceback and no partially constructed window. (Measurable: subprocess/import harness asserting exit code and message, with the Qt dialog stubbed.)
+- **AC-D95.1 (one instance)** Given a first instance holding the lock, When a second starts, Then it refuses with a message naming the running instance, and no second DB writer is opened. (Measurable: two-process harness asserting the second's exit and message; the first keeps working.)
+- **AC-D95.2 (no duplicate pop-out rows)** Given the guard, Then two processes cannot both write the `popouts` table; if Plan adds a uniqueness constraint instead, the duplicate-insert case must be rejected by the schema. (Measurable: constraint check or the two-process case; plus a single-process upsert idempotence assertion.)
+- **AC-D95.3 (history intact)** Given `requirements.md`, Then `### D41`–`### D83`, `AC-D1.1`–`AC-D83.2`, A1–A234, R1–R174, the Existing Repository marker sentence and the Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)
+
+### Live gates (owner-run — named, not assumed)
+- **G5 (D85).** **Run:** on macOS, open two pop-outs, then close the main window (Cmd-W on the main window / the close button). **Observation that settles it:** both pop-outs disappear, no window remains visible, the app's process exits, and the dock icon clears. A visible child window or a still-running process fails the gate.
+
+### Assumptions (P28 — A235–A240)
+- **A235 — "Skip the drop and start" is the owner's stated expectation for D86** and is adopted verbatim: the retired tables stay, the app runs, one message explains it, the next launch retries. No fallback that drops without a verified copy is permitted.
+- **A236 — A replayed subscription is a fresh subscription.** Health resets on replay (awaiting first bar, backoff zero), because the old line is gone and its failure history does not describe the new one.
+- **A237 — D90's budget is finite but generous.** The exact attempt count is Plan's; the criterion is that it exists, is surfaced once, and is reset by a user action or reconnect. The current 5/10/20/60 s progression is the intended shape.
+- **A238 — D91 is fixed defensively even though it is unconfirmed.** The try/except costs nothing, and the forced-failure case converts the suspicion into a regression test. If the forced raise shows no leak, the phase records that and keeps the guard.
+- **A239 — D92 changes words only.** No behaviour, no port policy, no account check is added. The guard keeps refusing non-7496 ports; only its explanation changes.
+- **A240 — D95 is a guard, not a feature.** The app remains single-window-per-process by design; the lock is about database ownership, not about window management.
+
+### Risks / Unknowns (P28)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R175 — the readiness gate blocks a **legitimate** first attach on a slow handshake, delaying the live feed the app promises | M | M | the gate is `api_ready`, the same seam the market-data path uses, and the existing retry/`singleShot` path re-enters it; `AC-D84.1` tests the not-ready case, Journey 74's "reconnect before the backstop" covers the ready-again case |
+| R176 — closing pop-outs from `closeEvent` re-enters the main window's teardown (a pop-out close unregisters itself while the main loop iterates `_popouts`) | H | M | `AC-D85.1` asserts each close runs exactly once and the registry empties; iterate a copy (the existing `list(self._popouts)` idiom) and make `_unregister_popout` idempotent |
+| R177 — D86's skip path leaves a database that can never migrate (every launch fails verification) with no repair path | M | L | the message names the backup path and the cause; a successful backup on a later launch performs the drop; the phase must not add a "force drop" that bypasses verification |
+| R178 — the single-instance lock blocks a legitimate second instance the user wants (e.g. one per monitor) | L | M | the refusal message says which process holds it and the owner can close the first; `feature_suggestions.md` carries any multi-instance wish as a suggestion, never as scope |
+| R179 — a terminal stream state stops retrying a subscription that would have recovered, leaving a stale chart with a "failed" badge | M | M | `AC-D90.3` resets on reload/reconnect; the message says the stream stopped and what resets it |
+| R180 — fixing the port parse moves the failure later (into `check_live_port`), so a malformed value still skips the dialog path | M | L | `AC-D94.1` asserts the dialog path end-to-end with a stubbed dialog, not merely "no ValueError" |
+
+Status: READY_FOR_PLAN
+
+## Phase P29 — Persisted state and alarm evaluation: the delete that outlives a failed save, the alarm at its own level, replay duplication (D96–D100) — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19 (analyst-verified in code 2026-11-19; one item UNCONFIRMED) — READY_FOR_PLAN
+
+> **Attribution.** **Owner-supplied audit findings, 2026-11-19**, reproduced in the working tree on 2026-11-19 unless marked otherwise. The defect entries are the record.
+>
+> **Verification ledger (this phase).**
+>
+> | id | finding | status | evidence |
+> |---|---|---|---|
+> | D96 | `StudyStore.save` deletes before serializing | **VERIFIED (code)** — `DELETE` runs first; the `json.dumps` calls are evaluated while building the `executemany` arguments, so a serialization error raises with the delete pending in an open transaction | `data/study_store.py::StudyStore.save` |
+> | D97 | a price alarm whose level exactly equals the sampled price never fires | **VERIFIED (code)** — both comparisons require `prev` strictly on one side | `services/alarm_service.py::evaluate_alarms` |
+> | D98 | a transient reconnect re-evaluates alarms against a stale pre-outage price, while the TWS-gone path suppresses exactly that | **UNCONFIRMED (behaviour)** — the code paths differ as reported (the TWS-gone resume re-seeds `prev_price = None`; the transient path does not), but no live fault injection has been run | settling observation: gate **G6** |
+> | D99 | crash replay emits already-queued ops twice | **VERIFIED (code)** — `handle_page_ready` drains the not-ready queue via `set_ready(True)` → `flush()`, then replays the full op log, which already contains those ops | `ui/lwc_bridge.py::LwBridge.handle_page_ready` / `::set_ready` / `::send_ops` |
+> | D100 | `DrawingStore.update_group` builds its value list from all kwargs | **VERIFIED (code)** — `assigns` filters to allowed keys, `values` does not | `data/drawing_store.py::DrawingStore.update_group` |
+
+### Problem Statement (P29 slice)
+Five defects where the app **writes or evaluates state that it then gets wrong, silently**. A study save deletes the existing rows and then serializes; if serialization fails, the delete sits in an open transaction and the next unrelated commit makes it permanent — the user loses their study configuration with no error at the point of loss. An alarm armed at a level the market is already sitting on never fires, because both crossing tests require the previous sample to be strictly on one side. After a transient reconnect the alarm monitor evaluates the first new tick against the price from *before* the outage, which is the exact situation the TWS-gone path deliberately suppresses. The crash-replay path emits queued ops twice — convergent, so not corrupting, but it doubles the work and hides genuine duplication bugs behind "it converges anyway". And a drawing-group update builds its SQL value list from every keyword argument, so one extra key raises a database programming error instead of a clear rejection.
+
+### Goals (P29)
+- A failed study save leaves the stored configuration **exactly as it was**; nothing is deleted before it can be re-created (D96).
+- A price alarm whose level equals a sampled price fires on the first move through it in its own direction, and never on the seed tick (D97).
+- Alarms never evaluate against a pre-outage price after **any** outage: the first post-outage tick seeds with no evaluation, and the gap is reported (D98).
+- A page-ready transition emits each op **once**; the full-log replay stays the recovery mechanism (D99).
+- A drawing-group update accepts exactly its declared fields and rejects anything else before touching SQL (D100).
+
+### Non-Goals (P29)
+- No alarm **feature** change: no new alarm kinds, no re-arm UX, no notification surface, no sound change.
+- No schema change beyond what D96/D100 need (none expected).
+- No reopening of `AC-D25.*` (per-session evaluation, deterministic first-tick seed), `AC-D40.*` (TWS-gone pause/resume and gap reporting), or `AC-D21.9` (alarm editing).
+- No bridge protocol change: `v: 1`, the op set and the replay-log semantics stay as they are.
+- No drawing UX work — D103 in P30 owns the group dialog's selection behaviour.
+
+### Constraints (P29)
+- **Transactions are the unit of safety.** Any save that must replace a set of rows either serializes fully before touching the table or performs the replace inside one transaction that rolls back on failure — never a delete followed by fallible work.
+- **Alarm semantics stay deterministic.** No clock, no wall-time heuristics; a tick either evaluates or seeds.
+- **The replay log stays authoritative.** D99 removes duplicate emission without removing the recovery replay; a page that lost state must still be able to rebuild from the log.
+- Offscreen only, with one named live gate (G6) for D98's unconfirmed behaviour.
+
+### Glossary (P29 additions)
+- **Seed tick** — the first tick after a session attach or an outage; it sets the previous price without evaluating (the existing phantom-trigger guard).
+- **Gap accounting** — reporting the unmonitored interval so a crossing during it is not silently claimed as observed, nor silently ignored.
+- **Open transaction** — SQLite's implicit transaction held after a DML statement until `commit()`/`rollback()`; an unrelated later commit makes pending statements permanent.
+- **Page-ready transition** — the page signalling readiness after a start or a render-process recovery.
+
+### Defect entries (P29)
+
+#### D96 — `StudyStore.save` deletes the symbol's studies before it can serialize the replacements
+- **Audit finding:** R-22 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the delete precedes serialization, so a `json`/DB error leaves the delete pending and the next unrelated commit makes it permanent.
+- **Observed in code (verified 2026-11-19):** `save` runs `DELETE FROM studies WHERE symbol=?` then `executemany(INSERT …, [ (…, json.dumps(deepcopy(study.get("params", {})))) for study in studies ])`. The list comprehension is evaluated **after** the delete executes but **before** the insert; a non-serializable parameter raises there, leaving the connection with the delete uncommitted. Any later write in the same connection commits it.
+- **Expected behaviour:** a failed save changes nothing. Either the replacement rows are serialized before any SQL runs, or the whole replace happens in one explicit transaction rolled back on error. The in-memory state the caller holds remains consistent with the store.
+
+#### D97 — A price alarm whose level equals the sampled price never fires
+- **Audit finding:** R-23 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** both comparisons require the previous price strictly on one side, so an alarm sitting exactly at the sampled price is never crossed.
+- **Observed in code (verified 2026-11-19):** `crossed_above = prev_price < alarm.price <= curr_price` and `crossed_below = prev_price > alarm.price >= curr_price`. When `prev_price == alarm.price` neither is true; a subsequent move away from the level leaves `prev` on the "wrong" side, so the alarm never triggers. The seed path can produce exactly this state (a cached close equal to the level, or a first tick at the level).
+- **Expected behaviour:** the level is *touched* when the sampled price equals it. A touch arms the alarm; the first subsequent sample strictly beyond the level in the alarm's direction fires it. A tick that merely sits at the level never fires (no phantom), and crossing in the opposite direction does not fire a directional alarm.
+
+#### D98 — A transient reconnect evaluates alarms against the pre-outage price
+- **Audit finding:** R-24 (owner-supplied audit findings, 2026-11-19).
+- **Reported (UNCONFIRMED):** the transient reconnect path re-evaluates against a stale price with no gap accounting, while the TWS-gone path suppresses exactly that.
+- **Observed in code (verified 2026-11-19, paths only):** `AlarmMonitor.resume_all` (the TWS-gone resume) sets every session's `last_chart_price = None` and documents "first tick seeds, no evaluation", and the pause path records `_pause_start` for the gap report. The transient reconnect path does not go through `resume_all`, so a session's `prev_price` survives the drop and the first post-reconnect tick is evaluated against it.
+- **Expected behaviour (recommended default):** **any** outage behaves like the TWS-gone outage for evaluation purposes — the first post-outage tick seeds with no evaluation, and the gap is reported so a crossing during it is visible as an unobserved interval rather than claimed as detected. This is the consistent reading of `AC-D25.3`'s phantom-trigger guard. If the owner prefers the opposite (evaluate across the gap and report it), that is a recorded override, not a silent default.
+- **Settling observation:** gate **G6** — live fault injection across a real reconnect, described below.
+
+#### D99 — The page-ready transition emits queued ops twice
+- **Audit finding:** R-32 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** crash replay emits queued ops twice (convergent, not corrupting).
+- **Observed in code (verified 2026-11-19):** `handle_page_ready` calls `set_ready(True)`, which drains `_queued` into `_stage(...)`; then `flush()` emits them; then, because `_op_log` is non-empty (it accumulates every op `send_ops` accepted, including the queued ones), the full log is replayed and emitted again. The channel logs are explicitly *not* drained for this reason (their queue is dropped), but the bar queue is.
+- **Expected behaviour:** each op crosses the page boundary once per transition. The recovery replay still delivers the complete state, so a page that lost everything rebuilds correctly — the fix removes duplication, not recovery.
+
+#### D100 — `DrawingStore.update_group` mixes allowed keys with all keyword values
+- **Audit finding:** R-36 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the value list is built from every kwarg, so an extra key raises `ProgrammingError`.
+- **Observed in code (verified 2026-11-19):** `assigns = [f"{k}=?" for k in fields if k in allowed]` but `values = [int(v) if isinstance(v, bool) else v for v in fields.values()]`. One extra key ⇒ N placeholders, N+1 values ⇒ `sqlite3.ProgrammingError`. The caller in the group dialog currently passes exactly one allowed key, so the defect is latent.
+- **Expected behaviour:** "loud, but clean and early" — an unknown field is rejected with a clear error **before** any SQL runs, and the value list is built from exactly the fields in `assigns`. No partial write, no open transaction.
+
+### User Journeys (P29)
+
+#### Journey 78 — D96: save a study set that cannot be serialized
+- **Preconditions:** offscreen; a symbol with two stored studies; a study whose params contain a non-JSON-serializable value.
+- **Steps:** 1) Load the stored studies. 2) Attempt `save` with the bad set. 3) Observe the exception. 4) Read `load` for the symbol. 5) Perform an unrelated write and commit. 6) Read `load` again.
+- **Postconditions:** the exception surfaces once; steps (4) and (6) both return the original two studies — the delete never became permanent.
+- **Edge Cases:** the failing save is the **first** write on the connection (no prior transaction); the caller catches the error and retries with good data (the retry succeeds and replaces correctly); an empty study list (a legitimate "delete all" — that must still work); a DB error (locked) rather than a serialization error.
+
+#### Journey 79 — D97: arm an alarm at the price the market is already at
+- **Preconditions:** offscreen; evaluation driven by synthetic ticks; an alarm at 100.00 with `cross_above`, `cross_below` and `cross_either` variants.
+- **Steps:** 1) Seed at exactly 100.00. 2) Feed 100.00 again. 3) Feed 100.01. 4) Repeat with the seed at 99.99 and the move through 100.00. 5) Repeat the mirror for `cross_below`.
+- **Postconditions:** the seed does not fire; a tick sitting at the level does not fire; the first sample strictly beyond the level in the alarm's direction fires exactly once; a move in the opposite direction does not fire a directional alarm.
+- **Edge Cases:** the level is touched from above and then from below in the same session; two alarms at the same level with opposite directions (only the matching one fires); the price gaps over the level in one tick (fires — the crossing is between samples); the price returns to the level after firing (does not fire again — already triggered).
+
+#### Journey 80 — D99: a page recovery with ops queued
+- **Preconditions:** offscreen; a bridge that is not ready; N ops sent (queued); the page then signals ready; a render-process recovery afterwards.
+- **Steps:** 1) Send N ops while not ready. 2) Signal page-ready. 3) Count emitted ops and compare with N plus the log's prior content. 4) Simulate a second recovery and count again.
+- **Postconditions:** the first transition emits each op once and the reconstructed series equals the expected one; the second transition re-emits the full log once (recovery is intact) with no duplicates inside that envelope.
+- **Edge Cases:** zero queued ops (a `None` flush, then the log replay); a live op coalesced while the queue drains (the live buffer is not part of the log-replay double-count); a channel op queued at the same time (the channel queue is dropped, unchanged).
+
+#### Journey 81 — D100: update a group with one bad keyword
+- **Preconditions:** offscreen; one drawing group.
+- **Steps:** 1) Update its `visible` field (works). 2) Update with `visible` plus an unknown key. 3) Read the group back. 4) Perform an unrelated commit.
+- **Postconditions:** step (2) raises a clear rejection before any SQL; the group is unchanged in (3) and (4); no transaction is left open.
+- **Edge Cases:** two allowed keys at once (`visible` + `locked`); an empty `fields` (no-op, unchanged); a bool passed for a non-boolean field (`name=True` — rejected or stringified, one documented rule).
+
+### Acceptance Criteria (P29 — offscreen unless named as a gate)
+- **AC-D96.1 (failed save changes nothing)** Given a stored study set, When `save` raises during serialization, Then the stored rows are byte-identical afterwards — immediately, and again after a later unrelated commit. (Measurable: `load` comparison before/after plus a row-hash comparison after the unrelated commit; a connection-open assertion that no transaction is pending.)
+- **AC-D96.2 (successful save still replaces)** Given a valid study set, Then the store holds exactly that set (the "replace-all" semantics are unchanged). (Measurable: `load` equality plus row count.)
+- **AC-D96.3 (legitimate empty set)** Given an empty list, Then the symbol's studies are removed and committed — the empty case is not blocked by the safety fix. (Measurable: `load` returns `[]`.)
+- **AC-D97.1 (touch then cross)** Given an alarm whose level equals the current sample, When the next sample moves strictly beyond that level in the alarm's direction, Then the alarm fires exactly once; When the next sample stays at the level, Then it does not fire. (Measurable: per-direction tick sequences asserting fire/no-fire and the trigger count.)
+- **AC-D97.2 (no phantom on seed)** Given a seed tick exactly at the level, Then no alarm fires on the seed itself, for any direction. (Measurable: seed-only sequence, trigger count zero; the `AC-D25.3` guard stays green.)
+- **AC-D97.3 (no cross-direction fire)** Given a `cross_above` alarm touched at the level and then crossed downward, Then it does not fire (and the mirror for `cross_below`). (Measurable: two mirrored sequences.)
+- **AC-D98.1 (outage suppresses the first evaluation)** Given any outage path (transient or TWS-gone), When the first tick arrives after reconnection, Then no alarm evaluation occurs for that tick — it seeds only — and the gap is included in the reported outage interval. (Measurable: evaluation spy call count on the first tick + the gap report's contents, over both disconnect classifications.)
+- **AC-D98.2 (the second tick evaluates normally)** Given the seed tick above, When the next tick arrives, Then evaluation is normal against the seed price. (Measurable: an ordinary crossing after the seed fires exactly once.)
+- **AC-D98.3 (recorded override)** Given the owner prefers cross-gap evaluation, Then the phase records the override and the AC becomes "the crossing during the gap is reported with an explicit unobserved-interval note and does not silently present itself as detected". (Measurable: whichever rule is recorded, one fixture asserts the reported wording/flag.)
+- **AC-D99.1 (one emission per op per transition)** Given N ops queued while not ready, When the page signals ready, Then the total emitted across all envelopes in that transition contains each queued op exactly once. (Measurable: multiset count over emitted envelopes; the reconstruction still equals the expected series.)
+- **AC-D99.2 (recovery intact)** Given a subsequent render-process recovery, Then the full log is replayed once and the reconstructed series equals the expected one; no envelope contains an op twice. (Measurable: replay envelope count + per-envelope duplicate check.)
+- **AC-D100.1 (unknown field rejected early)** Given an update with an unknown keyword, Then a clear error is raised before any SQL executes and the group is unchanged. (Measurable: exception type/message + a SQL-trace assertion (no statements recorded) + the unchanged row.)
+- **AC-D100.2 (allowed fields still work)** Given any subset of the allowed fields, Then the update applies exactly those and the value list matches the assignment list. (Measurable: per-subset update assertions, including two fields at once.)
+- **AC-D100.3 (history intact)** Given `requirements.md`, Then `### D41`–`### D95`, `AC-D1.1`–`AC-D95.3`, A1–A240, R1–R180, the Existing Repository marker sentence and the Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)
+
+### Live gates (owner-run — named, not assumed)
+- **G6 (D98 — settles the phase's one UNCONFIRMED item).** **Run:** with an alarm armed a few points away from the market, disconnect the client (stop TWS or pull the network) so the API socket drops; while disconnected let the market cross the alarm level; reconnect. **Observation that settles it:** the alarm does **not** fire on the first post-reconnect tick, the connection/gap report shows the unmonitored interval, and the alarm fires only if the market crosses the level again after the seed. If instead the alarm fires immediately on reconnect with no gap note, D98 is confirmed as a live defect and the criterion stands as written (suppress + report).
+
+### Assumptions (P29 — A241–A245)
+- **A241 — D96's fix may be either ordering or a transaction**, but the observable is fixed: a failed save changes nothing and leaves no pending transaction.
+- **A242 — "Touch" is not "cross".** D97 adds touch-then-cross semantics; it does not make an alarm fire merely because the price sits at the level (that would create phantom triggers on every restart).
+- **A243 — D98's recommended default is suppression**, mirroring the TWS-gone path; the owner may override it, and the override is recorded rather than silently applied.
+- **A244 — D99 is a duplication fix, not a protocol change.** The recovery replay stays; only the double delivery of already-queued ops goes.
+- **A245 — D100 rejects rather than ignores unknown fields.** Silent ignoring would hide a caller bug at the exact place the defect showed itself.
+
+### Risks / Unknowns (P29)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R181 — the D96 safety fix turns a "replace" into a "merge" (rows the caller removed survive), changing save semantics | M | M | `AC-D96.2` asserts exactly-the-set; `AC-D96.3` asserts the empty case still clears |
+| R182 — touch-then-cross makes alarms fire on ordinary oscillation around a level (the price touches, then moves away and back) | M | M | `AC-D97.1` requires a crossing **after** the touch, and the existing triggered flag prevents repeats; the touch alone never fires |
+| R183 — suppressing evaluation after a transient drop hides a real crossing the user expected to be told about | M | M | A243 + `AC-D98.1`'s gap report: the crossing window is visible even though no trigger is fabricated; or the owner records the cross-gap override (`AC-D98.3`) |
+| R184 — D99's dedup drops an op that the page genuinely needed after a mid-transition crash | M | L | the full-log replay remains the recovery mechanism (`AC-D99.2`); only ops already delivered in the same transition are excluded |
+| R185 — the D100 rejection breaks a hidden caller that passes an extra kwarg today | L | L | the caller audit is part of the task; the defect is latent precisely because the current caller passes one allowed key |
+
+Status: READY_FOR_PLAN
+
+## Phase P30 — UI surface integrity: the control cluster that never mounts, a floating result popup, a selection wiped by a checkbox (D101–D104) — OWNER-SUPPLIED AUDIT FINDINGS 2026-11-19 (analyst-verified in code 2026-11-19) — **FINAL 2026-11-19: Q118 = RESTORE — the cluster is restored in the live page (D101.1) and the `aria-pressed` latch is an in-scope defect with its own criterion (D101.2) — READY_FOR_PLAN**
+
+> **Attribution.** **Owner-supplied audit findings, 2026-11-19**, reproduced in the working tree on 2026-11-19. The defect entries are the record.
+>
+> **Status of this phase — FINAL 2026-11-19 (Q118 answered).** **Owner answer (verbatim): *"Restore them (Recommended)"*.** D101 therefore **restores** the zoom / magnifier / Reset cluster instead of deleting it: `chart.js` mounts the container and wires the page's `handleControl` to the Qt-side shim (the `window.lwHandleControl`-equivalent), the buttons render in-page exactly as the existing `mountControls` expects, and the Python surface the mirror names becomes reachable in production. The **`aria-pressed` latch is promoted from "latent in dead code" to an in-scope defect (`D101.2`)** with its own criterion (`AC-D101.2`) and a required test on the refused (TR-9) path. The delete arm is recorded as **declined**, not removed from the record — it remains the alternative Q118 ruled out. D102–D104 are unchanged and decided. This phase is `Status: READY_FOR_PLAN`.
+>
+> **Verification ledger (this phase).**
+>
+> | id | finding | status | evidence |
+> |---|---|---|---|
+> | D101 | the zoom/magnifier/reset cluster does not exist in the live page; a sub-defect (`D101.2`, **in scope per Q118 = RESTORE**) sets `aria-pressed` before the call and does not revert on refusal | **VERIFIED (code)** — `mountControls` is defined and exported but never called by `chart.js`; `chart.html` has no control container; `ChartControls(` is never constructed in production; `LwcChartView.handle_control` has test-only callers; `mountControls` sets `aria-pressed` then calls `onControl` and, on a refusal, only reports | `chart_assets/lwc/interaction.js::mountControls`, `chart_assets/lwc/chart.js`, `chart_assets/lwc/chart.html`, `ui/chart_controls.py`, `ui/lwc_view.py::LwcChartView.handle_control` |
+> | D102 | the watchlist search-results popup stays floating after the panel collapses | **VERIFIED (code)** — the popup is a separate top-level `Qt.Popup` child; the collapse visual hides `header_bar` and `table` only | `ui/watchlist_panel.py::WatchlistPanel._apply_collapsed_visual` / `::show_search_results` |
+> | D103 | toggling a drawing-group checkbox wipes the drawing selection | **VERIFIED (code)** — the item-changed handler calls `reload()`, which clears and repopulates the drawings list | `ui/drawing_groups_dialog.py::DrawingGroupsDialog._on_group_item_changed` / `::reload` |
+> | D104 | stale docstrings describe pyqtgraph as present/default; `release_resources`'s docstring overstates what it clears | **VERIFIED (code/comments)** — `ui/main_window.py` and `ui/popout_window.py` still say pyqtgraph "stays present and default", while the engine was removed; `release_resources` claims the per-channel replay logs go, and the bridge's `_channel_logs` are not cleared | `ui/main_window.py::_resolve_chart_engine` docstring, `ui/popout_window.py` module/class docstrings, `ui/lwc_view.py::LwcChartView.release_resources` vs `ui/lwc_bridge.py` |
+
+### Problem Statement (P30 slice)
+The chart's zoom, magnifier and reset controls — specified, mirrored in Python, and covered by tests — **do not exist in the running app**: the factory that would mount them is never called and no container exists to call it on. Because the only caller of the Python shim is the test suite, every test that asserts "the control works" is asserting a code path the user cannot reach; the mirror tests keep the contract green while the surface is absent. The dead code also carries a real bug — a toggle advertises itself as pressed before the action is accepted and never reverts when it is refused — which is now **in scope, because the cluster is being restored (Q118)** rather than deleted. Around it, three smaller surface defects: the watchlist's search-results popup outlives the panel it belongs to, a drawing-group checkbox rebuild discards the user's drawing selection, and several docstrings still describe the retired pyqtgraph engine as present and default.
+
+### Goals (P30)
+- Restore D101 as Q118 decided: the cluster is **mounted and live** in the page (container, `mountControls`, the page→Qt `handleControl` wiring) and every control id the mirror names is reachable by a user (D101.1, `AC-D101.1`/`AC-D101.3`/`AC-D101.5`).
+- A toggle's pressed state is only "pressed" when the action was accepted: on a TR-9 refusal it reverts or is driven from the returned mode, and the refused path is tested in both starting states (D101.2, `AC-D101.2`).
+- Collapsing the watchlist dismisses its search-results popup (D102).
+- Toggling a group checkbox preserves the drawing selection (D103).
+- Docstrings describe the shipped engine and what `release_resources` actually clears (D104).
+
+### Non-Goals (P30)
+- No new controls beyond the three already specified (zoom out/in, magnifier, reset). No new chart toolbar.
+- No redesign of the watchlist, the drawing-group dialog or the search flow.
+- No chart-engine change; pyqtgraph is not restored by any wording fix (D104 changes words only).
+- No reopening of `AC-D21.11`/`AC-D44.*` (collapse behaviour) or `AC-D49.*` (pop-outs) beyond D102's dismissal rule.
+
+### Constraints (P30)
+- **The mirror evidence must match reality (Q118 = restore).** Every control id in the mirror is reachable in the running page, and no control surface exists only as a test caller. The documented keyboard affordances stay as a second path, not the only one.
+- **Surface fixes are offscreen-measurable.** Qt visibility/selection state and the page's DOM are assertable without a live TWS; the page-side assertions run against the vendored JS in a headless harness.
+- **No behaviour change to drawing persistence.** D103 restores a selection; it does not touch what is stored.
+- Docstring changes accompany the code they describe in the same change, never as a later cleanup (the P24/D127 lesson).
+
+### Glossary (P30 additions)
+- **Control cluster** — the zoom-out / zoom-in / magnifier / reset buttons specified for the chart, mirrored by `ChartControls`' signal names and `CONTROL_IDS`.
+- **Mirror** — the test contract that asserts the page's control ids and the Python signal surface agree.
+- **Reachable surface** — a control a user can activate in the running app (not merely constructible by a test).
+- **Refusal** — a control whose router transition is refused (e.g. zoom at the data limit); it must leave no state change.
+
+### Defect entries (P30)
+
+#### D101 — The zoom/magnifier/reset cluster is not in the live page (and its dead code has a toggle bug)
+- **Audit finding:** R-07 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** no container in the page, `mountControls` never called, `ChartControls` never instantiated in production, `handle_control` has test-only callers; plus the latent `aria-pressed` sub-defect.
+- **Observed in code (verified 2026-11-19):** `mountControls(container, onControl, bridge)` is defined and exported at the end of `interaction.js`, but `chart.js` never references it and `chart.html` contains no control container (its price-chart div documents keyboard pan/zoom only). `ui/chart_controls.py::ChartControls` is referenced only from tests and docstrings. `LwcChartView.handle_control` is called from seven test files and no production module. Inside `mountControls`, a toggle sets `aria-pressed` to the new value **before** `onControl` runs and, when the result is refused, only calls `reportZoomRefused` — the attribute keeps the refused value.
+- **Why this is a defect and not a missing feature:** the contract (control ids, signals, router transitions, refusal reporting) is fully implemented and tested. The tests assert behaviour of a surface the user cannot reach, which is worse than no contract: it certifies an absent feature.
+- **Decision (Q118, owner, 2026-11-19; verbatim: *"Restore them (Recommended)"*): RESTORE.** The cluster is mounted and live: `chart.js` mounts the container and wires the page's `handleControl` to the Qt-side shim (the `window.lwHandleControl`-equivalent), the buttons render in-page exactly as the existing `mountControls` expects, and the Python surface the mirror names is reached from production. Deleting the cluster (Q118 option (b)) is **declined and recorded as such**; it is not the plan.
+- **D101.1 — the missing surface (expected behaviour).** A control container exists in the page; `mountControls` runs exactly once per page load (and once per render-process recovery); every control id in the mirror renders as a button; each button's action reaches the existing router; and the page→Qt control message reaches `LwcChartView.handle_control` through the bridge, so that shim stops being a test-only symbol and the mirror stops certifying an unreachable surface.
+- **D101.2 — the `aria-pressed` latch (observed above; now in scope).** Expected: a refused toggle never advertises the refused state. The click handler either reverts `aria-pressed` to its pre-click value on refusal or drives it from the mode the router returned, so the attribute always describes the state the app is actually in — and a dedicated test drives the refused (TR-9) path in **both** starting states (off→refused, on→refused).
+
+#### D102 — The search-results popup stays floating after the watchlist collapses
+- **Audit finding:** R-20 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** the popup remains after the watchlist collapses.
+- **Observed in code (verified 2026-11-19):** `_search_popup` is a `QFrame(self, Qt.WindowType.Popup)` — a top-level popup window, not a child laid out inside the panel. `_apply_collapsed_visual` hides `header_bar`, `table`, shows `collapsed_bar`/`collapsed_handle`, and never touches `_search_popup`. `set_search_enabled(False)` clears it, but collapse does not.
+- **Expected behaviour:** any state that removes the search box from view dismisses its results. A floating list with no anchor is both confusing and a stale-data surface (its items can outlive the query).
+
+#### D103 — Toggling a group checkbox wipes the drawing selection
+- **Audit finding:** R-34 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** toggling a drawing-group checkbox wipes the drawing selection.
+- **Observed in code (verified 2026-11-19):** `_on_group_item_changed` applies the update, then calls `self.reload()`, which `clear()`s the drawings list and re-populates it — destroying the selection the user made for the Assign/Ungroup/Delete actions.
+- **Expected behaviour:** the update is applied and the list refreshed **without** losing which drawings are selected. A reload that must re-create items restores the selection by drawing id.
+
+#### D104 — Docstrings still describe pyqtgraph as present and default; `release_resources` overstates its coverage
+- **Audit finding:** R-35 (owner-supplied audit findings, 2026-11-19).
+- **Reported:** stale engine docstrings, and a `release_resources` docstring claiming more than the code clears.
+- **Observed in code (verified 2026-11-19):** `ui/main_window.py`'s engine-resolution docstring says anything other than `"lwc"` "keeps pyqtgraph (the default)"; `ui/popout_window.py`'s module and class docstrings say pyqtgraph "stays present and default"; `ui/chart_view.py` states the opposite (the engine was removed in P6-13/Phase 11). `LwcChartView.release_resources`'s docstring says "the study arrays and the per-channel replay logs go", and the code clears the study/interaction/alarm/drawing/overlay logs and the bridge's bar buckets — but **not** `LwBridge._channel_logs`.
+- **Expected behaviour:** documentation matches the shipped state. The engine is LWC-only with no switch; `release_resources` either clears the channel logs too (then the docstring is true) or says exactly what it clears. No behaviour is required to change — but a docstring that overstates cleanup is how a memory leak gets certified as fixed.
+
+### User Journeys (P30)
+
+#### Journey 82 — D101 (Q118 = RESTORE): use the restored control cluster, including a refused toggle
+- **Preconditions:** offscreen QtWebEngine harness (or the headless JS harness) with the page loaded and the restored cluster mounted; Q118 answered 2026-11-19 (verbatim: *"Restore them (Recommended)"*).
+- **Steps:** 1) Locate the control container in the page. 2) Press zoom-out/zoom-in and observe the visible range. 3) Toggle the magnifier and observe the crosshair mode. 4) Press reset and observe the viewport return to the default framing. 5) Force a refusal (zoom at the data limit) and read the toggle's `aria-pressed` and the reported refusal.
+- **Postconditions:** all four controls are reachable and act through the existing router; a refused toggle reverts to its pre-click state and reports the refusal once; the keyboard equivalents continue to work.
+- **Edge Cases:** a refused zoom while the magnifier is on (each control's state independent); reset while scrolled back (follow-offset rules from D51/D60 still apply); the control strip in a narrow window (no clipping of the chart itself); the page after a render-process recovery (controls re-mounted exactly once).
+- **Alternative recorded, not adopted:** Q118's delete arm would have left the documented keyboard affordances as the only zoom path and removed every control id from page, Python and tests. It was declined; the keyboard path stays as a **second** path (`AC-D101.4`).
+
+#### Journey 83 — D102: type a search, then collapse the watchlist
+- **Preconditions:** offscreen; watchlist connected (search enabled); results shown.
+- **Steps:** 1) Type a pattern and show results. 2) Collapse the watchlist. 3) Inspect the popup's visibility. 4) Expand and type again.
+- **Postconditions:** the popup is hidden on collapse and shows again only for a new query; no stale items survive into the next query.
+- **Edge Cases:** collapse while a query is in flight (the late results must not re-open the popup); collapse via the header button and via the collapsed bar's expand path; collapse while the popup has a highlighted row.
+
+#### Journey 84 — D103: select drawings, then toggle a group's visibility
+- **Preconditions:** offscreen; three drawings in one group, all listed; two selected.
+- **Steps:** 1) Select two drawings. 2) Uncheck the group's `visible` checkbox. 3) Read the selection. 4) Use Assign on the still-selected set.
+- **Postconditions:** the selection survives the toggle (same drawing ids, same order), and the following action operates on the user's selection, not on an empty one.
+- **Edge Cases:** the group's own row selection (a different table) is independent; toggling `locked` instead of `visible`; a drawing deleted in another view while the dialog is open (the restored selection skips the vanished id).
+
+#### Journey 85 — D104: read the docs the code actually matches
+- **Preconditions:** repository at the phase's end state.
+- **Steps:** 1) Read the engine-resolution docstring. 2) Read the pop-out docstrings. 3) Read `release_resources`'s docstring and compare with what it clears. 4) Search the codebase for statements that pyqtgraph is present or default.
+- **Postconditions:** no module claims a second engine; every docstring's claim is true of the code beside it; the channel-log question is settled one way or the other.
+- **Edge Cases:** historical sections that deliberately describe the retired engine (decision lineage) remain, but are marked as history; a comment that says "not pyqtgraph" (a negative statement) is not a stale claim.
+
+### Acceptance Criteria (P30 — offscreen)
+- **AC-D101.1 (D101.1 — the cluster is live; Q118 = RESTORE)** Given the page loaded, Then a control container exists, `mountControls` has run exactly once per page load (and once after a render-process recovery), and each control id from the mirror is present in the DOM and activates the corresponding router action. (Measurable: DOM presence per id + an action assertion per control against the existing router seam; a page-recovery case asserting exactly one mount.)
+- **AC-D101.2 (D101.2 — the `aria-pressed` latch; promoted in scope by Q118)** Given a toggle control whose action is refused (TR-9), Then after the handler returns `aria-pressed` describes the app's actual state — it equals its pre-click value (revert) or the mode the router returned (drive-from-return), and in **neither** case does it read `true` for a refused state — and the refusal is reported exactly once. The refused path is tested from **both** starting states (off→refused, on→refused). (Measurable: attribute read before/after each refused click in both states + a report counter; a click-handler unit case driving `mountControls` with a refusing `onControl`.)
+- **AC-D101.3 (no unreachable surface after the restore)** Given the end state, Then every control id in the mirror is reachable in the running page, and **no** control surface exists whose only callers are tests — the reachability check joins the mirror's ids to the DOM, so a surface that regresses to test-only fails it. (Measurable: the join of mirror ids → DOM ids → the action each performs; a negative case where an id is removed from the DOM and the check goes red.)
+- **AC-D101.4 (keyboard path intact)** Given the restored cluster, When the user pans and zooms from the keyboard, Then the documented page affordances still work unchanged alongside the buttons. (Measurable: the existing keyboard/interaction tests, unmodified.)
+- **AC-D101.5 (D101.1 — the page→Qt control path is real, not test-only)** Given the restored cluster, When a control is clicked in the page, Then its message reaches `LwcChartView.handle_control` through the bridge (the production caller that did not exist), the corresponding Python action runs, and no Python-side control surface remains referenced only by tests or by the mirror — `ChartControls` is either the receiving surface or its signal names are carried by a module production imports. (Measurable: an offscreen end-to-end click per control asserting the Python slot ran; a production-reference check for `handle_control` and `ChartControls` that fails on a test-only symbol.)
+- **AC-D102.1 (collapse dismisses the popup)** Given visible search results, When the watchlist collapses, Then the popup is hidden and its items are cleared. (Measurable: `isVisible()` false + list count zero.)
+- **AC-D102.2 (no resurrection by a late result)** Given a query in flight, When the panel collapses and the results arrive afterwards, Then the popup does not become visible. (Measurable: collapse → deliver results → visibility assertion.)
+- **AC-D103.1 (selection survives the toggle)** Given two selected drawings, When a group's `visible` (or `locked`) checkbox is toggled, Then the same drawing ids remain selected and the subsequent action receives them. (Measurable: selected-id list before/after + the action's received ids.)
+- **AC-D103.2 (selection is a set, not an index)** Given a reload that reorders or shrinks the list, Then the restored selection contains exactly the surviving ids and nothing else. (Measurable: a fixture where a drawing is removed between selection and restore.)
+- **AC-D104.1 (no stale engine claim)** Given the codebase, Then no module states that pyqtgraph is present, default or selectable; historical descriptions are marked as history. (Measurable: a grep over production modules for the retired claims with a reviewed allow-list for marked-historical text.)
+- **AC-D104.2 (cleanup docs are true)** Given `release_resources`, Then its docstring lists exactly the state it clears, and every listed item is asserted cleared after a call. (Measurable: one assertion per listed attribute/bucket, plus the channel-log decision recorded.)
+- **AC-D104.3 (history intact)** Given `requirements.md`, Then `### D41`–`### D100`, `AC-D1.1`–`AC-D100.3`, A1–A245, R1–R185, the Existing Repository marker sentence and the Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)
+
+### Live gates
+- None. Every criterion in this phase is assertable offscreen (Qt widget state, DOM state, or a reviewed grep).
+
+### Assumptions (P30 — A246–A249)
+- **A246 — ANSWERED 2026-11-19 (Q118 = RESTORE).** The cluster is restored, not deleted. Mixing the arms (restoring the buttons without the page→Qt shim, or keeping the mirror while deleting the page factory) remains forbidden: the restoration is whole or it is the declined arm.
+- **A247 — D101.2's latch is fixed as part of the restoration** (it would only have been "fixed" by deletion under the declined arm). The fix may revert the attribute or drive it from the returned mode; both satisfy `AC-D101.2`, and the refused path must be tested either way.
+- **A248 — D102's dismissal is a collapse-side action.** No change to the search service, the debounce or the result rendering.
+- **A249 — D103 preserves selection by identity**, not by row index, because a reload may reorder.
+- **A250 — the restore decision and its two binding halves (2026-11-19).** Q118's answer is recorded verbatim as *"Restore them (Recommended)"*. It binds **two** things: (i) the cluster is mounted and live in the page with the page→Qt `handleControl` wiring, and (ii) the `aria-pressed` latch is fixed **and tested on the refused path** — the sub-defect was reported as latent precisely because nothing exercised a refusal in the live page, so a restore without that test would leave the same blind spot at the new surface.
+
+### Risks / Unknowns (P30)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R186 — the cluster is restored as four buttons in a strip that covers chart area in a narrow dock/window | M | M | `AC-D101.1` asserts the chart's usable area is unchanged at the minimum window width; placement is Plan's, the constraint is "no chart area lost at the minimum" |
+| R187 — ~~delete arm removes the only keyboard-adjacent affordance by accident~~ **closed 2026-11-19**: Q118 = RESTORE, so no delete arm ships | — | — | closed by the answer; `AC-D101.4` still keeps the documented keyboard path green as the second path |
+| R188 — D102's fix clears results on every collapse but a late result re-opens them | M | M | `AC-D102.2` covers the in-flight case explicitly |
+| R189 — D103 restores selection but the dialog's later actions still read stale ids | L | M | `AC-D103.1` asserts the action receives the restored ids, not just that the list looks right |
+| R190 — D104's wording sweep drifts into rewriting historical decision records | L | M | the allow-list is explicit: marked-history text stays; the AC targets present-tense claims only |
+| R191 — the restored toggle's pressed state is correct in the click handler but a refusal reported asynchronously (through the bridge) leaves the attribute briefly wrong | M | M | `AC-D101.2` asserts the state **after the handler returns** and allows drive-from-return; the refusal report is once-only, so the two mechanisms cannot disagree for longer than one turn |
 
 Status: READY_FOR_PLAN

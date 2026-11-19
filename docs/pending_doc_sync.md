@@ -1,2 +1,0 @@
-- 2026-11-19T19:12:45+00:00 via Q-76: services/option_ladder.py: IB compact expiries (20261119) now render as Nov19 in spread names
-- 2026-11-19T19:12:45+00:00 via Q-77: ui/ticker_session.py: silence-retry bound scales with chunk shape (90s for 30 D / 1 min, 30s otherwise)

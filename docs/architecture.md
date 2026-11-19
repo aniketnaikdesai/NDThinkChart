@@ -10208,3 +10208,399 @@ markers and the `docs/codebase-map.md` P24 note.
 | S-P24-5 | **The restated-but-unchanged contract is fenced in one new suite rather than re-argued.** `tests/test_d66_delta_fence.py` asserts, one assertion per artefact (AC-D66.1, D66.3–D66.8): `DEFAULT_TARGET == 1.00`, `TARGET_MIN/MAX`, `COLOUR_OFF/ON`, `SPREAD_WIDTH == 20`, the eight rendered names match the `MmmDD short/long` regex and an ISO/zero-padded name is rejected, the four-row count per side, **no** row-number column or digit in the instrument cell, the greek/STALE/error-class constants the panel and engine expose, the five `requirements.md` revision notes present at their named sites and the retired phrases absent from the ladder module, and the delta-scope record (below). The **delta-scope check is a build-record artefact, not a standing test**: the wave records `git diff --name-only db21672` and requires it to be a subset of {`services/option_ladder.py`} ∪ the five re-baselined suites ∪ the new suite ∪ the docs; a test pinned to a commit hash would redden every later phase. Rationale: AC-D66.8 asks for one assertion per named artefact **plus** a diff-scope check; separating the two forms keeps the standing suite stable while still producing the evidence. Alternative: a hash-pinned `git diff` assertion inside pytest (rejected — a landmine for P25+); relying on review prose (rejected — R158/AC-D66.8 want a measurable). | `[new in P24]` — implements `AC-D66.1`/`AC-D66.3`–`AC-D66.8` |
 | S-P24-6 | **The retired invariant is retired everywhere it is written, in three layers.** (i) `requirements.md` keeps the analyst's five `[revises P23, 2026-11-18 …]` notes **verbatim** (AC-D65.2, A187, A212, the P23 glossary's anchor entry, R142) — P24 neither re-deletes nor rewrites them; (ii) `architecture.md` gets three **appended one-line markers** (`[superseded for PCS by P24 — AC-D66.2/S-P24-1]`) at the pass-5 summary's item J, the `services/option_ladder.py` System Components entry, and S-P23-2's decision row, with no P23 sentence rewritten and no P23 status changed; (iii) the ladder module's own module-docstring bullet, `RUNG_OFFSETS` comment and `ladder_pairs` docstring change **in the same commit as the table** (DG127). Rationale: ESC-066/ESC-069 established that a canonical doc sentence superseded without a marker is a defect; DG127 establishes the same for code comments, and a comment left behind is the cheapest way to rebuild the wrong model. Alternative: rewrite the P23 sentences in place (rejected — they are true for CCS and the phase is built; rewriting loses the decision lineage); markers only in requirements (rejected — the architecture doc is what Task Manager reads). | `[revises P23: the invariant's written record]` + `[extends P23: the record-layering convention]` — implements `AC-D66.7`/DG127 |
 
+
+## Phase P25 — Silent wrong data on the chart (D67–D70) — drafted 2026-11-19
+
+> **Revision notes — 2026-11-19, against `docs/plan_review_P25.md` (CHANGES_REQUIRED).**
+>
+> - **RC-P25-1 — D70's page premise corrected (changes a mechanism).** `chart.js::upsertRow`
+>   (`:1672-1689`) folds a candle upsert through `envelope.js::mergeRows`, whose `update_bar` branch is an
+>   unconditional `byTime[one.time] = one` (`envelope.js:154-157`), and `lwSnapshot()` returns
+>   `snapshot.candles` unfiltered (`chart.js:1780-1782`) — so a `null`-close update **survived** in the
+>   page's bar series. Decision: the page's fold applies the same rule (a whitespace row is skipped on
+>   replace and deletes its time on an upsert) and `upsertRow` sends `{time}` only for a whitespace row;
+>   `mergeRows` is **not** the display fold (`applyRows` uses `seriesRows`/`barRows`), so AC-D21.4.4's gap
+>   slots are unaffected. `S-P25-6`, the two page rows of the Codebase Summary, the D70 tech-stack row, the
+>   System Components bullets and the NOT-frozen list are rewritten accordingly. Re-stating `AC-D70.1` to
+>   match the page was rejected: it contradicts the criterion's own first clause and the glossary's
+>   definition of a whitespace row, and redefining a requirement is not Plan's act (`AP-P25-11`).
+> - **RC-P25-2 — `_wall_now` position fixed.** Wired at session creation
+>   (`MainWindow.get_or_create_session`, `ui/main_window.py:1077`), late-bound
+>   (`lambda: self._now_ts()`), which precedes both `set_bars` paths (`:1220` cold restore, `:3173` primary
+>   load) — `S-P25-1`, `S-P25-3`, System Components and the Codebase Summary row say so.
+> - **RC-P25-3 — `push` restated in `prime_aggregator`'s form.** `push`'s observable contract is
+>   unchanged; it now records `_AggState.first_ts = ts` at the one place a state is created
+>   (`data/bar_aggregator.py:160-168`). Fixed in the Data Model, System Components, the frozen bullet and
+>   the Codebase Summary row.
+> - **RC-P25-4 — the replay guard survives adoption.** `adopt_period_base` no longer clears
+>   `_last_pushed_ts` (`S-P25-1`, System Components, Non-Functional, AR-P25-1), with the safety argument
+>   stated: a base's data is older than the next live tick, arrival is oldest-first, so the guard only
+>   rejects a redelivered bar that the base (or the replaced state) already counted.
+> - **RC-P25-5 — one marker rule, rollover included.** `S-P25-2`'s view clause, System Components
+>   (`ui/lwc_view.py`), Data Model (*marker state*) and Non-Functional now state the transition: the view
+>   drives the page toward `(forming ts, forming.partial)` on every emitting tick — including
+>   `update_live_bar`'s `new_period` branch — and inside `set_series`; the page's one marked time is moved by
+>   `partial: true`, cleared by `partial: false` only on a match, and never applied for a time absent from
+>   the current rows.
+> - **RC-P25-6 — fence literals fixed.** `TIMEFRAME_SECONDS` = **ten** keys; the bridge constants are
+>   module-level (`ui.lwc_bridge.ENVELOPE_VERSION` / `.COALESCE_MS` / `.LIVE_OPS`, `:82-88`), not
+>   `LwBridge` class attributes; P25's defect headings are `#### D67`–`#### D70`; the `set_bars` frozen
+>   bullet mirrors `prime_aggregator`'s "signature and emit contract frozen; the base-adoption side effect
+>   changes". Every other fence entry is byte-identical to the previous draft.
+>
+> Companion: `docs/plan.md` § *Phase P25* (traceability, four waves, assumptions, flagged issues).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P25
+> (D67–D70), Journeys 65–67, `AC-D67.1`–`AC-D70.3`**, A220–A224, R160–R164, gates **G1**/**G2**
+> (owner-run), `design_gaps.md` DG129, `open_questions.md` Q119 (non-blocking, default adopted).
+> **Baseline: HEAD `94d6119`** (tree clean; P24/D66 shipped). Existing-repo run: every item below carries
+> `[existing]`, `[new]` or `[new/changed]`; every decision carries `[new in P25]`, `[revises P24: …]` or
+> `[extends P24: …]`. Sizes S/M only; **no new production module, no new dependency, no migration.**
+
+### Relationship to prior phases
+
+Four defects, four narrow seams. Stated once so nothing is silently revised:
+
+- **`[new in P25: the forming period candle has a base]`** — for `1 week` / `1 month` only, the forming
+  candle is seeded from the **current-period row of the series the chart already renders** (the wave
+  persists it; IBKR's own weekly/monthly bar for the open period *is* the period aggregation), and it
+  extends from live 5-second bars. Today the aggregator has no such base: `prime_aggregator` requests
+  `1 min` bars clamped to `_PRIME_MAX_SPAN_1MIN_S = 86_400` and `on_historical_bar` drops every bar
+  before `_prime_period_start`, so the rendered candle is a ≤24-hour window presented as the period.
+  S-P25-1 owns the base; S-P25-3 owns the coverage rule that decides when the candle is marked partial.
+- **`[new in P25: one visible cue for an incomplete candle]`** — `set_partial`, a non-series directive op
+  on the existing bar envelope, applied by the page as one library series marker on that one candle.
+  Nothing else is added: no badge, no tooltip, no panel, no second surface (DG129/A220/R160).
+- **`[extends P24: the bar envelope stays `{v: 1, ops: […]}`]`** — `ENVELOPE_VERSION = 1`, the two-key
+  envelope shape, the column-array op shapes, `CHANNELS` and the channel envelopes are untouched. P25 adds
+  one **directive** op kind beside the existing `set_visible_range`, and no op gains or loses a key.
+- **`[extends P24: the bridge stays the only transport]`** — `LwBridge.send_ops` / `flush` /
+  `apply_ops_to_bars` / `replay_log` keep their signatures; only the *staging* bookkeeping and one branch
+  of the reconstruction change (S-P25-5, S-P25-6).
+- **`[revises P25-draft only — nothing earlier: the hold contract is not re-opened]`** —
+  `TickerSession.ensure_rt_subscribed(self)` / `release_rt(self)` and the plain integer `_rt_holders`
+  refcount are **frozen**. D68's fix lives entirely in `ui/popout_window.py`: a pop-out releases at most
+  the one hold it acquired. This is not a preference — `tests/test_p13_hold_fix.py` (verdict `no lasting
+  effect`) asserts the *absence* of `acquire_rt` / `release_rt_for` / `_rt_owners` and the exact
+  parameter list `["self"]` on both methods, so an owner-keyed session API is out of bounds (S-P25-4).
+- **`[existing]` — unchanged and consulted, never reshaped:** the wave lifecycle (planner, pacing,
+  per-chunk persist-and-render, watchdog, shortfall line — P26/P27 own those), `BarCache` (schema, mode
+  key, retention), `services/backfill_service.py`, `ibkr/` in full, `services/chart_model.py`'s
+  plotted/logical mapping and the `TimeCollapseMap`, the D21.4.4 whitespace rendering contract, the D45/
+  D46 order-code absence, and every D1–P24 criterion.
+- **`[existing]` — the LWC runtime pin:** `chart_assets/lwc/VERSION` = `5.2.1`, which exports
+  `createSeriesMarkers` (present in the vendored standalone bundle; unused until this phase). The pin is
+  not moved and no asset is fetched.
+
+An unlabeled decision below is `[new in P25]`.
+
+### Codebase Summary (existing repository — P25 surface; pointer + deltas)
+
+The module index lives in `docs/codebase-map.md` (skeleton regenerated 2026-11-19: 274 code files, 23
+test-impact rows; a **P25 note** is appended there; no production module is added, so the generated
+skeleton is structurally unchanged). What this phase touches, and what each site *encodes* today:
+
+| Site | What it encodes today | P25 disposition |
+|---|---|---|
+| `data/bar_aggregator.py:115-215` | `BarAggregator` state is created only by `push()`; `_AggState` carries `period_start/open/high/low/close/volume`; `push` dedups on `_last_pushed_ts` and opens a new candle on a bucket change; `week_bucket_start` / `month_bucket_start` / `_bucket_start` already calendar-anchor `1 week` / `1 month` | `[new/changed]` — `_AggState` gains `first_ts` (written by `push` at state creation); a **base adoption** entry point sets the state from a rendered period row and leaves the duplicate-bar guard intact; `push`'s observable contract, `period_start`, `current_bar` unchanged |
+| `data/models.py:4-13` | `Bar(symbol, timeframe, ts, open, high, low, close, volume)` — plain dataclass, persisted by explicit columns in `data/bar_cache.py` | `[new/changed]` — one **transient** field `partial` (`compare=False`, `repr=False`, never persisted, never read by the cache) |
+| `ui/ticker_session.py:1454-1582` | `prime_aggregator` picks `5 secs`/`1 min` by span and clamps to `[60 S, 1 D]`; its docstring carries the **Per-span priming table** that `tests/test_d48_gate.py` greps; `on_historical_bar` (`:1277`) drops pre-period prime bars; `set_bars` (`:479`) is the single choke point for every series replacement; `_append_bar` (`:492`) folds an aggregated bar in (`is_new_candle` appends, else replaces the tail); `_on_aggregated_bar` (`:578`) emits `bar_updated`; `_aggregators[timeframe]` is created lazily by `aggregator_for` | `[new/changed]` — base adoption on `set_bars`, the prime suppressed when a current-period base exists (table updated, tokens kept), `partial` computed on the forming bar, a `_wall_now` clock seam wired from `MainWindow._now_ts` at session creation (before any `set_bars`) |
+| `services/market_calendar.py:195-216` | `session_windows(start_ts, end_ts, ext_hours)` — ET holiday-aware RTH 09:30-16:00 / ETH 04:00-20:00 windows, clipped to the range | `[new/changed]` — one added pure helper (`first_session_open`) beside it; `session_windows` byte-identical |
+| `ui/lwc_view.py:2255-2320`, `:2491-2620` | `update_last_bar` → `update_live_bar` replaces/appends the forming candle via `update_bar` ops; `set_series` sends `set_bars` + `set_volume` + an optional frame directive; the view never emits a per-bar annotation | `[new/changed]` — the marker leg: `partial` on the bar in → one `set_partial` directive out, always driven toward `(forming ts, forming.partial)` — moved on a rollover, cleared when the bar completes, re-stated by `set_series` from the replacement's last row |
+| `ui/lwc_bridge.py:102-160`, `:209-260`, `:337-400` | `_check_op_shape` accepts the four data ops + `set_visible_range`; `_stage` coalesces `update_bar` into `_live_buf[(series, ts)]` and appends everything else to `_outbox`; `flush` emits `list(_outbox) + list(_live_buf.values())` — **outbox first, regardless of arrival**; `apply_ops_to_bars` filters `None` closes in the `set_bars` branch only | `[new/changed]` — sequence-stamped staging and arrival-ordered emission (S-P25-5); `set_partial` accepted and ordered after the rows (S-P25-2); one whitespace rule in both branches (S-P25-6) |
+| `chart_assets/lwc/envelope.js:41-116`, `:150-175` | `validateEnvelope` requires exactly `{v, ops}`; `validateOp` enumerates the accepted op kinds (unknown ⇒ the whole envelope is rejected); `mergeRows` upserts a row unconditionally (a `null`-close row survives in the array) | `[new/changed]` — `set_partial` accepted as a directive; `mergeRows` applies the whitespace rule in both branches (skip on `set_bars`/`set_volume`, delete the time on `update_bar`), so the page's fold agrees with the Python reconstruction; `seriesRows`/`barRows` stay the display fold |
+| `chart_assets/lwc/chart.js:462-540`, `:1495-1740` | `applyOps` lifts `set_visible_range` before `describeOp`; `applyRows` sends `seriesRows` (with `{time}` placeholders) to the series and `barRows` (placeholders dropped) to the snapshot; `upsertRow` sends the merged snapshot **unfiltered** (`:1672-1689`); `window.lwSnapshot()` returns the **bar series only** | `[new/changed]` — `set_partial` lifted and applied as one `createSeriesMarkers` marker, re-applied after every rows application (only for a time present in the rows); `upsertRow` sends `{time}` only for a whitespace row; `lwSnapshot()` unchanged and now equal to the Python reconstruction |
+| `ui/popout_window.py:339-599` | `attach()` tracks `hold_acquired` in a **local** and never stores it; the pacing branch schedules `_retry_rt_subscribe` without acquiring; `_retry_rt_subscribe` acquires with no record; `detach()` calls `session.release_rt()` **unconditionally**; `closeEvent` → `detach` | `[new/changed]` — one instance latch, consulted by `detach` and by the retry, plus a closed latch |
+| `tests/test_d13_*`-era hold fences | `tests/test_p13_hold_fix.py` pins the session API shape (no owner keying, `["self"]` parameters) and `_rt_holders == _owners(session)` across open/close | `[existing]` unchanged — it is the fence that *chooses* S-P25-4 |
+| `tests/test_d27_aggregator_priming.py`, `tests/test_d48_gate.py`, `tests/test_d48_mode_parity.py` | the coarse-prime clamp for `4 hours`/`1 day`; the priming-table rows for week/month; week/month mode parity with a "prime carve-out" docstring line | `[existing]` for the first two (all cases stay green — the clamp cases never cover week/month, and the table rows keep their tokens); `[new/changed]` for the third's **docstring sentence only** |
+| `tests/test_lwc_bridge.py`, `test_lwc_time_parity.py`, `test_lwc_page_wiring.py`, `test_lwc_drawings.py`, `test_lwc_alarms.py` | replay identity, live-coalesce counts, the frame-after-rows rule, `apply_ops_to_bars` identity | `[existing]` — every case stays green under S-P25-5/S-P25-6 (they are the regression floor, not re-baselined) |
+
+### Summary
+
+D67 gives the `1 week` / `1 month` forming candle a real source: the current-period row the chart already
+holds, adopted as the aggregator's base, extended by live bars, and marked partial with one library series
+marker when the period's head is not covered at all. D68 gives a pop-out a memory of the one hold it
+acquired, so a deferred pop-out can no longer release the main chart's feed. D69 stamps every staged op
+with its arrival order and emits data ops in that order — one full replace per series per window, the
+frame and marker directives still last. D70 makes the whitespace rule branch-independent on **both** sides —
+Python's reconstruction and the page's own fold — and proves the reconstruction against the page's bar
+series. Four narrow seams, no new module, no wire-version bump, no page-contract change beyond one
+directive op that the page must accept in the same wave that first emits it.
+
+### Tech Stack Decisions
+
+Constrained (existing) choices first — every one is a hard input, none is re-opened:
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / runtime | `[existing]` Python 3.11+ in the repo `.venv`, macOS arm64; **no new dependency** | all four fixes are edits inside modules that already exist | — |
+| Chart engine / transport | `[existing]` LWC **5.2.1** (vendored, offline), `QWebEngineView` host, `LwBridge` as the only transport, envelope `{v: 1, ops}` | the marker is a library primitive already in the pinned bundle (`createSeriesMarkers`); the op rides the existing envelope | a second transport or a channel envelope for the marker (rejected — `tests/test_lwc_page_wiring.py::test_bar_replay_contract_is_unchanged` pins `"channel" not in env` for the bar path, and the marker belongs to the bar it annotates) |
+| Broker / transport | `[existing]` `ibapi`, live TWS only; historical requests stay on `MarketDataManager.req_historical_data` with `TIMEFRAME_CONFIG` shapes | no request shape is added or retuned this phase | widening the prime (rejected — `AC-D67.3` caps the `1 min` arm at `1 D`; the verified `2 D`/`7 D` rejections make a wider prime unavailable and the criterion forbids relying on one) |
+| Storage | `[existing]` SQLite via `BarCache`, mode-aware PK `(symbol, timeframe, ext_hours, ts)` | the fix **reads** rows the wave already wrote; nothing is persisted, migrated or re-keyed | persisting the base's capture time to prove tail coverage (rejected — a column is a migration, and A220/AC-D67.2 scope "cannot cover" to the period head; recorded as a boundary in *Assumptions*) |
+| Test harness | `[existing]` pytest + `pytest-qt` offscreen; `node --test` for the page glue (already used by `tests/test_d57_*`) | every AC is offscreen-assertable: injected cache rows, a fake realtime manager, a fake pacing manager, a headless bridge | a live-TWS suite (rejected — G1/G2 are owner-run gates, named not assumed) |
+| Marker mechanism `[new in P25]` | **one series marker on the forming candle**, applied by `chart.js` through the pinned `createSeriesMarkers`, driven by one directive op `{"op": "set_partial", "ts": <int>, "partial": <bool>}` | DG129 asks for a per-candle visual treatment on the same series and one named surface; a marker is exactly that, is non-numeric, alters no value, and needs no widget | a coloured/washed candle body (rejected — it changes the candle's appearance *as data*, and per-bar colour would have to ride the 5-column data op, i.e. a column-set change); a volume-pane tint (rejected — the pane already encodes up/down, and two meanings on one channel); a status-bar word (rejected — it is not on the candle and disappears); omitting the candle (rejected — Q119's default keeps the live price) |
+| Selection of the forming bar's values `[new in P25]` | **adopt the rendered current-period row as the aggregator base**, then merge live bars onto it | the row *is* the period aggregation (IBKR aggregates it server-side, not over 24 h), it is already on screen, and it survives a reload because the wave persists it — the three properties a fabricated window lacks | aggregating from finer cached bars (rejected — the cache is per-timeframe, so the finer series may not exist, and mixing timeframes/modes is R161); a coarser-bar fetch (rejected — Q119(c) needs a TWS-proved combination and `AC-D67.3`'s accepted set; not proved, so the default falls to (a)); showing the period sum of *prime* bars (rejected — double counts against the row already on screen) |
+| Partial rule `[new in P25]` | `partial = covering_since > first_session_open(period_start)` — one comparison, ET session-anchored, mode-scoped by the load's `ext_hours` | it answers exactly AC-D67.2's question (is the period's *head* in the candle?) without inventing gap arithmetic: no-trade minutes are not holes, and a base covers the head by construction | counting expected vs actual bars (rejected — a halt with no trades would be marked as missing data, which is wrong); a stored capture time (rejected — needs a migration); a fixed 24-hour threshold (rejected — the defect is that a threshold has no relation to the period) |
+| D68 mechanism `[new in P25]` | a **pop-out-local** latch: `self._hold_acquired` set only where `ensure_rt_subscribed()` returned, cleared where it is released, plus a closed latch on the retry path | the P13 fence forbids owner-keyed session state and any signature change; the pop-out is the only owner whose acquisition is not already implied by its view | owner-keyed session refcount (`release_rt(owner)`) (rejected — `test_p13_hold_fix.py` asserts `["self"]` and no `_rt_owners`); a session-side acquired-set keyed by `id(view)` (rejected — same fence, plus it needs weak refs) |
+| D69 emission order `[new in P25]` | **arrival sequence per staged op**; data ops sorted by it; the last full replace per series wins and supersedes that series' earlier ops; non-series directives appended after in arrival order | it fixes the defect at its cause (two buffers with an arbitrary concatenation) instead of special-casing `update_bar`, and it preserves P18's "frame after the rows" rule by kind, not by luck | a second FIFO for live ops drained after the outbox (rejected — that *is* the bug, in the other direction); dropping live ops whenever any replace is staged (rejected — it would drop a newer update that arrived after the replace); per-series queues (rejected — more state, same outcome) |
+| D70 rule `[new in P25]` | **whitespace is not a bar in either branch, on either side, and a whitespace update removes that timestamp** | one rule, two branches per side: Python removes the `ts`; the page's fold skips it on a replace and deletes it on an upsert (the page currently drops placeholders only on the *replace* path, so it is the outlier). Equality with the page's bar series becomes provable instead of asserted | leaving the page as-is and re-stating `AC-D70.1` (rejected — the criterion says "no row for that timestamp" *and* "equals the page's merge"; changing it is a requirements change, not Plan's); filtering only `upsertRow`'s snapshot (rejected — the fold itself would still disagree, and the criterion names the page's merge); leaving the update branch as-is and documenting it (rejected — the docstring already says "skipped", so the code is the outlier); treating `mergeRows` as the display fold (rejected — it is not: `applyRows` uses `seriesRows`/`barRows`, so the change costs no gap slots); editing `barRows` (rejected — the replace path already agrees) |
+
+### System Components
+
+- `[new/changed] data/bar_aggregator.py` — `_AggState` gains `first_ts` (the earliest bar folded into the
+  open candle, `period_start` when the state came from a base), written by `push` at the one place a state
+  is created (`first_ts = ts`); a base-adoption entry point (`adopt_period_base(...)`) sets the open
+  candle's OHLCV from one rendered period row and **leaves `_last_pushed_ts` alone**, so `push`'s
+  duplicate-bar guard still rejects a redelivered (already-counted) tick after any adoption; a
+  `drop_period_base()` clears a base that no longer belongs to the current period; a `covering_since`
+  property exposes `first_ts`. `push`'s observable contract (dedup, bucket rollover, merge, callback),
+  `period_start`, `current_bar`, `week_bucket_start`, `month_bucket_start`, `_bucket_start`,
+  `TIMEFRAME_SECONDS` and the `on_bar_update` callback contract are unchanged — `prime_aggregator`'s form:
+  contract frozen, one state field newly written.
+- `[new/changed] data/models.py` — `Bar` gains `partial: bool = field(default=False, compare=False,
+  repr=False)`; the seven existing fields keep their names, order and types. Nothing serialises it.
+- `[new/changed] services/market_calendar.py` — `first_session_open(period_start, now_ts, ext_hours) ->
+  int | None`: the first ET session open in `[period_start, now_ts]`, holiday-aware via `trading_days`,
+  `None` when no session has opened yet. `session_windows` untouched.
+- `[new/changed] ui/ticker_session.py` — `set_bars` adopts (or drops) the period base for the two
+  calendar-bucketed timeframes; `prime_aggregator` returns `False` without issuing a request when a
+  current-period base already exists (and keeps the existing `1 min`/`[60 S, 1 D]` path otherwise); the
+  per-span priming table gains the base row; `_on_aggregated_bar` stamps `partial` on the forming bar it
+  emits; a `_wall_now` seam (default `time.time()`) is wired from `MainWindow._now_ts` at **session
+  creation** (`get_or_create_session`, `ui/main_window.py:1077`, as a late-bound `lambda`) — before both
+  `set_bars` paths — so adoption's "is this the current period?" test sees the same clock the prime and the
+  cached render see, and is test-driveable.
+- `[new/changed] ui/lwc_view.py` — the marker leg only: `_partial_ts` is driven toward the forming bar's
+  state (`target = bar.ts if bar.partial else None`) on every emitting tick and inside `set_series`
+  (against the replacement's last row): `set_partial {ts, partial: true}` moves the page's one marker,
+  `set_partial {ts, partial: false}` clears it, and `update_live_bar`'s `new_period` branch is where a
+  rollover clears the just-completed candle and marks the new forming bar only if it is itself partial.
+  `set_series`, `update_bars`, `update_last_bar`, `update_live_bar` keep their signatures.
+- `[new/changed] ui/lwc_bridge.py` — `_stage` stamps a monotonically increasing sequence per op; `flush`
+  emits data ops in that order with the supersession rule, directives last; `_check_op_shape` accepts
+  `set_partial`; `apply_ops_to_bars` applies one whitespace rule in both branches.
+- `[new/changed] chart_assets/lwc/envelope.js` — `validateOp` accepts `set_partial` (int `ts`, bool
+  `partial`, no `series`/`cols`); `mergeRows` applies the whitespace rule in both branches (skip a
+  whitespace row on `set_bars`/`set_volume`, delete its time on `update_bar`), matching
+  `apply_ops_to_bars`; `validateEnvelope` and `rowsOf` unchanged.
+- `[new/changed] chart_assets/lwc/chart.js` — lifts `set_partial` before `describeOp`, keeps the marked
+  bar in page state (one time; `partial: true` moves it, `partial: false` clears it only on a match, a
+  time absent from the rows is not applied), and re-applies one `createSeriesMarkers` marker after every
+  rows application; `upsertRow` sends `{time}` only for a whitespace row; one named colour constant.
+- `[new/changed] ui/popout_window.py` — the hold latch and the closed latch; `attach`'s unwind already
+  uses the same variable, now instance-scoped.
+- `[existing]` untouched: `ui/main_window.py` (its only P25 contact is the one line at session creation
+  that wires `session._wall_now = lambda: self._now_ts()`), `services/backfill_service.py`,
+  `services/chart_model.py`, `data/bar_cache.py`, `data/db.py`, `ibkr/**`, `ui/chart_view.py`,
+  `ui/lwc_host.py`, `services/option_*.py`, `ui/option_spreads_panel.py`.
+- `[new]` test suites (no production import): `tests/test_d67_forming_candle.py`,
+  `tests/test_d68_hold_balance.py`, `tests/test_d69_d70_bridge_contract.py`; plus page-side assertions
+  added to `chart_assets/lwc/chart.test.js` (and `envelope.test.js` for the new op's shape and the fold's
+  whitespace rule).
+
+### Data Model
+
+- **`Bar`** `[new/changed]` — `symbol, timeframe, ts, open, high, low, close, volume` `[existing]`, plus
+  `partial: bool = False` `[new in P25]`. The field is **transient presentation state**: it is not written
+  by `BarCache.save_bars` (which enumerates its columns), never read by `BarCache.get_bars`, excluded from
+  equality and `repr`, and meaningful only on a forming bar. A `Bar` built anywhere else is `partial=False`
+  by default, so no existing fixture changes meaning.
+- **`_AggState`** `[new/changed]` — `symbol, timeframe, period_start, open, high, low, close, volume`
+  `[existing]`, plus `first_ts: int` `[new]` = the earliest bar folded into this candle (written as `ts`
+  where `push` creates the state, and as `period_start` when the candle was adopted from a base row).
+  Private; no persistence.
+- **Period base** `[new in P25]` — not a stored entity: the aggregator's state *when it was adopted*, plus
+  a boolean "this state came from a base" so `drop_period_base()` can distinguish "a base that no longer
+  matches the current period" from "state built by live/prime pushes". Adoption replaces the state but
+  **not** `_last_pushed_ts` — the duplicate-bar guard outlives it.
+- **Marker state (page)** `[new in P25]` — one integer (the marked bar's time, or null) in `chart.js`'s
+  closure; `partial: true` sets it (moving any previous mark), `partial: false` clears it only when `ts`
+  matches, a mark whose time is not in the current rows is not applied; rebuilt by the op log replay,
+  never persisted.
+- **`[existing]` no schema change**: `bars` keeps its columns and mode-aware PK; no migration; no settings
+  key; the pop-out latch is instance state only (the persisted pop-out record is untouched).
+
+### Integration Points
+
+- `[existing]` **TWS via `ibapi`** — the phase **issues no new request** and removes one where it was
+  misleading: for `1 week` / `1 month` with a current-period base the prime is skipped entirely, and in the
+  no-base case the existing `1 min` prime (≤ `1 D`) still runs. `(bar_size, duration)` pairs stay inside
+  the accepted set `AC-D67.3` names; the wave's own request shapes are untouched (P26/P27 own them).
+- `[existing]` **Realtime bars** — the 5-second subscription, refcount and reconnect replay are unchanged;
+  D68 changes only who releases a hold.
+- `[existing]` **LWC page over `QWebChannel`** — same envelope version, same two payloads per crossing
+  (`opsEmitted` dict + `opsJson` string), same channel envelopes; one accepted directive op is added and
+  the page must accept it before anything emits it (same wave).
+- `[existing]` **SQLite** — reads only.
+- No new external service, credential, endpoint or dependency of any kind.
+
+### Frozen Interfaces
+
+Every entry is `[existing]` and **unmodified by this phase** — what is frozen is a *signature, shape or
+constant*; where this phase changes behaviour behind one (the `first_ts` write inside `push`, `set_bars`'s
+base adoption, `mergeRows`'s whitespace rule, `prime_aggregator`'s week/month path, the pop-out pair), the
+changed part is listed under **NOT frozen**. Nothing new is frozen, and nothing under construction is
+frozen. Task Manager gives workers these contracts verbatim, never the implementation.
+
+- `data/bar_aggregator.py` — verbatim:
+  `def period_start(self, ts: int) -> int:` ·
+  `def push(self, ts: int, o: float, h: float, l: float, c: float, vol: float):` ·
+  `def current_bar(self) -> Optional[Bar]:` ·
+  `def week_bucket_start(ts: int) -> int:` (`Monday 00:00 ET`) ·
+  `def month_bucket_start(ts: int) -> int:` (`month boundary ET`) ·
+  `TIMEFRAME_SECONDS` (the ten keys and their values: `5 secs`, `1 min`, `5 mins`, `15 mins`, `30 mins`,
+  `1 hour`, `4 hours`, `1 day`, `1 week`, `1 month`). `push`'s **observable contract** is frozen as
+  written: a `ts` `<= _last_pushed_ts` is skipped; a bucket change opens a new candle and reports
+  `is_new_candle=True`; otherwise high/low/close/volume merge. One state field is newly written inside it —
+  `_AggState.first_ts = ts` at state creation, the one place a first bar's `ts` exists — the
+  `prime_aggregator` form of "contract frozen, behaviour recorded under NOT frozen". Owner:
+  `data/bar_aggregator.py`.
+- `data/bar_aggregator.py` — the callback contract, verbatim from the class docstring:
+  `on_bar_update(bar, is_new_candle)` where `bar` is the current (`possibly still open`) `Bar` with
+  `ts == state.period_start`. Owner: `data/bar_aggregator.py`.
+- `data/models.py` — the `Bar` field list in order, verbatim:
+  `symbol: str, timeframe: str, ts: int, open: float, high: float, low: float, close: float,
+  volume: float`. Names, order and types are frozen; P25 **appends** one field and changes none of them.
+  Owner: `data/models.py`.
+- `services/market_calendar.py` — verbatim:
+  `def session_windows(start_ts: int, end_ts: int, ext_hours: bool) -> List[Dict[str, int]]:` — one window
+  per ET trading day, `{"start_ts", "end_ts"}`, 04:00–20:00 ET when `ext_hours` else 09:30–16:00 ET, clipped
+  to the range, no window on a non-trading day. Owner: `services/market_calendar.py`.
+- `ui/ticker_session.py` — verbatim:
+  `def ensure_rt_subscribed(self) -> int:` (refcounted; returns the reqId; may raise `PacingExceeded`) ·
+  `def release_rt(self) -> None:` (releases one hold; unsubscribes at zero) ·
+  `def set_bars(self, timeframe: str, bars: list[Bar]) -> None:` — **signature and emit contract frozen**
+  (replaces the in-memory series, capped by `floor_bar_budget`, emits `bars_refreshed(timeframe, bars)`);
+  the base-adoption side effect inside it is this phase's change (NOT frozen) ·
+  `def get_bars(self, timeframe: str) -> list[Bar]:` ·
+  `def on_realtime_bar(self, req_id: int, ts: int, o: float, h: float, l: float, c: float, vol: float)
+  -> None:` ·
+  `def prime_aggregator(self, contract, timeframe: str, now_ts: int, extended_hours: bool,
+  retrying: bool = False) -> bool:` (signature and return contract frozen: `True` ⇒ the caller must not
+  attach the live feed yet) ·
+  `def attach_view(self, view, timeframe: str, sync: bool = True) -> None:` ·
+  `def detach_view(self, view) -> None:` — and the private `_rt_holders: int` plain-integer refcount (no
+  owner keying). Owners: `ui/ticker_session.py`; the hold pair additionally fenced by
+  `tests/test_p13_hold_fix.py`.
+- `ui/popout_window.py` — verbatim: `def attach(self) -> None:` (transactional; unwinds exactly what it
+  acquired), `def detach(self) -> None:` (releases the session and unregisters), `def closeEvent(self,
+  event) -> None:`. Signatures frozen; the *body's* release decision is this phase's fix. Owner:
+  `ui/popout_window.py`.
+- `ui/lwc_bridge.py` — verbatim: `ENVELOPE_VERSION = 1`, `COALESCE_MS = 33`, `LIVE_OPS =
+  frozenset({"update_bar"})`, `KNOWN_SERIES = frozenset({"candles", "volume"})`, `CHANNELS = ("studies",
+  "interaction", "alarms", "drawings", "overlays")`; `def send_ops(self, ops: list) -> None:` ·
+  `def flush(self):` (returns the emitted envelope, `None` when nothing is staged) ·
+  `def apply_ops_to_bars(ops) -> list:` (returns `[(ts, open, high, low, close)]` ascending, deduped) ·
+  `def replay_log(self) -> list:` (a copy, arrival order — the replay source of truth) ·
+  `def handle_page_ready(self):` · `def counters(self) -> dict:` with the existing keys
+  (`received, queued, coalesced, emitted, emissions, replays, queue_depth_max, channel_received,
+  channel_emitted, channel_replays`) — **no counter is added or renamed**. Owners: `ui/lwc_bridge.py`.
+- `ui/lwc_view.py` — verbatim: `def set_series(self, mode: str, rows: list) -> None:` ·
+  `def update_bars(self, bars: list) -> None:` · `def update_last_bar(self, bar, is_new_candle: bool) ->
+  None:` · `def update_live_bar(self, bar) -> None:`. Signatures frozen; the marker is emitted from inside
+  `update_live_bar`/`set_series`. Owner: `ui/lwc_view.py`.
+- `chart_assets/lwc/envelope.js` — the page contract, verbatim: the envelope is **exactly**
+  `{v, ops}` with `v === 1`; every data op carries column arrays — `ts`, `open`, `high`, `low`, `close`
+  for candles, `ts` and `value` for volume; `update_bar` carries single-element columns; `clear` carries no `cols`;
+  `validateEnvelope(env) -> {ok, error}`; `validateOp(op) -> string|null`; `rowsOf(op)`; `mergeRows(base,
+  ops)` (replace on `set_bars`/`set_volume`, upsert on `update_bar`, empty on `clear` — the shape and the
+  op dispatch are frozen; the fold's whitespace rule is this phase's change, see NOT frozen). Owner:
+  `chart_assets/lwc/envelope.js`.
+- `chart_assets/lwc/chart.js` — the page's published surface, verbatim: `window.lwApplyOps(env) ->
+  {applied, error}`; `window.lwSnapshot() -> {candles, volume}` where **candles/volume hold real bars only**
+  (a `{time}` placeholder is never in the snapshot). Owner: `chart_assets/lwc/chart.js`.
+
+**NOT frozen (changed or created this phase; no worker may assume the old contract):** the `Bar` field set
+(one field appended — `partial`), `BarAggregator`'s members (new adoption/coverage entry points,
+`_AggState.first_ts`), `prime_aggregator`'s **behaviour** for `1 week` / `1 month` (signature and return
+contract unchanged) and its Per-span priming table's week/month rows, `TickerSession.set_bars`'s side
+effect (base adoption — signature and emit contract frozen, above) and the new `_wall_now` seam (assigned
+at session creation), `LwChartView.update_live_bar`/`set_series` internals
+(the marker emission), `LwBridge._stage`/`_outbox`/`_live_buf`/`flush` internals and the emission order,
+`apply_ops_to_bars`'s `update_bar` branch, `envelope.js::validateOp` (one accepted kind),
+`envelope.js::mergeRows`'s **whitespace behaviour** (skip on a replace, delete on an upsert — signature and
+real-bar dispatch unchanged), `chart.js`'s `applyOps` (one lifted directive), `upsertRow`'s whitespace
+display branch and the marker colour constant, `PopoutChartWindow.detach`'s release
+decision and the new latch attributes, `tests/test_d48_mode_parity.py`'s docstring, the three new suites,
+and the `docs/codebase-map.md` P25 note.
+
+### Non-Functional Approach
+
+- **Correctness before cadence (AC-D67.1/AC-D67.2; R161).** The base is adopted at every series
+  replacement, and adoption **replaces** the aggregator state rather than adding to it, so a base can
+  never be added on top of live bars that a later fetch already counted. It also **keeps
+  `_last_pushed_ts`**: a base's data is older than the next live tick and arrival is oldest-first, so the
+  guard still rejects a redelivered bar (which the base or the replaced state already counted) while a
+  genuinely newer tick merges. Volume, high and low therefore come from exactly one source set per
+  window, which is what `AC-D67.2`'s "the aggregate of the bars actually used" measures. Work per load is
+  one dict lookup plus six float copies; per live tick the existing merge is unchanged.
+- **One visible cue, one surface (DG129/A220/R160).** The marker is a library primitive on the same series
+  — no widget, no layout, no tooltip, no second colour vocabulary. It is applied once per state change,
+  not per tick: the view emits a directive only when the forming bar's `(ts, partial)` state differs from
+  what it already marked — which is exactly what makes a period rollover move the marker off the
+  just-completed candle in the same tick that opens the new one.
+- **Pacing and requests (AC-D67.3).** With a base present the week/month prime is **not issued**, so the
+  phase removes historical requests rather than adding them; the no-base arm keeps the existing `1 min`
+  ≤ `1 D` request. Nothing sleeps on the GUI thread; no timer is added.
+- **Hold balance (AC-D68.1/AC-D68.2, R162).** The latch is written on the same line that observes a
+  successful `ensure_rt_subscribed()` and read by both release paths (`attach`'s unwind and `detach`), so
+  "acquired" and "releasable" cannot diverge; the retry path consults the closed latch before acquiring,
+  so a retry that fires after close acquires nothing.
+- **Coalescing (AC-D69.1/AC-D69.2, R163).** Staging keeps its 33 ms window and its last-tick-wins merge;
+  only the emission order and the supersession rule change. Cost is one integer per op and one sort over a
+  handful of ops per window.
+- **Determinism and testability (AC-D70.1/AC-D70.2/R164).** The parity assertion is not a second
+  implementation: the same op list is fed to `apply_ops_to_bars` and, in `node --test`, to the real
+  `lwApplyOps` + `lwSnapshot()`. The page's own fold (`mergeRows`) applies the same whitespace rule, so the
+  comparison is meaningful for an upsert **and** for a replace. Equality of the two is the property the
+  replay check exists to protect.
+- **Security / privacy / ops.** No new I/O, credential, endpoint, order path or persistence; the marker
+  carries a timestamp and a boolean only (no string reaches the page); no migration; the pacing manager,
+  reconnect replay and line guard are untouched.
+
+### Architecture Risks
+
+| Risk | Severity | Likelihood | Mitigation |
+|---|---|---|---|
+| AR-P25-1 — the base and the live tail double-count, producing a *new* wrong candle (R161) | H | M | adoption replaces the state (it never adds to it) **and preserves `_last_pushed_ts`**, so a redelivered bar cannot be folded in twice; `AC-D67.2`'s "exactly the aggregate of the bars actually used" fixture (base + N live bars, volume asserted against the sum of the two disjoint sets) plus the D67 suite's replay-guard case; the prime is not issued on top of a base |
+| AR-P25-2 — the marker is invisible in practice (a 1-pixel dot on one candle) and the criterion is satisfied by an op nobody can see | M | M | the node assertion runs the real `lwApplyOps` and reads back the marker set (time, position, colour, one entry); the colour is asserted distinct from the up/down candle colours; G1 names the rendered result as the owner's check |
+| AR-P25-3 — the page rejects the envelope the bridge now emits (`set_partial` before `validateOp` knows it), so **no bars render at all** | H | M | the page acceptance and the first emitter are one wave (P25-01) and its exit condition runs the page suite; `validateOp` is asserted directly in `envelope.test.js` |
+| AR-P25-4 — the base is adopted but never refreshed, so a stale period row is presented as complete | M | M | adoption runs on every `set_bars` (cached load, every wave chunk, finalise); the wave's chunk path re-adopts from the freshly persisted series; the boundary (a base's *tail* is not proved) is recorded in *Assumptions* rather than hidden |
+| AR-P25-5 — the D69 supersession rule silently drops an update that mattered (R163) | M | M | only ops with a **smaller** sequence than a **later full replace of the same series** are dropped; `AC-D69.2` counts survivors; the reverse-order case and the `clear`-then-update case are separate fixtures |
+| AR-P25-6 — the D69 reorder changes a viewport/landing expectation elsewhere in the suite (P11/P18/P21 depend on envelope content and order) | M | M | the ops set is unchanged except superseded ones; the frame still rides last; the wave's exit condition runs `test_lwc_*`, `test_d57_*`, `test_d60_*`, `test_d63_*`, `test_p11_*` explicitly and names any re-baselined expectation in its result |
+| AR-P25-7 — D70's parity is asserted against a hand-written JS mirror instead of the page, so the check lies (R164) | M | L | parity is run through `node --test` against `chart.js`'s own `lwApplyOps`/`lwSnapshot` (the same route `test_d57_*` already uses), never against re-implemented JS |
+| AR-P25-8 — the phase is read as "retune the wave" and the D67 fix grows a fetch or a pacing change | M | M | P25-01's do-not list forbids `services/backfill_service.py`, the pacing manager, and any new request; AC-D67.3 is asserted on issued tuples, and P26/P27 own the wave |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P25-1 | **The `1 week` / `1 month` forming candle is based on the rendered current-period row, not on a 24-hour prime.** `BarAggregator.adopt_period_base(...)` sets the open candle's `period_start`, `open`, `high`, `low`, `close`, `volume` from the series' last row when that row's bucket equals the current period, records `first_ts = period_start`, and **leaves `_last_pushed_ts` untouched** — preserving the duplicate-bar guard, because a base's data is older than the next live tick and arrival is oldest-first, so the guard only rejects a bar the base (or the state it replaced) already counted, while a genuinely newer tick merges; `drop_period_base()` clears an adopted state that no longer matches the current period (so a stale base can never be re-applied over fresher wave rows). Adoption runs inside `TickerSession.set_bars` — the one choke point every replacement already goes through (initial cached render, per-chunk persist-and-render, finalise) — for the two calendar-bucketed timeframes only, and the `_wall_now` seam is assigned at session creation so every one of those paths reads the same clock the prime receives. `prime_aggregator` returns `False` without issuing a request when a current-period base exists (the caller then attaches the live feed, exactly as at a period boundary); without a base it keeps the existing `1 min` / `[60 S, 1 D]` clamp. A live bar in a later period opens a new candle through `push`'s existing bucket-change branch, so the completed period's row is never duplicated. Rationale: the row is IBKR's own server-side aggregation of the open period (not a client window), it is already what the chart shows, and it is what the wave persists on every load — the only source that satisfies `AC-D67.1`'s open/high/low/close/volume statements at 1-minute granularity, which the priming path cannot reach. **A222 holds by construction, not by a merge rule:** with a base present no prime is issued at all, so there is no seed-plus-fetch overlap to de-duplicate; the base is one timestamped row, adoption replaces the state rather than adding to it, and live pushes keep `push`'s existing `ts <= _last_pushed_ts` dedup (safe because arrival is oldest-first, verified 2026-11-19). Alternative: enlarge the prime (rejected — `AC-D67.3` caps the `1 min` arm at `1 D`, and the verified `2 D`/`7 D` rejections make the arm unavailable); aggregate from finer cached bars (rejected — per-timeframe cache, mode-mixing risk, R161); a coarser-bar fetch (rejected — Q119(c) requires a TWS-proved combination and none is proved; the default then falls to the marker arm); leave the prime and add the base on top of it (rejected — double-counted volume, which is the defect wearing a different hat). | `[new in P25]` — implements `AC-D67.1`, `AC-D67.3`, A222 |
+| S-P25-2 | **The partial marker is one series marker on the forming candle, carried by one directive op.** Python emits `{"op": "set_partial", "ts": <int>, "partial": <bool>}` — a non-series directive beside the existing `set_visible_range`, accepted by `_check_op_shape`, ignored by `apply_ops_to_bars`, ordered after the data ops. `chart.js` lifts it before `describeOp`, stores one marked time, and re-applies a single `createSeriesMarkers(candleSeries, [...])` entry (`position: "aboveBar"`, `shape: "circle"`, one named colour constant distinct from the up/down colours) after every rows application, so a replace, a replay and a re-render all restore it (a mark whose time is not in the current rows is not applied). `partial: true` sets the marked time — moving any previous mark — and `partial: false` clears it only when `ts` equals it; the view drives that transition toward `(forming ts, forming.partial)` on every emitting tick, which is what clears the just-completed candle on a period rollover and marks the new forming bar only if it is itself partial, and `set_series` re-states the replacement's last row in the same op batch. Rationale: DG129 sanctions a per-candle visual treatment on the same series and one named surface; a marker changes no value, adds no widget, and is observable in both directions (the op in Python, the marker in the page under `node --test`). Alternative: a warm/bordered candle body (rejected — per-bar colour would change the data op's column set, i.e. the wire shape, and reads as a value treatment); a status-line word (rejected — not on the candle, disappears with the next message); hiding the candle (rejected — Q119's default keeps the live price); a new channel envelope (rejected — the bar path's envelope contract is pinned by `test_lwc_page_wiring.py`). | `[new in P25]` — implements `AC-D67.2`, A220, DG129 |
+| S-P25-3 | **Coverage is one comparison against the period's first session open, and the flag rides the existing bar.** `services/market_calendar.py::first_session_open(period_start, now_ts, ext_hours)` returns the first ET session open in `[period_start, now]` (holiday-aware via `trading_days`, `None` before any session opens). `TickerSession._on_aggregated_bar` stamps `partial = agg.covering_since > first_open` on the forming `Bar` it already emits (only for `1 week` / `1 month`; every other timeframe stamps `False`), using the load's `_wave_extended_hours` so RTH and ETH are never mixed (A221). The flag travels on `Bar.partial` — transient, `compare=False`, never persisted — so **no new signal, no new slot, and no signature change** on `bar_updated` (which `ui/main_window.py`, both pop-outs and the alarm monitor all connect). A base-backed candle has `covering_since == period_start`, i.e. covered; a prime/live-only candle is covered exactly when its first bar is at or before the period's first session open ("the period begins today" case). The private clock seam `_wall_now` (default `time.time()`, assigned at session creation from `MainWindow._now_ts` — `get_or_create_session`, before both `set_bars` paths) makes "the current period" test-driveable, including under `tests/test_d48_mode_parity.py`'s patched `_now_ts`. Rationale: this answers AC-D67.2's question (is the period's head in the candle?) with one integer comparison, needs no gap arithmetic (a no-trade minute is not a hole), and keeps the defect's second half — a silent marker-less candle — impossible to reintroduce by adding a signal someone forgets to connect. Alternative: a new `forming_partial` signal per view (rejected — four connect sites and a slot per view, for a boolean that already rides the bar); a separate `partial_timeframes` set on the session (rejected — duplicate state that can drift from the aggregator); counting expected vs actual bars (rejected — a halt would read as missing data). | `[new in P25]` — implements `AC-D67.2`, A221, DG129 |
+| S-P25-4 | **A pop-out releases at most the hold it acquired — a pop-out-local latch, session API frozen.** `PopoutChartWindow` keeps `self._hold_acquired` (written only where `ensure_rt_subscribed()` returned, cleared where it is released) and `self._closed` (set by `detach`, consulted by `_retry_rt_subscribe` before it acquires). `attach`'s unwind reads the same instance attribute instead of the local, `detach` releases only when it is set, and a retry that fires after close acquires nothing. `TickerSession.ensure_rt_subscribed` / `release_rt` / `_rt_holders` are untouched. Rationale: the defect is that `detach` does not consult the acquisition state the attach path already tracks (D68's own words); and `tests/test_p13_hold_fix.py` fences the session's shape — `["self"]` parameters, no `acquire_rt`, no `release_rt_for`, no `_rt_owners` — so an owner-keyed refcount would fail a shipped test. Alternative: owner-keyed session holds (rejected — the P13 fence, and it would re-open D49.5); releasing in `closeEvent` only when a retry timer exists (rejected — the timer is not the acquisition); making `release_rt` clamp at the number of attached views (rejected — session state guessing on behalf of an owner). | `[new in P25]` — implements `AC-D68.1`, `AC-D68.2`, A223; `[extends P13: D49.2's transactional attach pattern]` |
+| S-P25-5 | **Staging keeps arrival order; one full replace per series wins; directives stay last.** `_stage` assigns a monotonically increasing sequence to every accepted op and stores `(seq, op)`: live ops in `_live_buf[(series, ts)]` (last-tick-wins keeps the newest seq, counting a coalesce as today), everything else in `_outbox`. `flush` builds one list, then (i) for each series keeps only the **last** full-replace op (`set_bars` / `set_volume` / `clear`) and drops that series' ops with a smaller sequence, (ii) emits the survivors in ascending sequence, (iii) appends the non-series directives (`set_visible_range`, `set_partial`) in arrival order. `_op_log` and therefore every replay keep plain arrival order and full fidelity. Rationale: the defect is an arbitrary concatenation of two buffers; ordering by arrival fixes the stale-update-after-replace case at its cause, preserves P18's frame-after-rows rule by kind rather than by luck, and makes `AC-D69.2`'s "no series emitted twice" true by construction (a series can carry exactly one replace per window). Alternative: emit the live buffer **before** the outbox (rejected — inverts the same bug, and a `update_bar` → `set_bars` window would then apply the stale update last); drop every live op whenever a replace is staged (rejected — a newer update that arrived after the replace would be lost); per-series FIFOs (rejected — more state for the same guarantee); put the sequence on the op dicts (rejected — `_op_log` shares those dicts and the page would see an unknown key). | `[new in P25]` — implements `AC-D69.1`, `AC-D69.2`, A224 |
+| S-P25-6 | **Whitespace is not a bar in either branch, on either side, and the parity is proved against the page.** Python: `apply_ops_to_bars`'s `update_bar` branch stops writing a row whose `close` is `None` and **removes** that timestamp if present (`by_ts.pop(ts, None)`); the `set_bars` branch keeps its `if c is not None` filter, so one rule governs both. Page: `envelope.js::mergeRows` applies the same rule — the `set_bars`/`set_volume` branch **skips** a whitespace row and the `update_bar` branch **deletes** that time (candles test `open`/`close`, volume tests `value`) — and `chart.js::upsertRow` sends `{time}` only to the library for a whitespace row, never a null-valued point; `applyRows`/`seriesRows`/`barRows` and `lwSnapshot()` are unchanged. The parity runs the same ops through `apply_ops_to_bars` and, in `node --test`, through the real `lwApplyOps` + `window.lwSnapshot()`, over both the whitespace `update_bar` fixture and the whitespace-row `set_bars` fixture. Rationale: `AC-D70.1` requires **both** "the series contains no row for that timestamp" **and** "the result equals the page's merge" — the page's fold was the outlier, so the fold had to move, not the criterion (re-stating it would be a requirements change); and `mergeRows` is not the display fold (`applyRows` renders through `seriesRows`/`barRows`), so the change costs no gap slot. Alternative: leave the page as-is and relax the parity (rejected — contradicts the criterion's first clause and the glossary's "not a bar"); filter only `upsertRow`'s snapshot (rejected — the fold would still disagree and the criterion names the merge); edit `barRows`/`seriesRows` (rejected — the replace path already agrees and the display slots must survive); treat the update branch as "documented differently" (rejected — the docstring already says skipped; the code is the outlier). | `[new in P25]` — implements `AC-D70.1`, `AC-D70.2`, A224, R164 |
+
+### Quick-lane folds (from `docs/pending_doc_sync.md`, folded 2026-11-19)
+
+Two quick-lane changes landed between P24 and P25 and were never folded into the canonical docs. Both
+describe shipped behaviour this phase's sites depend on; the file is deleted after this fold (nothing here
+changes a P25 decision).
+
+- **Q-76 — expiry rendering (`services/option_ladder.py`, `_format_expiry`).** An IB chain expiry arrives
+  as a compact `YYYYMMDD` string (`20261119`) and some callers pass ISO (`2026-11-19`); both now render
+  `MmmDD` with a **non-zero-padded day** (`Nov19`), exactly like a `date`/`datetime`. A string that parses
+  as neither is returned verbatim, so a deliberately pre-formatted `Nov17` still passes through.
+  `format_instrument`'s signature and output shape (`SPX Nov19 7325/7305`) are unchanged, so P24's
+  `AC-D66.1` name regex still holds — the change removes the requirement that a caller pre-format the
+  chain's expiry before calling the formatter. (P24's "do not edit `_format_expiry`" line was that phase's
+  scope rule, not a standing prohibition; this is recorded as delivered behaviour, not as a P25 edit.)
+- **Q-77 — silence-retry bound (`ui/ticker_session.py`, `silence_retry_bound_s`).** The bound is
+  **shape-aware**, not one constant: `90 s` for `bar_size == "1 min"` with a duration of at least `30 D`,
+  `30 s` for every other or unrecognised shape, parsed by the pure `_duration_in_days` helper (unknown
+  units ⇒ default, never a guess). Measured reason, recorded so the flat 30 s is not "restored": a `30 D` /
+  `1 min` SPX request delivers its first bar at ~42.5 s while the same span at `5 mins` answers in ~0.1 s,
+  and the old fixed bound cancelled healthy requests (162 acks, then a shortfall). Consequence for P25:
+  a **wave** request of `30 D` / `1 min` completes, so D67's fix is motivated by `AC-D67.3`'s cap on the
+  **priming** request and by the prime's own `1 D` clamp — not by a claim that 1-minute bars cannot span
+  more than a day in any path. P25 neither retunes the bound nor widens a wave.

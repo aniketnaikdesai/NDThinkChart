@@ -184,3 +184,8 @@
 - **Gap/opportunity:** Q110(a) replaces the Portfolio panel with Option Spreads, and the owner's no-unused-code rule then deletes the whole account/position stack with it (A198/A200) — so the app shows **no** positions, P/L or account summary anywhere. If the owner misses that view, it has to come back as a deliberate feature rather than by keeping dead code alive.
 - **Why not in the original ask:** the owner asked for the right dock to become Option Spreads and chose "replace" over a tab; per the same rule, a view with no home cannot be parked "for later".
 - **Suggested priority:** low (revisit only if the owner asks; the cheapest shape is a read-only tab that re-establishes `reqPositions` + a table, with no order surface)
+
+## FS27 — Deliberate multi-instance support (two independent windows on one machine)
+- **Gap/opportunity:** D95 adds a single-instance guard because two processes sharing the user-space database can duplicate pop-out rows and contend on the write lock. That guard also removes a capability nobody asked about: running a second window (e.g. charts on one monitor, the option ladder on another) against the same TWS session.
+- **Why not in the original ask:** the owner never asked for a second instance; the finding was about corruption risk, and a guard is the minimal correct answer. A supported multi-instance mode is a different product decision with its own data-partitioning work (separate DBs, or a single writer with a reader mode).
+- **Suggested priority:** low (only if the owner actually wants two windows; the guard is removable in one line if a supported design ever exists)

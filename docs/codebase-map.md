@@ -521,10 +521,41 @@ and `tests/test_d65_acceptance_record.py` are untouched. **Selection:** add
 the fence suite (and `test_d65_option_panel`) to the option-modules row below so a future change to
 `services/option_ladder.py` selects the whole D65/D66 set.
 
+**P25 note (2026-11-19) — D67–D70: four silent-wrong-data defects, no new module.** Skeleton re-run
+2026-11-19 for HEAD `94d6119` (**274 code files, 23 test-impact rows** — drift since P24 is test modules
+only). **No new production module, no dependency, no migration, no wire-version bump.** `[changed in P25]`
+edits land in place: `data/bar_aggregator.py` (period base adoption, `_AggState.first_ts`, `covering_since`
+— `push`'s observable contract unchanged, it records `first_ts` at state creation;
+`period_start`/`current_bar` byte-identical; the replay guard survives adoption), `data/models.py` (one
+transient `Bar.partial` field, `compare=False`, never persisted), `services/market_calendar.py` (added
+`first_session_open` beside `session_windows`), `ui/ticker_session.py` (base adoption in `set_bars`,
+week/month prime suppressed when a base exists, `partial` stamped on the forming bar, a `_wall_now` clock
+seam), `ui/lwc_view.py` (marker leg: driven toward the forming bar's `(ts, partial)`, moved on a rollover),
+`ui/lwc_bridge.py` (sequence-stamped staging → arrival-ordered emission, `set_partial` accepted, one
+whitespace rule in `apply_ops_to_bars`), `ui/popout_window.py` (pop-out-local RT-hold latch + closed latch —
+`TickerSession` hold API untouched, per `tests/test_p13_hold_fix.py`), and the two page assets
+`chart_assets/lwc/envelope.js` / `chart.js` (the `set_partial` directive + one `createSeriesMarkers` marker,
+and D70's whitespace rule in the page's fold — `mergeRows` skips/deletes a whitespace row, `upsertRow`
+sends `{time}` only). `ui/main_window.py` changes by **one line** (wiring
+`session._wall_now = lambda: self._now_ts()` at session creation, before any `set_bars`). **`[existing]`
+unchanged:** `services/backfill_service.py`, `ibkr/**`, `data/bar_cache.py`, `data/db.py`,
+`services/chart_model.py`, `ui/lwc_host.py`, `ui/chart_view.py`, the option stack. **Tests:**
+`[changed in P25]` — `tests/test_d48_mode_parity.py` (one docstring sentence: a week/month load with a
+current-period bar now primes nothing); **new** — tests/test_d67_forming_candle.py,
+tests/test_d68_hold_balance.py, tests/test_d69_d70_bridge_contract.py, tests/test_p25_fence.py, plus
+node cases in `chart_assets/lwc/chart.test.js` / `envelope.test.js`. **Selection:** a change to
+`ui/lwc_bridge.py` should select the whole envelope set (`test_lwc_bridge`, `test_lwc_time_parity`,
+`test_lwc_page_wiring`, `test_lwc_drawings`, `test_lwc_alarms`, `test_p7_w1_coalesce`, `test_d57_*`,
+`test_d60_*`, `test_d63_crosshair_free`, and the three new P25 suites); a change to
+`data/bar_aggregator.py` or `ui/ticker_session.py` should select `test_bar_aggregator`,
+`test_d27_aggregator_priming`, `test_d48_data_plane`, `test_d48_gate`, `test_d48_mode_parity`,
+`test_p7_w4_streaming`, `test_p13_hold_fix`, `test_p13_attach`, `test_d24_popouts`, `test_lwc_popouts` as
+well as their generated rows.
+
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
-- (root)/ — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
+- (root) — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
 - `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, follow_offset.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, tz_format.test.js, volume_scale.test.js
 - `config/` — __init__.py, paths.py, settings.py
 - `data/` — __init__.py, alarm_store.py, bar_aggregator.py, bar_cache.py, db.py, db_backup.py, drawing_store.py, models.py, popout_store.py, study_store.py
@@ -532,7 +563,7 @@ the fence suite (and `test_d65_option_panel`) to the option-modules row below so
 - `packaging/` — __init__.py
 - `services/` — __init__.py, alarm_monitor.py, alarm_service.py, backfill_service.py, chart_model.py, contract_lookup_service.py, drawing_service.py, gap_vix_service.py, ict_service.py, indicator_service.py, market_calendar.py, md_line_guard.py, option_ladder.py, option_spread_engine.py, session_service.py, sound_service.py, symbol_search.py, time_collapse_service.py, volume_baseline.py
 - `spikes/lwc/` — spike_probe.py
-- `tests/` — conftest.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_aggregator_priming.py, test_d27_backfill_granularity.py, test_d27_et_anchoring.py, test_d27_phantom_alarms.py, test_d27_reconnect.py … (+157 more)
+- `tests/` — conftest.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_aggregator_priming.py, test_d27_backfill_granularity.py, test_d27_et_anchoring.py, test_d27_phantom_alarms.py, test_d27_reconnect.py … (+158 more)
 - `ui/` — __init__.py, add_symbol_dialog.py, alarm_dialog.py, alarm_edit_dialog.py, chart_controls.py, chart_mouse_router.py, chart_view.py, dock_layout.py, drawing_groups_dialog.py, drawing_settings_common.py, drawing_tools.py, horizontal_line_settings_dialog.py, lwc_bridge.py, lwc_host.py, lwc_view.py, main_window.py, option_spreads_panel.py, popout_window.py, studies_dialog.py, ticker_session.py, toast.py, visual_conventions.py, watchlist_panel.py, zone_settings_dialog.py
 - `ui/overlays/` — __init__.py
 
@@ -564,5 +595,5 @@ the fence suite (and `test_d65_option_panel`) to the option-modules row below so
 
 ## Graph summary (generated)
 
-- graphify-out/graph.json: 8497 nodes, 18172 edges
+- graphify-out/graph.json: 9033 nodes, 19477 edges
 <!-- MAP-SKELETON:END -->

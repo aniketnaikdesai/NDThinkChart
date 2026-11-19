@@ -1720,3 +1720,57 @@ history of the choice.
 - **Why it matters:** after P24, both statements are false for PCS. A stale invariant in a comment is how the next change gets built on the wrong model — and the P23 slice carried the same sentence, which is exactly what this phase had to revise in five places. Leaving the code comment behind repeats the defect at the source.
 - **Suggested resolution:** change the comment/docstring in the same edit as the table (one per-side table, named), and let `AC-D66.2`'s test names carry the per-side rule. No behaviour.
 - **Status:** open (non-blocking; cosmetic-but-mandatory alongside the delta — a stale comment contradicts the shipped rule).
+
+## DG128 — P30 / D101: a test contract that certifies an unreachable surface is worse than no contract
+- **Where it shows up:** Phase P30 / D101 / `AC-D101.3`; `ui/chart_controls.py`, `chart_assets/lwc/interaction.js::mountControls`, `tests/test_lwc_router_mirror.py`.
+- **Why it matters:** the control ids, the router transitions, the refusal reporting and the Python signals are all asserted, so the suite says "the controls work" while the running app has no controls at all. That is not a gap in the feature — it is a gap in the **evidence**: the mirror tests prove two code surfaces agree with each other, never that either is reachable. Any future control added the same way inherits the blind spot.
+- **Suggested resolution:** the criterion is reachability, not agreement — join the mirror's ids to a live page (restore arm) or prove the absence of every id across page, Python and tests (delete arm). If the cluster is restored, add the reachability join as the permanent guard so this cannot silently recur.
+- **Status:** **resolved 2026-11-19 — Q118 = RESTORE.** `AC-D101.3` now enforces the restore arm (every mirror id reachable in the running page, no test-only control surface), and `AC-D101.2`/`AC-D101.5` close the two halves of the same blind spot: the refused `aria-pressed` path and the page→Qt `handle_control` call that only tests ever made. The evidence gap itself is kept here as the reason the criteria are reachability-based rather than agreement-based.
+
+## DG129 — P25 / D67: the chart has no established vocabulary for "this candle is incomplete"
+- **Where it shows up:** Phase P25 / D67 / `AC-D67.2`; A220.
+- **Why it matters:** the partial marker is required to be *visible* and *non-numeric*, but the chart's visual conventions were built for bands, strikes, offsets and alarm lines — none of them says "incomplete data". A new badge, tooltip or icon invented per phase is exactly the accretion the phase's non-goals forbid, and an invisible marker would satisfy the letter of the criterion while leaving the defect (a candle that looks complete) in place.
+- **Suggested resolution:** express it with what already exists — a per-candle visual treatment on the forming candle (the same series, no new widget), or, failing that, the existing status/indicator wording that already distinguishes "partial" from "complete" (`AC-D53.3`). If a genuinely new cue is needed, it is recorded as a design decision with one named surface, not a family.
+- **Status:** open (non-blocking — `AC-D67.2` is the gate; the mechanism is Plan's, the constraint is "one cue, on the candle").
+
+## DG130 — P26 / D72: "parked" is a third wave state that the existing indicator cannot say
+- **Where it shows up:** Phase P26 / D72 / `AC-D72.1`; the D53 indicator's vocabulary (in-flight / queued / elapsed / reqIds).
+- **Why it matters:** after the fix a cap-yielded wave must be distinguishable from an in-flight wave and from a stalled one, or the user reads "backfilling…" while nothing is happening. The D53 surface has slots for counts and elapsed time but no state word, so "parked" risks being expressed as a zero in-flight count — indistinguishable from "about to issue".
+- **Suggested resolution:** extend the indicator's **state vocabulary** (a state field with parked/in-flight/stalled), not its widget. No new surface, no new window; the same label carries the word.
+- **Status:** open (non-blocking; `AC-D72.1` asserts the parked state is reported, leaving the exact wording to Plan).
+
+## DG131 — P26 / D71: all-or-nothing replay is global, so one budget can starve another entry type
+- **Where it shows up:** Phase P26 / D71 / `AC-D71.1`, A225.
+- **Why it matters:** making the pass all-or-nothing across a registry that mixes realtime-bar slots with market-data interval gating means a saturated market-data budget defers *every* reissue, including realtime bars that are not gated. That is the correct reading of the documented contract, but it is a behaviour someone will later read as a bug ("the chart's RT bars didn't come back because an option leg was throttled") and "fix" by splitting the pass — which would reintroduce the partial replay the contract exists to prevent.
+- **Suggested resolution:** keep the global pass, order the reissues deterministically (e.g. by registration order) and **record the coupling** in the phase and in the class docstring: a deferred pass is one deferral for the whole registry, by design. If per-type progress is ever wanted, it needs its own requirement, not a quiet change to this one.
+- **Status:** open (non-blocking; a documentation-and-decision-capture gap, not a criterion gap).
+
+## DG132 — P28 / D86: the skip path can repeat forever with no in-app repair
+- **Where it shows up:** Phase P28 / D86 / `AC-D86.1`; the retired-tables migration.
+- **Why it matters:** "skip the drop and start" is the correct failure behaviour, but if the backup cannot be verified on every launch (read-only directory, disk full), the app starts every time and *never* completes the migration — with one message per launch. Nothing in the app can resolve it, and nothing says whether the leftover tables are harmful (they are inert, but a reader cannot tell).
+- **Suggested resolution:** the message names the backup path and the cause, and states that the retired tables are inert and the next successful launch will drop them. No "force drop" affordance may be added (it would bypass the verified-copy contract). If a repair path is ever wanted, it is a new requirement.
+- **Status:** open (non-blocking; A235 fixes the rule, the wording is Plan's).
+
+## DG133 — P29 / D97: "touched" is a third alarm state the model does not carry
+- **Where it shows up:** Phase P29 / D97 / `AC-D97.1`; `services/alarm_service.py::evaluate_alarms` (stateless function of `prev`, `curr`, `alarm`).
+- **Why it matters:** touch-then-cross means an alarm can be "armed by a touch, waiting for a directed move". If that state is stored (`touched_at`), the alarm model grows a field and persistence changes; if it is derived (from `prev == level`), the rule must be expressible in one comparison per direction or the evaluator stops being a pure function.
+- **Suggested resolution:** keep it derived — a touch is `prev == level`, and the crossing tests become "previous on the level or strictly before, current strictly beyond, in the alarm's direction". No stored state, no schema, deterministic.
+- **Status:** open (non-blocking; `AC-D97.1`/`AC-D97.2` pin the behaviour, the mechanism is Plan's).
+
+## DG134 — P29 / D99: the page-ready transition has two delivery mechanisms and no defined overlap rule
+- **Where it shows up:** Phase P29 / D99 / `AC-D99.1`; `LwBridge.set_ready` (queue drain) and `handle_page_ready` (full-log replay).
+- **Why it matters:** the bar path drains and replays; the channel path deliberately drops its queue because the log covers it. Two mechanisms, two different rules, and the bar path's duplication is the one that leaked. Anyone touching either path needs to know which is authoritative for "what the page has", or a future change will re-double one of them.
+- **Suggested resolution:** state the contract once — "the replay log is the single full-state source; a transition delivers each op at most once, and a queued op is either subsumed by the log or emitted before it, never both". Make the bar path follow the channel path's rule.
+- **Status:** open (non-blocking; `AC-D99.1`/`AC-D99.2` assert the outcome, the contract wording belongs in the module docstring beside the code).
+
+## DG135 — P27 / D78: two timers own one job (the prime backstop and the deferred retry)
+- **Where it shows up:** Phase P27 / D78 / `AC-D78.1`; `TickerSession._prime_timer` and the retry's `QTimer.singleShot`.
+- **Why it matters:** the defect is not just a wrong number — it is that the prime's completion is governed by two independent timers whose interplay is undefined, so every later change to either can silently disable the other (which is what happened). A single owner is the structural fix; anything else leaves the same class of bug.
+- **Suggested resolution:** one owner. Either the backstop is armed for the retry's own deadline (so it can never precede it), or the retry is removed and the backstop is the only path (A231). The other timer's code goes in the same change.
+- **Status:** open (non-blocking; `AC-D78.1`'s "no pending retry that cannot run" is the gate).
+
+## DG136 — P28 / D92: the app's self-description has no single owner
+- **Where it shows up:** Phase P28 / D92 / `AC-D92.1`; the window title, `config/settings.py::check_live_port`'s message, `usage.md`, `USAGE.txt`.
+- **Why it matters:** four places describe what the app is, and they drifted independently as the order path was removed (D45/D46). A fix that corrects three leaves the fourth contradicting them, and nothing tests the class of claim.
+- **Suggested resolution:** name the owner of each string in the phase (title → the window; guard message → the settings module; guides → the docs), assert the exact strings where they are produced, and add a narrow grep criterion for the retired claim ("trades live only") so the class cannot come back in a fifth place.
+- **Status:** open (non-blocking; `AC-D92.1` is the gate, the ownership split is Plan's).
