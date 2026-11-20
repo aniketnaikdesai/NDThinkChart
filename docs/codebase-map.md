@@ -206,7 +206,10 @@
 > **no new production module** and no new dependency, migration or settings key, so the generated index
 > is structurally unchanged (the skeleton is re-run at the phase's start as usual). Every change lands
 > in existing files in place: `services/backfill_service.py` (one plan per request identity, no plan for
-> an empty span, half-open session windows with the `now` cap inclusive, one 1.5-period gap threshold),
+> an empty span, half-open *window membership* in the bar-level gap pass with the `now` cap inclusive —
+> day presence (`present_days`) keeps its inclusive close, because `1 day` bars are stamped at the
+> session close and a half-open presence test re-requests the whole daily history every load — and one
+> 1.5-period gap threshold),
 > `ui/ticker_session.py` (the prime's deferral backstop is derived from the retry's own deadline; the
 > pre-issue refund branch and the `_history_req_issued` ledger are deleted), `ibkr/pacing.py` (the gate
 > can be consulted without stamping; the inexact refund is deleted), `ibkr/market_data.py` (gate before

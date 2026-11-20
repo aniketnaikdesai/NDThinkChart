@@ -7692,6 +7692,8 @@ by P17 (Task Manager gives workers the contract, never the implementation):
   mark_history_request_issued(self, req_id: int) -> None` flips `req_id` into
   `_history_req_issued` (post-issue cancel keeps its slot). Seam unchanged; the retry
   path relies on it for both the cancelled and the re-issued reqId.
+  **[superseded by P27 — S-P27-5; see § Phase P27]** (the symbol is deleted; its
+  issue-time last-activity stamp is already made by `_register_history_request`).
 - `data/bar_cache.py::BarCache.save_bars` — `INSERT OR REPLACE` on the mode-aware
   `(symbol, timeframe, ts)` PK. Idempotency contract unchanged; it is what makes the
   identical re-fetch safe.
@@ -10861,6 +10863,9 @@ workers these contracts verbatim, never the implementation.
   `def historical_wait_seconds(self) -> float:` · `def record_historical_slot(self) -> None:` ·
   `def refund_historical_slot(self) -> bool:` · `def reset_for_tests(self) -> None:` ·
   the singleton `pacing_manager`. Owner: `ibkr/pacing.py`.
+  **[superseded by P27 — S-P27-5; see § Phase P27]** (`refund_historical_slot` is
+  deleted). **[superseded by P27 — S-P27-4; see § Phase P27]** (`throttle` gains one
+  keyword-only `stamp` parameter and a boolean return; its default path is unchanged).
 - `ui/ticker_session.py` — verbatim:
   `def per_load_historical_cap() -> int:` (body frozen: max(1, int(settings.MAX_HISTORICAL_PER_600S) // 4)) ·
   `def queue_wave_plans(self, plans, contract, timeframe: str, extended_hours: bool) -> None:` ·
@@ -10883,6 +10888,8 @@ workers these contracts verbatim, never the implementation.
   `def mark_history_request_issued(self, req_id: int) -> None:` · `def register_history_request(self, req_id: int) -> None:`.
   Owner: `ui/ticker_session.py`. `_wave_may_complete`'s definition is frozen — the park is expressed
   beside it, never by redefining it.
+  **[superseded by P27 — S-P27-5; see § Phase P27]** (`mark_history_request_issued` is
+  deleted with the `_history_req_issued` ledger).
 - `ui/main_window.py` — verbatim:
   `def _replay_subscriptions(self):` ·
   `def _finalize_stranded_history_wave(self, session: TickerSession, reason: str = "") -> bool:` ·
@@ -10983,13 +10990,16 @@ frozen) and `_teardown_session`'s merge; the four new suites and the `docs/codeb
 > Companion: `docs/plan.md` § *Phase P27* (traceability, four waves, assumptions, flagged issues).
 > Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P27
 > (D77–D83), Journeys 71–73, `AC-D77.1`–`AC-D83.2`**, A230–A234, R170–R174, `design_gaps.md` **DG135**.
-> **Baseline: HEAD `70b16f2`** (P26 build complete, tree clean at drafting time). Existing-repo run:
-> every item below carries `[existing]`, `[new]` or `[new/changed]`; every decision carries
+> **Baseline: HEAD `623809e`** (revised 2026-11-19: `70b16f2` → `bda354f` (P26's `ESC-129` rework, whose
+> only production edit is `ibkr/pacing.py`'s empty-batch semantics) → `d56a97f` (P26 close-out records) →
+> `623809e` (Q-80: a test-only clock freeze in `tests/test_d28_3_historical_pacing.py`)). Existing-repo
+> run: every item below carries `[existing]`, `[new]` or `[new/changed]`; every decision carries
 > `[new in P27]`, `[revises P<m>: …]` or `[extends P<m>: …]`. Sizes S/M only; **no new production
 > module, no new dependency, no migration, no settings constant, no pacing-constant retuning.**
 > Verification note: the P27 verification cache had no surviving entries for the six files surveyed
 > (`verify_cache.py check --phase P27` → `new`/`changed`), so every site below was read directly in the
-> working tree at `70b16f2`.
+> working tree, and re-read at `623809e`; `throttle`/`generic_batch` were re-checked against the
+> `ESC-129` rework, which is why S-P27-4 states the batch contract as `n ≥ 1`.
 
 ### Relationship to prior phases
 
@@ -11002,11 +11012,19 @@ Seven defects, four rules, stated once so nothing is silently revised:
   "newest chunk first". The **detector** (`find_missing_spans`) deliberately keeps overlapping spans:
   the floor span and the presence span are different *reasons* for coverage, and collapsing them there
   would lose the floor's earlier start (its whole purpose, S17).
-- **`[new in P27: one gap threshold and half-open windows]`** — `_bar_level_missing_spans` tests window
-  membership with `ws <= t <= bound` (inclusive close) and tests the trailing edge with
+- **`[new in P27: one gap threshold and half-open window membership]`** — `_bar_level_missing_spans`
+  tests window membership with `ws <= t <= bound` (inclusive close) and tests the trailing edge with
   `bound - (last + period) >= period` while the leading and internal edges use `> 1.5 * period`. The
   module docstring states 1.5 periods for "*a session edge and the nearest bar*". Two numbers and two
-  memberships for one rule.
+  memberships for one rule. **Scope of the half-open half (revised per RC-1):** it belongs to the
+  *window-membership* rule — the assignment of a bar to one window of one day, which is a partition and
+  so must never count an instant in two windows — and **not** to the day-level `present_days` predicate,
+  which answers a different question ("did this day's data arrive in this mode?") and returns a
+  `Set[date]`, never a window assignment. Day presence must stay inclusive at the window end, because
+  `1 day` (and coarser) bars arrive stamped at the **end** of their period — the daily fixture's `16:00`
+  ET, the RTH session close (`tests/test_history_backfill.py:110-112`) — so a half-open presence test
+  reports every cached daily bar outside every window and re-requests the whole daily history on every
+  load. Both predicates, and why they differ, are stated in the docstrings (S-P27-2).
 - **`[new in P27: one owner for the prime's completion]`**, **`[revises P7: Q-3's deferred prime retry —
   the backstop is now armed for the retry's own deadline]`** — on `PacingExceeded`, `prime_aggregator`
   starts `_prime_timer` at a flat `15_000` ms *and* schedules `_on_prime_retry` at
@@ -11025,10 +11043,13 @@ Seven defects, four rules, stated once so nothing is silently revised:
   spent]`**, **`[extends P26: the generic_batch reservation is still consumed by each send]`** — P26's
   replay transaction issues its market-data reissues through `req_mkt_data`, and its batch works because
   every send calls `throttle()` while `_batch_remaining > 0`. Any stamp-after-send change must keep that
-  consumption exactly one unit per send and must not stamp inside the reservation (the batch's `finally`
-  stamps once). P27 changes `throttle`'s signature by one defaulted, keyword-only parameter and its
-  return type (`None` → `False`/`True`); the default path is byte-identical, which is what
-  `test_throttle_success_stamps_interval_gate` and the P26 replay suite pin.
+  consumption exactly one unit per send and must not stamp inside the reservation (for a batch of
+  **`n ≥ 1`** the batch's `finally` stamps once; an **empty** `generic_batch(0)` reservation reserves
+  nothing, lets the gate decide every send and **stamps nothing** — P26's `ESC-129` rework at `bda354f`,
+  which is why the qualifier is stated rather than assumed). P27 changes `throttle`'s signature by one
+  defaulted, keyword-only parameter and its return type (`None` → `False`/`True`); the default path is
+  byte-identical, which is what `test_throttle_success_stamps_interval_gate` and the P26 replay suite
+  pin.
 - **`[revises P7-W1: S-P7-2's pre-issue refund is retired]`**, **`[revises P26: mark_history_request_issued
   and the _history_req_issued ledger are deleted with it]`** — `refund_historical_slot()` takes no
   reqId and pops the newest unexpired slot; its only caller refunds when the cancelled id is **not** in
@@ -11037,10 +11058,27 @@ Seven defects, four rules, stated once so nothing is silently revised:
   refund branch is unreachable in production, and if it ever ran it would free another request's slot.
   With D81 making "record after send" uniform, a request that never crossed the wire holds **no** slot,
   so an *exact* refund would return `False` by construction — the API is dead code with extra state.
+- **`[revises P17: mark_history_request_issued is deleted — its issue-time silence stamp is already made
+  by _register_history_request]`** — the same deletion retires **three** earlier frozen-list entries,
+  named here so activation can annotate each one: **P17's** entry in § *Phase P17* § *Frozen Interfaces*
+  (`ui/ticker_session.py::TickerSession.mark_history_request_issued` — "`def
+  mark_history_request_issued(self, req_id: int) -> None` flips `req_id` into `_history_req_issued`
+  (post-issue cancel keeps its slot). Seam unchanged; the retry path relies on it for both the cancelled
+  and the re-issued reqId", `docs/architecture.md:7691-7694`), **P26's** entry for the same symbol
+  (`:10883`), and **P26's** `def refund_historical_slot(self) -> bool:` (`:10862`). No invariant is lost:
+  P17's issue-time last-activity stamp inside the deleted method (`ui/ticker_session.py:997`) duplicates
+  the stamp `_register_history_request` already writes (`:977`), and the two mark call sites sit
+  immediately after a registration (`:1375`→`:1379`, `:1261`→`:1263`), so no queued gap exists between
+  register and issue — and *queued* plans are only registered when issued. The retired refund's own
+  invariant ("a request that never crossed the wire holds no slot") becomes true **by construction** once
+  D81 makes "record after send" uniform, so retirement is stronger than repair, not weaker. At activation
+  the three earlier entries take the S-P24-6/DG127 marker
+  `[superseded by P27 — S-P27-5; see § Phase P27]`; no P17 or P26 sentence is rewritten and no earlier
+  status changes.
 - **`[new in P27: no mode-blind cache read survives]`** — `BarCache.get_last_timestamp(symbol,
   timeframe)` selects `MAX(ts)` filtered by symbol and timeframe only, while the key is
   `(symbol, timeframe, ext_hours, ts)` (`data/db.py:47–54`). It has **zero** callers in production and
-  in `tests/` (verified `70b16f2`).
+  in `tests/` (verified at `70b16f2`, unchanged at `623809e`).
 - **`[extends P14/P26: the wave ledger shrinks]`** — P26 scoped the cancel-tag ledger to a generation
   window; P27 removes a second, smaller ledger (`_history_req_issued`) that P26's frozen list still
   names. The wave's budget rule becomes one sentence: **a slot is recorded after the send and never
@@ -11048,7 +11086,8 @@ Seven defects, four rules, stated once so nothing is silently revised:
 - **`[existing]` — unchanged and consulted, never reshaped:** `find_missing_spans`' detection passes
   and their merge rule, `_build_span`'s clamp, `bar_period_seconds` / `floor_bar_budget`,
   `TIMEFRAME_CONFIG` (every duration and bar size), `services/market_calendar.py::session_windows`,
-  `present_days`' *signature* and its futures branch, `TickerSession.prepare_load`'s prime reset,
+  `present_days` in full (signature, equity membership and futures branch — see S-P27-2),
+  `TickerSession.prepare_load`'s prime reset,
   `_on_prime_timeout`'s fail-open call, `_fail_open_prime`, `per_load_historical_cap()` = 25,
   `_schedule_wave_continuation`'s continuation arithmetic, `_history_wave_watchdog_bound_ms`'s formula,
   `PacingManager.historical_wait_seconds`/`record_historical_slot`/`realtime_*`/`generic_batch`, the
@@ -11069,14 +11108,14 @@ today:
 |---|---|---|
 | `services/backfill_service.py::plan_requests` | sorts spans by `end_ts` desc, chunks each span independently as `max(1, ceil(span_seconds / chunk_seconds))` anchored at `span.end_ts` stepping back one duration, formatted `yyyyMMdd-HH:mm:ss`; no cross-span comparison of the emitted identity | `[new/changed]` — one plan per `(endDateTime, duration, bar_size)` (first occurrence wins in the existing newest-first order); a span with `end_ts <= start_ts` produces none; the `max(1, …)` clamp goes because the guard makes `ceil` ≥ 1 |
 | `services/backfill_service.py::_bar_level_missing_spans` | per trailing day and per window: `bound = min(we, now_ts)`; `in_window = sorted(t for t in day_ts if ws <= t <= bound)`; leading/internal edges `> 1.5 * period`; trailing edge `bound - (last + period) >= period` | `[new/changed]` — half-open `[ws, we)` with the `now` cap still inclusive; trailing edge `bound - last > gap_threshold` (one threshold, one docstring) |
-| `services/backfill_service.py::present_days` | equity branch: `any(window_start <= ts <= window_end …)` per day; futures branch: calendar-day presence, no window | `[new/changed]` — equity membership becomes `window_start <= ts < window_end` (one membership rule across the module); the futures branch and the signature are untouched |
+| `services/backfill_service.py::present_days` | equity branch: `any(window_start <= ts <= window_end …)` per day (inclusive at the close — `1 day` bars arrive stamped at `16:00` ET); futures branch: calendar-day presence, no window | `[existing]` — **untouched.** The half-open rule is the *window-membership* rule (S-P27-2) and does not reach this day-level predicate: inclusive presence is the only predicate that sees an end-stamped daily bar as present, and the day-presence pass plus the AC-D16.4 report both keep today's behaviour |
 | `services/backfill_service.py::find_missing_spans` | appends the floor span, then merged presence runs, then the bar-level spans — **no overlap test by design** | `[existing]` — untouched. Reasons stay separate; identity is the planner's job (S-P27-1) |
 | `services/backfill_service.py::_build_span` | `end_ts = min(now_ts, next midnight)`; `if end_ts < start_ts: end_ts = start_ts` — a zero-length span is reachable | `[existing]` — untouched; D83 is what makes such a span request-free |
 | `ui/ticker_session.py::prime_aggregator` | on `PacingExceeded` (first attempt): sets the retry, reserves the precedence slip, `self._prime_timer.start(15_000)`, `QTimer.singleShot(max(1000, int(wait_s * 1000)), self._on_prime_retry)`, returns `True`; on a successful issue, `_prime_timer.start(15_000)` as the answer bound | `[new/changed]` — the deferral backstop is derived from the retry's own delay (`_prime_backstop_ms(retry_ms)`), so it can never precede the retry; the issued-prime bound stays flat at 15 s |
 | `ui/ticker_session.py::_on_prime_timeout` | clears the retry flags, releases the reservation, calls `host._on_session_prime_timeout` (fail open → attach) | `[existing]` — untouched; it is now reachable only after the retry's window (the clears become a belt, not the mechanism) |
 | `ui/ticker_session.py::_on_prime_retry` / `::_fail_open_prime` / `::prepare_load` | the single deferred re-entry with `retrying=True`; the fail-open path (stop timer, clear flags, count the skip, tell the host); `prepare_load` stops the timer and clears the retry (a reload supersedes) | `[existing]` — all three untouched; they are why D78 needs no second supersede mechanism |
 | `ui/ticker_session.py::_cancel_history_requests` | tags each cancelled id, records its generation, and `if req_id not in self._history_req_issued: pacing_manager.refund_historical_slot()` | `[new/changed]` — the refund branch is deleted; the tags, the generation stamp and the per-id cancel are untouched |
-| `ui/ticker_session.py::_history_req_issued` / `::mark_history_request_issued` | a set written at every successful issue and read **only** by that refund branch (plus clears/discards) | `[new/changed]` — deleted with the branch (8 sites: declaration, method, the branch, the clear, the discard in `_register_history_request`, the two mark calls, the reset) |
+| `ui/ticker_session.py::_history_req_issued` / `::mark_history_request_issued` | a set written at every successful issue and read **only** by that refund branch (plus clears/discards) | `[new/changed]` — deleted with the branch (the **eight** sites enumerated in `docs/plan.md` P27-03 deliverable 4) |
 | `ibkr/pacing.py::refund_historical_slot` | takes no reqId; expires, then `self._hist_times.pop()` (newest first); `False` only when the deque is empty | `[new/changed]` — deleted |
 | `ibkr/pacing.py::throttle` | batch unit if a reservation is open (decrement, return); else `request_wait_seconds()`, raise if closed, else `record_request_slot()` | `[new/changed]` — one keyword-only `stamp: bool = True`; returns whether a reservation unit was spent. Default path byte-identical |
 | `ibkr/pacing.py` (every other member) | `request_wait_seconds`, `record_request_slot`, `historical_wait_seconds` (600 s window + 0.5 s interval, Q-17 margin), `record_historical_slot`, `realtime_*`, `generic_wait_for_batch`, `generic_batch`, `reset_for_tests`, `PacingExceeded.wait_seconds`, singleton | `[existing]` — byte-identical |
@@ -11097,8 +11136,11 @@ today:
 D77 makes the planner emit **one plan per request identity** — the same `(endDateTime, duration,
 bar_size)` is never charged twice — while the detector keeps its overlapping spans and their reasons;
 D83 makes a span with no positive length produce nothing. D82 makes that same function's window
-arithmetic obey one stated rule: half-open `[start, end)` windows (the `now` cap stays inclusive) and
-one 1.5-period gap threshold for leading, internal and trailing edges. D78 gives the prime's completion
+arithmetic obey one stated rule: half-open `[start, end)` *window membership* (the `now` cap stays
+inclusive) and one 1.5-period gap threshold for leading, internal and trailing edges — while the
+day-level `present_days` predicate keeps its inclusive close, because a `1 day` bar is stamped at the
+session close and a half-open presence test would re-request every daily history on every load. D78
+gives the prime's completion
 **one owner**: the deferral backstop is armed from the retry's own delay, so it can never pre-empt it,
 and a flat 15 s still bounds an issued-but-unanswered prime. D81 stamps the pacing clock only after a
 send succeeds (and rolls back the id when it does not), which makes D80's pre-issue "refund" vacuous —
@@ -11116,7 +11158,7 @@ Constrained (existing) choices first — every one is a hard input, none is re-o
 | Storage | `[existing]` SQLite via `BarCache`, mode-aware PK `(symbol, timeframe, ext_hours, ts)`, `INSERT OR REPLACE` | the planner's chunk-granularity over-fetch is harmless **because** the PK makes a re-fetch idempotent; P27 persists nothing new and migrates nothing | mode-qualifying `get_last_timestamp` (rejected — no caller to serve; D79 prefers deletion) |
 | Test harness | `[existing]` pytest + `pytest-qt` offscreen; injected timestamps, a monkeypatched clock, stub clients/managers | every criterion is offscreen-assertable; P27 has **no live gate** | a live-TWS probe (rejected — the requirements declare none) |
 | Planner de-duplication `[new in P27]` | **de-duplicate by the plan's own request identity** `(endDateTime, duration, bar_size)` inside `plan_requests`, first occurrence in the existing newest-first order wins; detection still returns overlapping spans | identity is exactly the tuple `req_historical_data` is called with, so two plans sharing it are the *same request* and one of them is pure waste; the union of covered intervals is unchanged by construction, and `plan_requests` stays pure | interval-union merge before chunking (rejected — the Non-Goals exclude "smarter span merging beyond de-duplication", and a merge rewrites provenance and order); de-duplicating inside `find_missing_spans` (rejected — the floor span and the presence span are different reasons, and collapsing them drops the floor's earlier start); de-duplicating at the wave (rejected — impure, and the planner's own contract would stay untested) |
-| Window arithmetic `[new in P27]` | **half-open `[start, end)` with the `now` cap inclusive; one 1.5-period threshold** for leading, internal and trailing edges, in both `present_days` (equity branch) and `_bar_level_missing_spans` | `AC-D82.1` requires one membership per instant; `AC-D82.2` requires the docstring and the code to state the same number; the `now` exception (A232) keeps today's open session from being over-fetched | keeping the inclusive close and de-duplicating spans (rejected — hides the arithmetic and leaves presence and the bar-level pass disagreeing at the same instant); changing only the trailing rule (rejected — the boundary defect survives) |
+| Window arithmetic `[new in P27]` | **half-open `[start, end)` *window membership* with the `now` cap inclusive; one 1.5-period threshold** for leading, internal and trailing edges, in `_bar_level_missing_spans` only; `present_days` keeps its inclusive day-level predicate (unchanged) | `AC-D82.1` requires one membership per instant, and the only function that assigns a bar to a window is the bar-level pass; `AC-D82.2` requires the docstring and the code to state the same number; the `now` exception (A232) keeps today's open session from being over-fetched; and a half-open *presence* test is measurably wrong (0 of 10 cached daily days present, the whole daily history re-requested every load, the AC-D16.4 report claiming every day short), because `1 day` bars are stamped at the session close | keeping the inclusive close everywhere and de-duplicating spans (rejected — leaves the arithmetic undocumented and the trailing edge on a second threshold); changing only the trailing rule (rejected — the boundary defect survives); period-aware presence (rejected — `present_days(cached_ts, ext_hours, is_futures)` has no timeframe and cannot know each bar's stamp convention, and adding one would change a frozen signature plus its AC-D16.4 consumer for no behavioural gain over the inclusive bound); timeframe-scoped application (rejected — a second rule keyed on timeframe is exactly the drift D82 removes) |
 | Prime completion `[new in P27]` | **one derived deadline**: `retry_ms = max(1000, int(wait_s * 1000))` is computed once and the deferral backstop is `max(15_000, retry_ms + 1_000)`; a successfully issued prime keeps the flat `15_000` answer bound | DG135's structural fix — the backstop is armed for the retry's own deadline, so it can never precede it; `AC-D78.3`'s bound (reported wait + backstop) holds, and no constant is retuned | removing the retry (A231 permits; rejected — it is the forming period's partial bars the retry exists for, and it would keep the two-timer question open); lengthening the flat backstop (rejected — a new stall for every unanswered prime); making the timeout handler defer to a pending retry (rejected — if the callback never runs, the prime hangs with nothing bound) |
 | Budget stamping `[new in P27]` | **gate before, stamp after**: `throttle(*, stamp=False)` raises (spending nothing) or spends one reservation unit; the send runs inside `try`; `record_request_slot()` runs only on success and only when no reservation was spent; a raising send calls `id_manager.release_id(req_id)` | the rule is already written for historical requests ("record only after the request was actually issued"); extending it to the generic gate is what makes "budget is consumed only by work issued" true, and it keeps P26's batch exact (one unit per send, one stamp at the batch's `finally`) | "un-stamping" `_last_req_time` on failure (rejected — rolling back a shared clock with no owner is D80's inexact-refund smell in a new place); stamping before the send (today — the defect); a second gate API (rejected — `throttle` is the batch's contract and P26's suite pins its default path) |
 | Pre-issue refund `[new in P27]` | **retired**: `refund_historical_slot` and the `_history_req_issued` ledger that gated it are deleted; the wave rule becomes "recorded after the send, never refunded" | with the slot recorded after the send, a request that never crossed the wire holds no slot, so an exact refund returns `False` by construction — the API cannot ever do anything except be dead code (A233, D79's rule) | an exact refund via a parallel slot-owner deque (rejected — new pacing state for a path that can never fire); refund-by-reqId scanning the newest-first deque (same, plus O(n)); keeping it (rejected — it frees another request's slot) |
@@ -11124,7 +11166,7 @@ Constrained (existing) choices first — every one is a hard input, none is re-o
 
 ### System Components
 
-- `[new/changed] services/backfill_service.py` — three edits, one module docstring:
+- `[new/changed] services/backfill_service.py` — two functions, two docstrings:
   1. `plan_requests` — a local `seen: set[tuple[str, str, str]]`; per span, `if span.end_ts <=
      span.start_ts: continue` (D83); `chunk_count = -(-span_seconds // chunk_seconds)` (the `max(1, …)`
      clamp is unnecessary once the guard exists); for each anchor, `key = (_format_end_date(anchor),
@@ -11133,13 +11175,16 @@ Constrained (existing) choices first — every one is a hard input, none is re-o
      `_format_end_date` call are unchanged; the module docstring gains the two new promises ("each
      distinct request identity once"; "a span with no positive length yields no plan").
   2. `_bar_level_missing_spans` — `bound = min(we, now_ts)`; `in_window` selected with
-     `ws <= t <= bound` **only when** `bound < we` (capped by now) and `ws <= t < bound` otherwise;
+     `ws <= t <= bound` **only when** `now_ts < we` (capped by now) and `ws <= t < bound` otherwise;
      the trailing edge becomes `if bound - in_window[-1] > gap_threshold:` (the same `gap_threshold`
      the leading and internal edges use). The docstring states the half-open rule, the `now` exception
      and the single threshold.
-  3. `present_days` — the equity branch's membership becomes `window_start <= ts < window_end`. The
-     futures branch, the signature and the "reused verbatim by the shortfall report" note are unchanged
-     (so the second consumer inherits the one rule).
+  3. `present_days` — **no change.** Its equity membership stays `window_start <= ts <= window_end`
+     (inclusive at the close). The half-open rule governs *which window a bar is counted in* for the gap
+     arithmetic; presence answers a day-level question and must accept the end-stamped `1 day` bar
+     (stamped `16:00` ET, the session close), or every cached daily day reads as absent and the whole
+     daily history is re-requested on every load. Its docstring states that predicate and why it is not
+     the bar-level rule; the futures branch, the signature and the shortfall-report note stay as they are.
 - `[new/changed] ui/ticker_session.py` — (a) the prime: module constants `_PRIME_BACKSTOP_MS = 15_000`
   and `_PRIME_RETRY_GRACE_MS = 1_000`, one helper `_prime_backstop_ms(retry_ms: int) -> int` returning
   `max(_PRIME_BACKSTOP_MS, retry_ms + _PRIME_RETRY_GRACE_MS)`; `prime_aggregator`'s deferral branch
@@ -11148,8 +11193,10 @@ Constrained (existing) choices first — every one is a hard input, none is re-o
   backstop covers the retry's own deferral (the issued-prime branch keeps `_PRIME_BACKSTOP_MS`);
   (b) the refund: the `if req_id not in self._history_req_issued: …` branch in
   `_cancel_history_requests` is deleted, together with `_history_req_issued`,
-  `mark_history_request_issued` and its six remaining sites; everything else in the wave lifecycle
-  (P26's park, ledger, retry) is untouched.
+  `mark_history_request_issued` and the **eight** sites enumerated in `docs/plan.md` P27-03
+  deliverable 4 (declaration + its comment block, the in-place reset, the clear, the `discard` in
+  `_register_history_request`, the method itself, and its two call sites); everything else in the wave
+  lifecycle (P26's park, ledger, retry) is untouched.
 - `[new/changed] ibkr/pacing.py` — `throttle(self, *, stamp: bool = True) -> bool`: while a
   `generic_batch` reservation is open it decrements, returns `True` and touches nothing; otherwise it
   reads `request_wait_seconds()` (raising `PacingExceeded` when closed) and stamps only when `stamp`
@@ -11206,8 +11253,8 @@ adds none:
 - `[existing]` **SQLite (`BarCache`)** — read/write paths unchanged; the deletion removes a read that
   no caller made.
 - `[existing]` **`MainWindow`'s shortfall report** — `_missing_backfill_trading_days` reads
-  `present_days`, so the half-open membership reaches the AC-D16.4 report through the same function;
-  its signature and wording are unchanged.
+  `present_days`, which this phase does not change, so the AC-D16.4 report keeps today's predicate and
+  cannot disagree with the planner; its signature and wording are unchanged.
 
 ### Frozen Interfaces
 
@@ -11285,8 +11332,10 @@ contracts verbatim, never the implementation.
   `ui/main_window.py`.
 
 **Not frozen (changed or removed this phase; no worker may assume the old contract):**
-`plan_requests`' body (identity de-duplication, the non-positive-span skip); `_bar_level_missing_spans`
-and `present_days`' window-membership behaviour (half-open windows, one 1.5-period threshold);
+`plan_requests`' body (identity de-duplication, the non-positive-span skip); `_bar_level_missing_spans`'
+window membership and trailing edge (half-open windows, one 1.5-period threshold);
+`present_days`' **docstring statement only** (its day-level predicate and why it is inclusive at the
+close — the signature, the equity membership expression and the futures branch stay frozen);
 `prime_aggregator`'s deferral branch and the new module helpers/constants that arm `_prime_timer`;
 `throttle`'s signature (one keyword-only `stamp` parameter) and its boolean return — its default path
 must stay behaviourally identical; the four generic request bodies and `req_historical_data`'s
@@ -11302,14 +11351,32 @@ id/gate order; the added `IdManager.release_id`; the **deleted** `PacingManager.
   is missing, not the size of its reason list: two coinciding spans cost one request and one per-load
   cap unit, and an empty span costs none. Because chunking is unchanged per span, the fetch *shape*
   stays inside `TIMEFRAME_CONFIG`'s accepted durations (no error-321 risk).
-- **No silent hole (D82, `AC-D82.1`/`AC-D82.2`, R171).** Half-open membership can only *remove* a bar
-  from the window it should not belong to; the day-presence pass still owns "a day with no in-window
-  bar". A day whose only bar sits exactly at the close therefore becomes a day-presence span (fetched),
-  not a silent hole — and the same `present_days` feeds the AC-D16.4 shortfall line, so the planner and
-  the report cannot disagree about it.
+- **No over-request at the presence seam (D82/AC-D16.9/AC-D16.4).** The half-open rule belongs to the
+  window-membership arithmetic only. Day presence stays inclusive at the window end because the cached
+  daily bar *is* the session's last instant (`16:00` ET), and that is the predicate the day-presence pass
+  and the AC-D16.4 shortfall line both read — measured on the unmodified tree, with *now* set to the last
+  cached close: ten cached daily days return **10 of 10 present** and no span, versus **0 of 10** and one
+  span covering all ten days under a half-open presence test, which would re-request the whole daily
+  history on every load (the direction D82's own note forbids) and report every day short. The planner
+  and the report therefore still cannot disagree, and no silent hole is introduced: the day-presence pass
+  still owns the one case the bar-level pass skips — a day with **no** bar inside the mode's window is
+  reported missing (and fetched), never silently dropped. The two predicates can differ only at
+  the close instant for an *intraday* series, which the mode-aware cache cannot hold — every intraday
+  series is period-start-stamped, so an RTH series' last bar starts before the close (e.g. `15:55` for
+  `5 mins`), while a `16:00` bar is ETH data stored under `ext_hours=True` —
+  and the presence case (h) in `docs/plan.md` P27-01 pins that difference so a future bar source cannot
+  silently reopen it.
 - **Bounded prime (D78, `AC-D78.1`–`AC-D78.3`).** Refusal → retry is bounded by the reported wait plus
-  one grace tick, and retry → attach by the flat 15 s answer bound; the worst case is
-  `wait + grace + 15 s`. No path waits forever, no timer is restarted on a repeating tick, and the
+  one grace tick, and retry → attach by the flat 15 s answer bound; the bound is `wait + grace + 15 s`.
+  **Quantified worst case (RC-3):** the historical wait is the 600 s rolling window
+  (`_hist_window = 600.0`, `MAX_HISTORICAL_PER_600S = 100`), so the reported wait never exceeds ≈ 600 s →
+  `retry_ms ≈ 600_000` → the deferral backstop arms at ≈ **601 s** → refusal-to-attach ≈ **615 s**
+  (600 s wait + the flat 15 s answer bound, when the retry issues and the prime never answers; ≤ 616 s by
+  the formula). Today the same refusal fails open at **15 s**. That is `AC-D78.3`'s sanctioned branch —
+  "the reported wait plus the backstop" — not a new stall: the old code held the chart for 15 s and then
+  attached *without* the forming bar the retry exists for; the new code holds it for the wait the pacing
+  manager itself reports and then either primes the forming bar or fails open once. **No pacing constant
+  is retuned** (R172). No path waits forever, no timer is restarted on a repeating tick, and the
   fail-open attach still happens exactly once (`AC-D78.2`, `AC-D65.15`'s timeout cases).
 - **Honest budget (D81, `AC-D81.1`/`AC-D81.2`).** The interval clock and the reqId pool advance only
   for work that was issued; a raising send leaves both untouched (or rolls the id back when it is the
@@ -11329,23 +11396,23 @@ id/gate order; the added `IdManager.release_id`; the **deleted** `PacingManager.
 | Risk | Severity | Likelihood | Mitigation |
 |---|---|---|---|
 | AR-P27-1 — identity de-duplication drops a plan that was not actually the same request (a future per-span `duration`/`bar_size` override, or a chunk whose coverage differs despite a shared anchor) | H | L | the key is exactly the three fields `req_historical_data` is called with (`plan.endDateTime`, `plan.duration`, `plan.bar_size`) and nothing else; a case asserts that two coinciding anchors with *different* durations still emit two plans, and `AC-D77.2` re-checks coverage per fixture |
-| AR-P27-2 — half-open membership creates a silent hole where a day's only bar sits at the close (R171's direction) | H | M | the day-presence pass still owns that day (a bar outside every window is not "present"), so the day becomes a presence span; a fixture asserts the close-bar day is still covered, the AC-D16.1 suites stay green, and a red `test_d42_day_presence.py`/`test_d16*` case is an escalation, never a re-baseline. A day whose only bar genuinely sits at the close may be re-probed on each load — exactly the limitation the module docstring already documents for a gap IBKR has no bars for |
+| AR-P27-2 — the two window predicates diverge at the close instant, so a day could be "present" to day presence yet empty to the bar-level pass (R171's silent-hole direction) | H | L | the divergence is only reachable for an **intraday** bar stamped exactly at the mode's window end, and the mode-aware cache cannot hold one (every intraday series is period-start-stamped, so an RTH series' last bar starts before the close — `15:55` for `5 mins`; a `16:00` bar is ETH data stored under `ext_hours=True`) — while the *daily* close-stamped bar never reaches the bar-level pass at all (`period >= 86_400` returns `[]`). The day-presence pass still reports a day with no in-window bar as missing, and the presence case (h) in `docs/plan.md` P27-01 asserts both halves (10 of 10 daily days present; the out-of-mode intraday day absent; a locally computed half-open variant returning 0 — the regression the predicate must not adopt). A red `test_d42_day_presence.py`/`test_history_backfill.py` case is an escalation, never a re-baseline |
 | AR-P27-3 — the unified trailing threshold newly requests the 1.5–2 period band, spending requests the old rule skipped | M | M | the direction is deliberate and small (one band, not all gaps); a fixture pins a 1.7-period hole as reported and a 1.0-period hole as not; no constant is retuned and no other edge changes |
-| AR-P27-4 — arming the backstop at `retry_ms + grace` converts a fail-open into a longer wait for a long pacing refusal (e.g. 40 s → 41 s), which the owner could read as a stall | M | M | `AC-D78.3` states the bound (`wait + backstop`); the issued-prime bound stays 15 s; the surfacing is unchanged (no new message), and the pre-change behaviour (retry never runs at all) is strictly worse |
-| AR-P27-5 — the stamp-after-send split breaks P26's batch (a send inside `generic_batch` no longer consumes a unit, or the send double-stamps) | H | M | `throttle`'s reservation branch is untouched and returns `True`, the caller skips `record_request_slot()`, and the batch's `finally` still stamps once; `tests/test_d71_replay_transaction.py` and `tests/test_d28_pacing.py` must stay green unchanged |
+| AR-P27-4 — arming the backstop at `retry_ms + grace` converts a fail-open into a longer wait for a long pacing refusal, which the owner could read as a stall | M | M | quantified, not left to a 40 s example: at the historical wait ceiling (the 600 s rolling window) the backstop arms at ≈ 601 s and refusal-to-attach is ≈ 615 s (`wait + 15 s`; ≤ 616 s by `wait + grace + 15 s`) against today's flat 15 s fail-open. That is `AC-D78.3`'s own branch ("the reported wait plus the backstop"), the pacing manager itself reports the wait, the issued-prime bound stays 15 s, no pacing constant is retuned (R172), and the surfacing is unchanged (no new message). The pre-change behaviour is strictly worse for the same wait: it attaches with no forming bar after 15 s and the scheduled retry can never run |
+| AR-P27-5 — the stamp-after-send split breaks P26's batch (a send inside `generic_batch` no longer consumes a unit, or the send double-stamps) | H | M | `throttle`'s reservation branch is untouched and returns `True`, the caller skips `record_request_slot()`, and for a batch of **`n ≥ 1`** the batch's `finally` still stamps once (an empty `generic_batch(0)` reserves and stamps nothing by P26's `ESC-129` contract, so the qualifier is asserted rather than assumed); `tests/test_d71_replay_transaction.py` and `tests/test_d28_pacing.py` must stay green unchanged |
 | AR-P27-6 — retiring the pre-issue refund reddens an unlisted P7/P17 assertion that depended on the ledger | H | M | the exit condition names the suites; the two known cases are enumerated and re-baselined to the same invariant (slot count unchanged by either cancel); any other red is a stop-and-escalate, not a quiet edit |
 | AR-P27-7 — `release_id` hands back an id a partially-sent request still owns | M | L | only the newest allocation can be rolled back, and only when the client call raised (R173's safe default: a raised send is treated as unsent); no id is ever released from a path that may retry the same request under a new id |
 | AR-P27-8 — the phase drifts into P26's wave lifecycle or retunes a pacing constant while "fixing the budget" | M | M | per-wave do-not lists (no `_issue_wave_chunks`/watchdog/park edits beyond the deleted branch, no `config/settings.py`, no `generic_batch` change); the fence suite pins the five constants, `per_load_historical_cap()`, the watchdog formula and `TIMEFRAME_CONFIG` |
-| AR-P27-9 — the planner wave's half-open change and the identity de-duplication interact so a fixture passes for the wrong reason | M | M | the two rules are asserted separately (window membership by per-window fixture; identity by an identity multiset over a hand-built span list) and once together (Journey 71's out-of-mode cache fixture), so a regression in one cannot be masked by the other |
+| AR-P27-9 — the planner wave's half-open change and the identity de-duplication interact so a fixture passes for the wrong reason, or one deliverable's failure hides behind an aggregate wave exit condition | M | M | three rules are asserted separately — window membership by a per-window fixture, *presence* by its own case (h), identity by an identity multiset over a hand-built span list — and once together (Journey 71's out-of-mode cache fixture), so a regression in one cannot be masked by the other or by the aggregate suite |
 
 ### Architecture Decisions (relationship-labelled)
 
 | # | Decision | Relationship |
 |---|---|---|
 | S-P27-1 | **One plan per request identity, and no plan for an empty span.** `plan_requests` keeps a local `seen` set keyed by `(endDateTime, duration, bar_size)`; plans are emitted in the existing newest-first order and a repeat is skipped, so two spans that share an end instant (the floor span and the presence span after an out-of-mode cache, the reported case) charge the wave and the per-load cap **once**. A span with `end_ts <= start_ts` is skipped before chunking, which also makes the `max(1, …)` clamp unnecessary. `find_missing_spans` is untouched: its overlapping spans carry different *reasons* (depth floor vs day presence vs bar-level hole), and collapsing them there would drop the floor's earlier start. Rationale: the request identity is exactly the tuple `req_historical_data` receives, so a second plan with the same identity is the same request under a second reqId — the defect, not a feature; de-duplicating at this seam keeps `plan_requests` pure and keeps the detector honest about *why* an interval is wanted. Alternative: interval-union merging before chunking (rejected — the Non-Goals exclude smarter merging, and it rewrites provenance/order); de-duplicating in `find_missing_spans` (rejected — loses the reason and the floor's start; would also change `_backfill_missing_spans`); de-duplicating in `queue_wave_plans` (rejected — impure, and the planner's own contract stays untested). | `[new in P27]` — implements `AC-D77.1`, `AC-D77.2`, `AC-D77.3`, `AC-D83.1`, Journey 71, A230 |
-| S-P27-2 | **One window rule and one gap threshold.** `_bar_level_missing_spans` selects window membership with the half-open predicate `ws <= t < bound` when the window is not capped by *now*, and `ws <= t <= now_ts` when it is (A232's exception, so today's open session is never over-fetched); `present_days`' equity branch uses the same half-open membership, so a bar at the close belongs to exactly one window and the shortfall report agrees with the planner. The trailing edge becomes `bound - last > gap_threshold` — the same `gap_threshold = period * 1.5` the leading and internal edges use — and the module docstring states that number once. Rationale: `AC-D82.1` requires one membership per instant and `AC-D82.2` requires the docstring and the code to agree; keeping two thresholds for one edge is how the docstring drifted from the code in the first place. Alternative: keep the inclusive close and de-duplicate spans afterwards (rejected — hides the arithmetic behind a second pass and leaves presence disagreeing); change only the trailing edge (rejected — the boundary defect survives); make the `now` cap inclusive *and* the window end inclusive (rejected — that is today's defect). | `[new in P27]` — implements `AC-D82.1`, `AC-D82.2`, Journey 71, A232, R171 |
-| S-P27-3 | **One owner for the prime's completion: the backstop is armed for the retry's own deadline.** `prime_aggregator`'s `PacingExceeded` branch computes `retry_ms = max(1000, int(wait_s * 1000))` once and uses it for both the scheduled retry and `_prime_timer.start(_prime_backstop_ms(retry_ms))`, where `_prime_backstop_ms(retry_ms) = max(_PRIME_BACKSTOP_MS, retry_ms + _PRIME_RETRY_GRACE_MS)` (`15_000`, `1_000` as module constants). A wait ≤ 14 s therefore keeps today's flat 15 s, a 15 s wait gives the retry one grace tick, and a 40 s wait arms 41 s. A *successfully issued* prime keeps the flat 15 s answer bound, and `_on_prime_timeout` still fails open once and clears the flags (now a belt: it cannot fire before the retry). Rationale: DG135 names the class — two independent timers owning one job, where a change to either silently disables the other (which is exactly what happened) — and its structural fix is to arm the backstop for the retry's deadline; `AC-D78.3`'s bound (reported wait + backstop) is preserved and no constant is retuned. Alternative: delete the retry (A231 permits; rejected — the retry exists to recover the forming period's partial bars, and removing it leaves DG135's two-timer question unanswered for the next change); lengthen the flat backstop (rejected — every unanswered prime waits longer, a new stall the Constraints forbid); have `_on_prime_timeout` defer to a pending retry (rejected — a callback that never runs would leave the prime unbounded). | `[new in P27]`, `[revises P7: Q-3's deferred prime retry — the backstop now covers the retry's deadline]` — implements `AC-D78.1`, `AC-D78.2`, `AC-D78.3`, Journey 72, DG135, A231, R172 |
-| S-P27-4 | **Gate before the send, stamp after it, and roll the id back.** `throttle` gains `*, stamp: bool = True` and returns whether it spent a `generic_batch` unit; the four generic request paths call `throttle(stamp=False)` (which raises `PacingExceeded` spending nothing), then allocate the id, then send inside `try`, then `record_request_slot()` when no reservation was spent; a raising send calls `id_manager.release_id(req_id)` (rollback of the newest allocation only) and re-raises. `req_historical_data` moves its existing `historical_wait_seconds()` gate in front of `get_id` for the same reason, keeping its after-send stamp. Rationale: D81's rule is already the historical path's rule — "record only after the request was actually issued" — and applying it to the generic gate makes "no stamp without a send" true for every path; the reservation branch is kept byte-identical, so P26's batch still spends exactly one unit per send and stamps once. Alternative: un-stamp `_last_req_time` on failure (rejected — a rollback of a shared clock with no owner is the same inexactness D80 retires); keep stamping before the send (the defect); introduce a second gate API (rejected — `throttle` is the batch's contract and P26's suite pins its default path). | `[new in P27]`, `[revises P26: throttle gains one keyword-only parameter and a boolean return]`, `[extends P26: the generic_batch reservation is still consumed per send]` — implements `AC-D81.1`, `AC-D81.2`, Journey 73, A234, R173 |
-| S-P27-5 | **The pre-issue refund is retired, not repaired.** `PacingManager.refund_historical_slot`, the `if req_id not in self._history_req_issued: …` branch in `_cancel_history_requests`, and the `_history_req_issued` / `mark_history_request_issued` ledger that existed only to gate that branch are deleted. The wave's budget rule is stated once: **a slot is recorded after the send and never refunded**. Rationale: the slot deque holds only requests that were issued (recorded after the send), so a cancelling id that never reached TWS owns no slot; an exact refund would therefore return `False` by construction — the API can only be dead code or a thief (A233, D79's rule), and D81 makes the "recorded after send" premise uniform across every path. AR-P7-4's "post-issue cancels keep their slot" is preserved a fortiori (nothing is ever refunded). Alternative: an exact refund via a parallel slot-owner deque (rejected — new pacing state for a path that can never fire); refund-by-reqId scanning newest-first (same, plus O(n)); keep it as-is (rejected — it pops another request's slot, and the two-request fixture in the AC would fail). | `[revises P7-W1: S-P7-2's pre-issue refund is retired]`, `[revises P26: mark_history_request_issued and _history_req_issued are deleted]` — implements `AC-D80.1`, Journey 73, A233 |
+| S-P27-2 | **One window rule for window membership; day presence stays a day-level predicate.** `_bar_level_missing_spans` selects window membership with the half-open predicate `ws <= t < bound` when the window is not capped by *now*, and `ws <= t <= now_ts` when it is (A232's exception, so today's open session is never over-fetched), and its trailing edge becomes `bound - last > gap_threshold` — the same `gap_threshold = period * 1.5` the leading and internal edges use — with the module docstring stating that number once. **`present_days` is unchanged**: its equity membership stays `window_start <= ts <= window_end`, because it answers a different question (did this day's data arrive in this mode?) and returns a `Set[date]`, never a window assignment; a `1 day` bar arrives stamped at the session close (`16:00` ET, `tests/test_history_backfill.py:110-112`), so a half-open presence test reports **0 of 10** cached days present and re-requests the whole daily history on every load (the over-requesting direction D82's own note forbids), while turning the AC-D16.4 shortfall line into "every day short" — an `AC-D16.9` change the phase declares it does not make. Rationale: a half-open rule is required where a bar is *assigned* to one window (a partition — no instant may count twice), which is exactly the bar-level pass; presence is a per-day boolean over a cache whose coarse bars are end-stamped, and the inclusive bound is the only predicate that admits both stamp conventions. Alternative: keep the inclusive close in the bar-level pass too and de-duplicate spans afterwards (rejected — leaves the boundary arithmetic undocumented and the trailing edge on a second threshold); change only the trailing edge (rejected — the membership half of D82 survives); make the `now` cap inclusive *and* the window end inclusive (rejected — that is today's defect); period-aware presence (rejected — `present_days` has no timeframe and cannot know each bar's stamp convention, and adding one changes a frozen signature and its AC-D16.4 consumer); timeframe-scoped application of the half-open rule (rejected — a second rule keyed on timeframe is the drift D82 removes). | `[new in P27]` — implements `AC-D82.1`, `AC-D82.2`, Journey 71, A232, R171; keeps `AC-D16.9`/`AC-D16.4` untouched |
+| S-P27-3 | **One owner for the prime's completion: the backstop is armed for the retry's own deadline.** `prime_aggregator`'s `PacingExceeded` branch computes `retry_ms = max(1000, int(wait_s * 1000))` once and uses it for both the scheduled retry and `_prime_timer.start(_prime_backstop_ms(retry_ms))`, where `_prime_backstop_ms(retry_ms) = max(_PRIME_BACKSTOP_MS, retry_ms + _PRIME_RETRY_GRACE_MS)` (`15_000`, `1_000` as module constants). A wait ≤ 14 s therefore keeps today's flat 15 s, a 15 s wait gives the retry one grace tick, and a 40 s wait arms 41 s. A *successfully issued* prime keeps the flat 15 s answer bound, and `_on_prime_timeout` still fails open once and clears the flags (now a belt: it cannot fire before the retry). **Quantified worst case:** the historical wait is the 600 s rolling window (`_hist_window = 600.0`), so `retry_ms ≈ 600_000` → the backstop arms at ≈ 601 s → refusal-to-attach ≈ **615 s** (`wait + 15 s`, retry issues and the prime never answers; ≤ 616 s by `wait + grace + 15 s`), where today the same refusal fails open at 15 s with no forming bar. That is `AC-D78.3`'s "reported wait plus the backstop" branch, not a new stall, and no pacing constant is retuned. Rationale: DG135 names the class — two independent timers owning one job, where a change to either silently disables the other (which is exactly what happened) — and its structural fix is to arm the backstop for the retry's deadline; `AC-D78.3`'s bound (reported wait + backstop) is preserved and no constant is retuned. Alternative: delete the retry (A231 permits; rejected — the retry exists to recover the forming period's partial bars, and removing it leaves DG135's two-timer question unanswered for the next change); lengthen the flat backstop (rejected — every unanswered prime waits longer, a new stall the Constraints forbid); have `_on_prime_timeout` defer to a pending retry (rejected — a callback that never runs would leave the prime unbounded); cap the deferral below the reported wait (rejected — it reintroduces D78, a retry that cannot fire at the ceiling). | `[new in P27]`, `[revises P7: Q-3's deferred prime retry — the backstop now covers the retry's deadline]` — implements `AC-D78.1`, `AC-D78.2`, `AC-D78.3`, Journey 72, DG135, A231, R172 |
+| S-P27-4 | **Gate before the send, stamp after it, and roll the id back.** `throttle` gains `*, stamp: bool = True` and returns whether it spent a `generic_batch` unit; the four generic request paths call `throttle(stamp=False)` (which raises `PacingExceeded` spending nothing), then allocate the id, then send inside `try`, then `record_request_slot()` when no reservation was spent; a raising send calls `id_manager.release_id(req_id)` (rollback of the newest allocation only) and re-raises. `req_historical_data` moves its existing `historical_wait_seconds()` gate in front of `get_id` for the same reason, keeping its after-send stamp. Rationale: D81's rule is already the historical path's rule — "record only after the request was actually issued" — and applying it to the generic gate makes "no stamp without a send" true for every path; the reservation branch is kept byte-identical, so P26's batch still spends exactly one unit per send and stamps once for **`n ≥ 1`** (an empty reservation stamps nothing — `ESC-129`). Alternative: un-stamp `_last_req_time` on failure (rejected — a rollback of a shared clock with no owner is the same inexactness D80 retires); keep stamping before the send (the defect); introduce a second gate API (rejected — `throttle` is the batch's contract and P26's suite pins its default path). | `[new in P27]`, `[revises P26: throttle gains one keyword-only parameter and a boolean return]`, `[extends P26: the generic_batch reservation is still consumed per send]` — implements `AC-D81.1`, `AC-D81.2`, Journey 73, A234, R173 |
+| S-P27-5 | **The pre-issue refund is retired, not repaired.** `PacingManager.refund_historical_slot`, the `if req_id not in self._history_req_issued: …` branch in `_cancel_history_requests`, and the `_history_req_issued` / `mark_history_request_issued` ledger that existed only to gate that branch are deleted. The wave's budget rule is stated once: **a slot is recorded after the send and never refunded**. Rationale: the slot deque holds only requests that were issued (recorded after the send), so a cancelling id that never reached TWS owns no slot; an exact refund would therefore return `False` by construction — the API can only be dead code or a thief (A233, D79's rule), and D81 makes the "recorded after send" premise uniform across every path. AR-P7-4's "post-issue cancels keep their slot" is preserved a fortiori (nothing is ever refunded), and P17's issue-time silence stamp survives because `_register_history_request` already writes it at registration and every mark call site sits immediately after one. Alternative: an exact refund via a parallel slot-owner deque (rejected — new pacing state for a path that can never fire); refund-by-reqId scanning newest-first (same, plus O(n)); keep it as-is (rejected — it pops another request's slot, and the two-request fixture in the AC would fail). | `[revises P7-W1: S-P7-2's pre-issue refund is retired]`, `[revises P26: mark_history_request_issued and _history_req_issued are deleted]`, `[revises P17: mark_history_request_issued is deleted; its seam's stamp is already made by _register_history_request]` — implements `AC-D80.1`, Journey 73, A233 |
 | S-P27-6 | **No mode-blind cache API survives.** `BarCache.get_last_timestamp(symbol, timeframe)` is deleted (zero callers at `70b16f2`), and the P27 suite asserts the class of read cannot return: no `MAX(ts)` query against `bars` filtered by `symbol` + `timeframe` without `ext_hours` anywhere under `data/`, `services/` or `ui/`. Rationale: D79 states the rule and its preference; the table's key has been mode-aware since S15, so a lookup that ignores the mode cannot answer a question the cache schema supports. Alternative: mode-qualify it and leave it (rejected — nothing calls it, and "might be handy" is exactly what the rule forbids); delete it without the scan (rejected — the class would reappear the next time someone needs "the last bar"). | `[new in P27]` — implements `AC-D79.1`, R174 |
 | S-P27-7 | **The planner's three defects are one wave; the prime and the budget are two more.** D77, D82 and D83 are the same function family — `plan_requests` and the window arithmetic that feeds it, in one pure module — and their fixtures overlap (the out-of-mode-cache fixture exercises identity *and* membership; a half-open window can hand `plan_requests` a shorter span than the old rule did). Splitting them would mean three passes over one file and two suites asserting different halves of one invariant. D78 touches only `ui/ticker_session.py`'s prime path and D79/D80/D81 touch only the pacing/market-data/cache layer plus `_cancel_history_requests`, so they are separate waves; the budget wave follows the prime wave because both edit `ui/ticker_session.py`. Rationale: a wave is a milestone, and a milestone here is "one invariant made true" — the planner's output identity, the prime's single owner, the budget's honesty. Alternative: one wave for all seven (rejected — three unrelated modules and a shared edit file make the wave's exit condition meaningless); a wave per defect (rejected — seven waves for ~120 changed lines, and D77/D82/D83 would each re-open the same functions). | `[new in P27]` — sequencing for `docs/plan.md` § *Phase P27* |

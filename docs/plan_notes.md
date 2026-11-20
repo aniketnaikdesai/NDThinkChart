@@ -913,8 +913,14 @@ postcondition. Alternatively state the chunk-granularity exception explicitly in
 *Expected behaviour*. Either way the assertions stay: identity multiset has no duplicate;
 coverage identical before/after; containment; the coinciding-span request-count drop.
 
-**Status:** open — non-blocking for the architecture (P27's plan asserts the enforceable half
-and records the reading as `FI-P27-1` / `AP-P27-2`; nothing in the phase depends on the
-literal equality).
+**Status:** addressed — 2026-11-19. `AC-D77.1`'s final clause, D77's *Expected behaviour* and
+Journey 71's postcondition now assert **coverage unchanged by the change plus containment of every
+input span**, with the chunk-granularity over-fetch (one configured `duration` ending at each
+anchor) stated explicitly rather than left as a silent exception. All previously asserted
+properties are retained: no duplicate request identities, before/after coverage identical,
+containment of every input span, and the coinciding-span request-count drop (`AC-D77.2`/`AC-D77.3`
+unchanged — they were already satisfiable). Plan revises its P27 sections against the new wording
+next.
 
-**Escalation:** ESCALATED_TO_REQUIREMENTS
+**Escalation:** ESCALATED_TO_REQUIREMENTS — **addressed 2026-11-19** (`AC-D77.1`, D77, Journey 71;
+`AC-D77.1` reworded only — no new criterion).
