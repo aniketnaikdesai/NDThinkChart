@@ -227,7 +227,7 @@ acceptance criterion is affected, so no requirements change is required.
 
 ---
 
-## RG-D23-1 — D23.1: architecture `S3` / task-level `AC-D22.2.3` reconciliation record (AC-D23.1.4)
+## RG-D23-1 — D23.1: architecture `S3` / task-level `AC-D22.2.3` reconciliation record (AC-D23.1.4) — **addressed 2026-11-20**
 
 **Requirement/Journey:** D23.1 / `AC-D23.1.4` (supersession + reconciliation recorded); Journey 28;
 `DG45`; A53/A54; R49. This is the binding correction record, **not** a requirements gap.
@@ -252,8 +252,35 @@ and reconciles architecture row `S3` (the D23.1 correction record names the owne
 **Why it is not a gap:** the requirement's required behaviour is unambiguous from the source
 evidence and fully implementable on the existing stack; no product/scope decision is needed.
 
-**Status:** addressed — architecture `S3` reconciled in `docs/architecture.md` this cycle; the
-Task-Manager-owned `AC-D22.2.3` rewrite is a Phase-3 task-graph edit by its owner.
+**Status:** **addressed — 2026-11-20** (reconciliation recorded as a governance record; no requirement or criterion edited).
+
+**Resolution (2026-11-20) — which statement governs where, and why.**
+
+- **Governing statement (behaviour): `requirements.md` D23.1 / `AC-D23.1.1`–`AC-D23.1.4`.** The required
+  behaviour is the **capability-guarded, documented best-effort cancel**, with `ContractLookupService`'s
+  bounded-`QTimer` + `cancel_all` **local invalidation as the real safety net**. It is the latest
+  requirements-level decision and it **supersedes the task-level `AC-D22.2.3` wire-cancel mandate** (that
+  supersession is stated in `requirements.md` itself, on the D23.1 entries and in the batch header).
+- **Superseded statement: task-level `AC-D22.2.3`** (formerly `docs/tasks/task-graph.json`, task `D22-02`).
+  Its *"it calls `client.cancelContractDetails`"* mandate is **not** governing, for two reasons: (a) it
+  mandates a capability the pinned `ibapi` does not expose — `hasattr(EClient, 'cancelContractDetails') is
+  False` at D23 report time (`9.81.1.post1`) and still `False` on the current `10.51.1` pin — so as written
+  it is unimplementable; and (b) a **task-level** criterion ranks **below** the requirements-level criterion
+  that corrects it, so Task Manager rewrote `D22-02` (and its test description) to the guarded cancel in
+  lockstep with `tests/test_ibkr_contract_details_d22.py` (R49). The reconciliation is now **moot as to the
+  artifact**: the live `task-graph.json` holds only the open phase's tasks (P30-T1…T6 at 2026-11-20), so
+  `D22-02` no longer exists — the surviving records are this requirements-level criterion and the
+  architecture row below.
+- **Architecture statement: `docs/architecture.md` `## D23 increment` → Tech Stack Decisions `S3
+  (reconciled)`.** It governs **how the seam is described** — guard + documented best-effort cancel +
+  local-invalidation safety net — and it is the row Plan/Build read. It **supersedes the pre-reconciliation
+  `S3` wording** (the unconditional wire cancel). Where `S3` and `AC-D22.2.3` differ, **`S3 (reconciled)`
+  governs the architecture description and the requirements-level `AC-D23.1.*` governs behaviour**; the two
+  now say the same thing, which is why the pair is no longer a live contradiction.
+- **Rule for a future reader.** If a requirements criterion and an architecture row ever diverge again, the
+  **requirements-level criterion wins** and the architecture row is re-reconciled to it — never the reverse;
+  the task-level criterion is rewritten last, in lockstep with its test. `AC-D22.1`–`AC-D22.9` are **not**
+  reopened: D23 corrects an implementation mandate, not D22's feature criteria.
 
 **Escalation:** none.
 
@@ -734,9 +761,21 @@ repair holes within one rolling-budget window; the criterion states no multi-loa
 **Suggested Direction:** restate `AC-D16.8` as the floor met monotonically across loads (S-P7-1 wording verbatim)
 or explicitly confirm the restatement.
 
-**Status:** open
+**Status:** **addressed — 2026-11-20** (owner-approved close-out; the restatement the entry asked for is already in `requirements.md`).
 
-**Escalation:** ESCALATED_TO_REQUIREMENTS
+**Resolution (2026-11-20).** No requirements text changed at close-out. `AC-D16.8` has carried the
+requested restatement since 2026-10-28 (`requirements.md` `:2326`–`:2332`, "Restatement (RG-P7-1 /
+ESC-079, 2026-10-28 — settled P7 direction S-P7-1/S-P7-2, implemented and green)"): the 30-session floor is
+met **monotonically across successive loads** — persist-and-resume, a **per-load cap** of at most one
+quarter of the `MAX_HISTORICAL_PER_600S` rolling slots, **oldest-first** floor fill — and **never
+necessarily inside one load**, with **no single-load deadline**; the single-load implication in the
+criterion's Given/Then is recorded there as **SUPERSEDED as a reading** (original wording kept as
+history). The "cannot be satisfied as currently written" tension this entry recorded is therefore already
+resolved **by the criterion itself**, so the entry was stale: closing it changes no requirement, no
+criterion, and nothing P7 built.
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS — **addressed 2026-11-20** (no analyst decision outstanding).
+
 ---
 
 - Issue: **RG-P7-2**
@@ -755,7 +794,36 @@ presence; only the Requirements Analyst can update the record.
 **Suggested Direction:** update the Current Tech Stack to the LWC-only end state at the next requirements
 revision (non-blocking; no build change).
 
-**Status:** open — non-blocking for the build (analyst-owned doc debt).
+**Status:** **addressed — 2026-11-20** (Current Tech Stack corrected to the shipped end state; no criteria changed).
+
+**Resolution (2026-11-20).** `requirements.md` `## Existing Repository` → **Current Tech Stack** now records
+the shipped end state with the renderer named unambiguously: **Python 3.11+ / PyQt6 + QtWebEngine
+(`PyQt6-WebEngine`)**, chart engine = **Lightweight Charts v5.2.x, vendored, rendered in-page as
+JavaScript inside the `QWebEngineView` and driven from Python through the `QWebChannel` `LwBridge`
+(`{v:1, ops:[]}` batched ops) with Python shims** — i.e. an **in-page renderer behind a Python seam, not a
+Python plotting widget, with no second engine and no engine selector**; plus `ibapi-latest==10.51.1`,
+numpy, `yfinance==1.7.0`, SQLite (user-space path), PyInstaller, pytest. The section states plainly that
+**pyqtgraph was removed in P6-T13** (commit `6e35b27`, 2026-10-27, owner-approved) and is **not installed,
+imported, selected or retained**, so the stale claim cannot be reintroduced from the stack record. Three
+neighbouring sites that carried the same live claim were corrected in the same edit for the same reason:
+the marker-adjacent preamble sentence in `## Existing Repository` (no longer "PyQt6 + pyqtgraph +
+`ibapi`"), the `## Constraints` → *Observed from repository* `UI` fact (now PyQt6 + QtWebEngine + in-page
+LWC, no pyqtgraph), and the `## Problem Statement`'s "(PyQt6 + pyqtgraph + `ibapi`)" parenthetical; the
+dated **D47** line in the Constraints block now carries an explicit "superseded 2026-10-27 by P6-T13 —
+pyqtgraph removed, LWC only, retained as decision lineage" marker. **No requirement, criterion, journey,
+assumption or risk changed** — dated D47 history sections keep their plan-time pyqtgraph wording as
+decision lineage (D55 / `AC-D55.9` disposition), each already marked superseded.
+
+**Fence consequence (for the orchestrator, not an analyst edit).** The correction lands **inside** the
+`PROTECTED_SPAN_SHA256` span (marker sentence → `\n### D53 `) pinned by `tests/test_p14_cache_guard.py`
+and `tests/test_p15_surfacing.py`, so the pins must move. **New span digest:
+`4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede`** (was
+`ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a`). Three literals need the new value:
+the two `PROTECTED_SPAN_SHA256` assignments and the hardcoded `expected` in
+`test_p28_t14_pin_matches_live_span`. Span boundaries are unchanged; only the digest literal and the
+re-pin comment need touching.
+
+**Escalation:** none — analyst-owned doc debt, closed on owner approval 2026-11-20.
 
 ---
 

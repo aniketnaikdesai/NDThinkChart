@@ -15,6 +15,18 @@
     {
       "id": "P30-T4",
       "type": "Task"
+    },
+    {
+      "id": "P30-T5",
+      "type": "Task"
+    },
+    {
+      "id": "P30-T6",
+      "type": "Task"
+    },
+    {
+      "id": "P30-T7",
+      "type": "Task"
     }
   ],
   "edges": [
@@ -37,7 +49,12 @@
       "from": "P30-T3",
       "to": "P30-T4",
       "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P30-T1",
+      "to": "P30-T5",
+      "type": "DEPENDS_ON"
     }
   ],
-  "graph_struct_sha256": "458f894a049e8b1c0879d5c164eece0c9acb314fb28ec79fd22d79f94637542c"
+  "graph_struct_sha256": "47f03a9f75b5970ea4a077ce6742818bfa356dd532ed7487c1b35cf7a7e5dadb"
 }

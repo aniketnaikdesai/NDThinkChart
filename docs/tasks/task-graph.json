@@ -991,6 +991,365 @@
         "needs_graphify": false,
         "size": "S"
       }
+    },
+    {
+      "id": "P30-T5",
+      "title": "P30-T5 (gate repair) \u2014 restate the D101 docstring without the renderer-boundary literal",
+      "description": "The P30 build left the full suite red on exactly one test: `tests/test_lwc_overlays.py::TestRendererBoundary::test_P6_T10_T12_no_out_of_scope_surface` reports `out-of-scope residue: [\"ui/lwc_view.py: 'QWebChannel'\"]`. P30-T1's D101 docstring at `ui/lwc_view.py:3109` names the transport class while explaining why the page cannot read the shim's return value; the P6 fence forbids that literal in `ui/lwc_view.py` on purpose (ESC-072: assert the property, not the word). **Fix the wording, never the fence.** The decided replacement sentence, verbatim: `The page cannot see the shim's answer \u2014 a bridge call returns` / `before the page can read it \u2014 so the refusal is reported here \u2014` / `once \u2014 and the router op the shim publishes is what drives the` / `page's pressed state.` It keeps both shipped facts (the page cannot see the shim's answer because a bridge call returns before the page can read it; the refusal is reported here once and the published router op drives the pressed state) and contains no forbidden token. Change no code, no other line of the file, and nothing under `tests/`.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P30-T1"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P30-05-RESIDUE",
+          "criterion": "Given `ui/lwc_view.py`, When the renderer-boundary fence runs, Then the forbidden literal occurs nowhere in the file and `tests/test_lwc_overlays.py::TestRendererBoundary::test_P6_T10_T12_no_out_of_scope_surface` is green. (Measurable: the node passes; it is RED before the edit with exactly `[\"ui/lwc_view.py: 'QWebChannel'\"]`.)"
+        },
+        {
+          "id": "AC-P30-05-MEANING",
+          "criterion": "Given the rewritten docstring of `_on_page_control_pressed`, Then it still states both shipped facts: (i) the page cannot see the shim's answer (a bridge call returns before the page can read it), and (ii) a refused press is reported here exactly once and the router op the shim publishes drives the page's pressed state. (Measurable: the docstring text read at the site.)"
+        },
+        {
+          "id": "AC-P30-05-SCOPE",
+          "criterion": "Given the working tree after this task, Then the only path this task writes is `ui/lwc_view.py`, and within it the `git diff` hunks lie inside `_on_page_control_pressed`'s docstring while that method's body and every import are byte-identical; `git diff --name-only -- tests/` prints nothing. Any file modified concurrently by another agent (e.g. `docs/requirements/requirements.md`, modified 2026-11-20 15:25 during this planning run) is not this task's write, is neither reverted nor counted, and is named in the result. (Measurable: `git diff -- ui/lwc_view.py`, `git diff --name-only -- tests/`.)"
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P30-T5-01",
+          "linked_acceptance_criterion": [
+            "AC-P30-05-RESIDUE"
+          ],
+          "type": "unit",
+          "description": "Run the **unmodified** fence node `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest \"tests/test_lwc_overlays.py::TestRendererBoundary::test_P6_T10_T12_no_out_of_scope_surface\" tests/test_p30_fence.py -q`. First reproduce the RED (record the exact failure line in the result), then re-run after the wording edit.",
+          "expected_result": "Before the edit the fence node fails with exactly `out-of-scope residue: [\"ui/lwc_view.py: 'QWebChannel'\"]`; after the edit both files pass. `tests/test_lwc_overlays.py` is never edited, loosened or skipped, and `tests/test_p30_fence.py` (read-only) stays green."
+        },
+        {
+          "test_id": "P30-T5-02",
+          "linked_acceptance_criterion": [
+            "AC-P30-05-MEANING"
+          ],
+          "type": "manual",
+          "description": "Read the docstring at the site (`sed -n '3103,3124p' ui/lwc_view.py`) and check both facts are still stated in prose naming no forbidden literal.",
+          "expected_result": "The docstring states that the page cannot see the shim's answer because a bridge call returns before the page can read it, that the refusal is reported here once, and that the router op the shim publishes drives the page's pressed state. No `QWebChannel`, `watchlist`, `dock`, `pyqtgraph` or any other fence token appears."
+        },
+        {
+          "test_id": "P30-T5-03",
+          "linked_acceptance_criterion": [
+            "AC-P30-05-SCOPE"
+          ],
+          "type": "manual",
+          "description": "From the repo root run `git diff -U0 -- ui/lwc_view.py` and `git diff --name-only -- tests/`.",
+          "expected_result": "The only changed lines are the docstring sentence(s) of `_on_page_control_pressed` (no executable line, no import, no signature changed) and `git diff --name-only -- tests/` prints nothing \u2014 the fence test is provably unmodified. Any other path in `git diff --name-only` is reported as another agent's concurrent write (notably `docs/requirements/requirements.md`), never reverted by this task."
+        }
+      ],
+      "expected_artifacts": [
+        "`ui/lwc_view.py` \u2014 the `_on_page_control_pressed` docstring restated without the forbidden literal; every other byte unchanged"
+      ],
+      "touches_files": [
+        "ui/lwc_view.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the RED fence failure naming `ui/lwc_view.py: 'QWebChannel'`",
+        "`tests/test_lwc_overlays.py` \u00a7 `TestRendererBoundary` (read-only): `SOURCES` = `ui/lwc_view.py` + `chart_assets/lwc/overlays.js`; `FORBIDDEN` includes the literal `QWebChannel` (plain substring check), while `pyqtgraph` alone has the ESC-072 property-based exception \u2014 the literal has no exception"
+      ],
+      "outputs": [
+        "a green renderer-boundary fence with the fence itself untouched",
+        "a docstring that still explains why the refusal is reported in Python rather than read by the page"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "3100-3126",
+            "why": "edit: only the `_on_page_control_pressed` docstring (3108-3114) \u2014 restate it as the description's verbatim sentence; read-only: the method body below stays byte-identical"
+          },
+          {
+            "path": "tests/test_lwc_overlays.py",
+            "lines": "439-495",
+            "why": "read-only: the fence contract (`SOURCES`, `FORBIDDEN`, the `pyqtgraph` exception) \u2014 do not edit, loosen or skip this file"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/lwc_view.py:_on_page_control_pressed",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#Phase P30",
+        "requirement_ids": [
+          "AC-D101.1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest \"tests/test_lwc_overlays.py::TestRendererBoundary::test_P6_T10_T12_no_out_of_scope_surface\" tests/test_p30_fence.py -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P30-T6",
+      "title": "P30-T6 (gate repair) \u2014 the DG116 clause compares to the phase base, not to HEAD",
+      "description": "`tests/test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record` ends with a DG116 clause that asserts no tracked file under `tests/` differs from `HEAD` (`git status --porcelain -- tests/`). That reddens on **any** uncommitted phase work \u2014 it has cost four verification runs in this session and every phase build hits it \u2014 while a **committed** scope breach is invisible to it. Decide and implement the phase-relative form: compare `git diff --name-only <phase-base> -- tests/` and flag only paths outside the phase's declared `tests/` footprint. **Derivation (stated):** the base and the footprint are read from `docs/tasks/task-graph.json` \u2014 `meta.baseline_commit` (a standing convention: P28 `ef04c5a`, P29 `3b92ce6`, P30 `956f9f8`) and each task's `touches_files`, filtered to paths starting `tests/`. No hardcoded phase path list and no hardcoded base: the same clause keeps working for P31+ because each phase's Task Manager records both. Resolve the base with `git rev-parse --verify <base>^{commit}` and require `git merge-base --is-ancestor <base> HEAD`; if `meta.baseline_commit` is absent or unresolvable, fail with a message naming the missing key \u2014 never fall back to `HEAD`. Keep every other assertion in the file byte-for-byte: AC1's requirements pin, the DG114 source/axisProbe/matrix-suite block, the DG115 CROSSHAIR/Magnet block, and AC3's guard re-pin (the two guard files `tests/test_p20_proxy_guard.py`/`tests/test_d60_follow_offset.py` diff `docs/requirements/requirements.md` only \u2014 they are **not** second copies of this rule and must not be edited). Untracked new files stay out of scope exactly as before (`??` was already ignored): a worker's in-progress new suite must not redden the gate mid-wave.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P30-06-BASE",
+          "criterion": "Given the phase task graph, Then the DG116 comparison is made against `meta.baseline_commit` (currently `956f9f8`), verified to resolve and to be an ancestor of `HEAD`, and never against `HEAD` or a working-tree `status` scan; the same edit yields the same verdict whether committed or uncommitted. (Measurable: the base resolver equals the graph's value; a scratch repo shows an allowlisted edit admitted both uncommitted and committed.)"
+        },
+        {
+          "id": "AC-P30-06-ALLOWLIST",
+          "criterion": "Given the phase graph's declared footprint, Then the allowlist is exactly the `tests/` subset of every task's `touches_files` (for P30: the four P30 suites plus this gate file), is asserted disjoint from `tests/test_toolbar_scroll_d19.py` and `tests/test_toolbar_d20.py`, and any other `tests/` path that differs from the base is reported by name. (Measurable: derivation compared against an independent read of the graph; a scratch-repo unlisted edit is reported.)"
+        },
+        {
+          "id": "AC-P30-06-PRESERVE",
+          "criterion": "Given `tests/test_d64_batch_gate.py`, Then every other assertion is unchanged \u2014 AC1's marker/tech-stack/additive-requirements pin, DG114's seven source assertions plus the two suite-presence checks, DG115's crosshair mode/name and no-Magnet check, and AC3's guard re-pin (`\"diff\", \"HEAD\"` and `stdout.strip() == \"\"` still present in both guard files, collection intact, node `tz_format` suite green) \u2014 and the DG116 node plus AC3 pass. AC1's *runtime* status is recorded in the result, not asserted: it pins `git diff HEAD` on `docs/requirements/requirements.md`, which another agent may legitimately be editing mid-phase (4 removed lines present on 2026-11-20 15:25), so it is green once that edit is committed. (Measurable: the assertions are present verbatim; the three named nodes pass.)"
+        },
+        {
+          "id": "AC-P30-06-SCOPE",
+          "criterion": "Given the working tree after this task, Then the only path this task creates or modifies is `tests/test_d64_batch_gate.py`; `tests/test_lwc_overlays.py`, the two guard files and every production file are byte-identical to baseline `9425555`. Any file modified concurrently by another agent (e.g. `docs/requirements/requirements.md`, 2026-11-20 15:25) is not this task's write and is neither reverted nor counted. (Measurable: `git diff --name-only`, plus `git diff` for the named files.)"
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P30-T6-01",
+          "linked_acceptance_criterion": [
+            "AC-P30-06-BASE"
+          ],
+          "type": "unit",
+          "description": "New `tests/test_d64_batch_gate.py::test_p30_t6_dg116_phase_base_scope_fence`: in `tmp_path` run `git init -q`, write `tests/listed.py` and `tests/unlisted.py`, `git add -A` and commit with `-c user.name=gate -c user.email=gate@example.invalid -c commit.gpgsign=false`; take `base = rev-parse HEAD`. Then (a) modify `tests/listed.py` uncommitted, (b) commit it, (c) modify `tests/unlisted.py`, calling `_scope_breaches(repo, base, frozenset({'tests/listed.py'}))` after each step. Separately, in the live repo assert `_phase_graph()[0]` equals `docs/tasks/task-graph.json` `meta.baseline_commit` and that `git merge-base --is-ancestor <base> HEAD` succeeds.",
+          "expected_result": "(a) `[]` and (b) `[]` \u2014 the uncommitted and committed allowlisted edit both pass, which is the defect fixed; (c) `['tests/unlisted.py']` \u2014 a real breach still reddens. The live base equals the graph's value and is an ancestor of `HEAD`. No network, no `HEAD` comparison, no mutation of the real repo."
+        },
+        {
+          "test_id": "P30-T6-02",
+          "linked_acceptance_criterion": [
+            "AC-P30-06-ALLOWLIST"
+          ],
+          "type": "unit",
+          "description": "New `tests/test_d64_batch_gate.py::test_p30_t6_dg116_allowlist_derivation`: read `docs/tasks/task-graph.json` independently in the test, compute `{p for t in tasks for p in t['touches_files'] if p.startswith('tests/')}` and assert `_phase_test_allowlist()` equals it; assert the set is disjoint from `{'tests/test_toolbar_scroll_d19.py', 'tests/test_toolbar_d20.py'}`; feed `_scope_breaches`'s filter a diff line naming `tests/test_toolbar_d20.py` and assert it is reported.",
+          "expected_result": "The allowlist is exactly the graph's derived `tests/` footprint (no hardcoded phase list that could drift), never contains a D19/D20 fixture, and a fixture path is reported as a breach while an allowlisted path is not. Phase-agnostic: the expected set is recomputed, so P31 does not need to edit this test."
+        },
+        {
+          "test_id": "P30-T6-03",
+          "linked_acceptance_criterion": [
+            "AC-P30-06-PRESERVE",
+            "AC-P30-06-SCOPE"
+          ],
+          "type": "integration",
+          "description": "Run the DG116 node and AC3 deterministically: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest \"tests/test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record\" \"tests/test_d64_batch_gate.py::test_p22_t5_ac3_guards_adjudicated_and_page_core_green\" -q`; then run the whole file (`... -m pytest tests/test_d64_batch_gate.py -q`) and record AC1's outcome separately without treating it as this task's verdict; then `git diff --name-only` and `git diff --name-only 9425555 -- tests/` from the repo root.",
+          "expected_result": "The DG116 node and AC3 pass; AC1's outcome is recorded in the result with its cause if red (`git diff HEAD` on `docs/requirements/requirements.md` shows 4 removed lines from another agent's concurrent edit \u2014 it clears on that commit). DG114/DG115/AC3 assertions are untouched; `git diff --name-only 9425555 -- tests/` names only `tests/test_d64_batch_gate.py`; `tests/test_lwc_overlays.py` and both guard files are unmodified; `docs/requirements/requirements.md` is reported as another agent's write and left alone."
+        }
+      ],
+      "expected_artifacts": [
+        "`tests/test_d64_batch_gate.py` \u2014 the DG116 clause compares `tests/` to the phase base with the graph-derived allowlist; `_phase_graph()`/`_phase_test_allowlist()`/`_scope_breaches()` helpers; the two new tests; every other assertion unchanged"
+      ],
+      "touches_files": [
+        "tests/test_d64_batch_gate.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "`docs/tasks/task-graph.json` `meta.baseline_commit` (`956f9f8`) and every task's `touches_files` (P30: four P30 suites + this gate file; the file must be in its own allowlist or it reddens on its own edit)",
+        "the current DG116 tail: `git status --porcelain -- tests/`, ignoring `??`",
+        "the two D19/D20 fixture files the property protects: `tests/test_toolbar_scroll_d19.py`, `tests/test_toolbar_d20.py`"
+      ],
+      "outputs": [
+        "a batch gate that is green whether the phase is committed or uncommitted, and still red on a committed scope breach",
+        "the graph-recorded phase base as the single source for the fence, maintained by each phase's Task Manager"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d64_batch_gate.py",
+            "lines": "1-157",
+            "why": "edit: the DG116 tail of `test_p22_t5_ac2_shared_seam_record` plus new module helpers and two tests; read-only: the module docstring, AC1's requirements pin, the DG114/DG115 blocks and all of AC3"
+          },
+          {
+            "path": "tests/test_p30_fence.py",
+            "lines": "30-50",
+            "why": "read-only: the phase-delta convention \u2014 a git diff is a build artefact, not a pytest assertion; this repair is the deliberate exception because the clause must be green mid-phase"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_d64_batch_gate.py:_git",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d64_batch_gate.py:test_p22_t5_ac2_shared_seam_record",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d64_batch_gate.py",
+            "signature": "GRAPH = REPO / \"docs\" / \"tasks\" / \"task-graph.json\"\nD19_D20_FIXTURES = frozenset({\"tests/test_toolbar_scroll_d19.py\", \"tests/test_toolbar_d20.py\"})\n\ndef _phase_graph(graph_path: Path = GRAPH) -> tuple[str, frozenset[str]]:\n    \"\"\"(meta.baseline_commit, every task's tests/ touches_files) \u2014 the phase's declared base + test footprint.\"\"\"\n\ndef _phase_test_allowlist(graph_path: Path = GRAPH) -> frozenset[str]: ...\n\ndef _scope_breaches(repo: Path, base: str, allowlist: frozenset[str]) -> list[str]:\n    \"\"\"Sorted `tests/` paths that differ from `base` and are not in `allowlist` (untracked files never appear in git diff).\"\"\"\n\n# DG116 tail, replacing the `git status --porcelain -- tests/` block:\nbase, allowlist = _phase_graph()\n_git(\"merge-base\", \"--is-ancestor\", base, \"HEAD\")\nassert allowlist.isdisjoint(D19_D20_FIXTURES), ...\nbreaches = _scope_breaches(REPO, base, allowlist)\nassert not breaches, (...)"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#Phase P30",
+        "requirement_ids": [
+          "AC-D64.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest \"tests/test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record\" \"tests/test_d64_batch_gate.py::test_p30_t6_dg116_phase_base_scope_fence\" \"tests/test_d64_batch_gate.py::test_p30_t6_dg116_allowlist_derivation\" -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P30-T7",
+      "title": "P30-T7 (hash re-pin) \u2014 re-pin the protected requirements span after the owner-approved RG-P7-1 / RG-P7-2 / RG-D23-1 closures landed inside it",
+      "description": "The owner-approved 2026-11-20 record corrections (closure of `RG-P7-1`, `RG-P7-2` and `RG-D23-1`) edited `docs/requirements/requirements.md` inside the span pinned by `PROTECTED_SPAN_SHA256`, so the span's digest moved from `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a` to `4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede` (boundaries unchanged: `text.index(\"This is an existing repository.\")` -> `text.index(\"\\n### D53 \")`; 531,306 -> 532,623 bytes) and three stale literals remain: `tests/test_p14_cache_guard.py` `PROTECTED_SPAN_SHA256` (line 84) and the hardcoded `expected` in `test_p28_t14_pin_matches_live_span` (line 454), and `tests/test_p15_surfacing.py` `PROTECTED_SPAN_SHA256` (line 77). Move exactly those three literals to the new digest and extend each site's audit comment (see AC-P30-07-AUDIT) \u2014 nothing else: span boundaries, extraction expressions, the exact-equality comparison and every marker/heading assertion stay byte-identical, and no containment or `startswith` relaxation is ever introduced. The three currently-red nodes (`test_p14_cache_guard.py::test_t34_history_markers_intact`, `::test_p28_t14_pin_matches_live_span`, `tests/test_p15_surfacing.py::test_t33_history_markers_intact`) fail on the digest assertion only.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P30-07-PIN",
+          "criterion": "Given `docs/requirements/requirements.md` in its current owner-approved 2026-11-20 state, When the three pin literals are read, Then each equals `4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede` \u2014 the sha256 of the live span from `text.index(\"This is an existing repository.\")` up to (excluding) `text.index(\"\\n### D53 \")`, 532,623 bytes \u2014 and the previous value `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a` occurs nowhere in either test file. (Measurable: the three literals read at their sites; `grep -c` for the old digest returns 0 in both files; live digest recomputed with `hashlib.sha256(span.encode()).hexdigest()`.)"
+        },
+        {
+          "id": "AC-P30-07-PIN-ONLY",
+          "criterion": "Given both guard files after this task, Then the pin stays a **pin only**: the span-extraction expressions (`start = text.index(\"This is an existing repository.\")`, `span = text[start : text.index(\"\\n### D53 \")]`) and the exact-equality comparison (`hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256`) are byte-identical, no containment/`startswith`/tolerance form appears, no test is skipped, marked or loosened, and every marker/heading assertion in `test_t34_history_markers_intact` and `test_t33_history_markers_intact` is untouched. (Measurable: `test_p28_t14_repin_is_pin_only` passes, and `git diff -U0 956f9f8 -- tests/test_p14_cache_guard.py tests/test_p15_surfacing.py` changes only digest-literal lines and `#` comment lines.)"
+        },
+        {
+          "id": "AC-P30-07-AUDIT",
+          "criterion": "Given each of the three sites, Then its adjacent audit comment (a) names this re-pin's authorising record \u2014 the 2026-11-20 closure of `RG-P7-1`, `RG-P7-2` and `RG-D23-1`; (b) says what moved inside the span \u2014 the Current Tech Stack and Constraints rows now record the shipped LWC-only engine end state with pyqtgraph removed, the `This is an existing repository.` marker sentence is restated to match, and the D23.1 record carries its reconciliation; and (c) keeps the previous P28-T14 re-pin (`RG-P29-1`) as history rather than overwriting it, so the tokens `RG-P29-1`, `Q120`, `AC-D75.1` and `2026-11-20` remain and the Q120 / `AC-D75.1` edit stays marked as outside the pin. (Measurable: the comment block above each `PROTECTED_SPAN_SHA256 = (` greps for `RG-P7-1`, `RG-P7-2`, `RG-D23-1` and the four retained tokens, and `test_p28_t14_repin_is_pin_only`'s audit-trail assertions pass.)"
+        },
+        {
+          "id": "AC-P30-07-GUARDS",
+          "criterion": "Given the four P28-T14 guard nodes, Then all four pass: `test_p14_cache_guard.py::test_t34_history_markers_intact` (markers intact and span hash equal), `::test_p28_t14_pin_matches_live_span` (recorded pin == live span digest in both fences), `::test_p28_t14_repin_is_pin_only` (anchors kept, no relaxation, audit trail present) and `test_p15_surfacing.py::test_t33_history_markers_intact` \u2014 the first and third now green because the pin equals the live span again. (Measurable: the scoped pytest command reports 4 passed.)"
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P30-T7-01",
+          "linked_acceptance_criterion": [
+            "AC-P30-07-PIN",
+            "AC-P30-07-GUARDS"
+          ],
+          "type": "unit",
+          "description": "From the repo root run `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p14_cache_guard.py::test_p28_t14_pin_matches_live_span tests/test_p14_cache_guard.py::test_p28_t14_repin_is_pin_only tests/test_p15_surfacing.py::test_t33_history_markers_intact -q` before the edit (record the RED: the three digest-only failures) and again after it.",
+          "expected_result": "Before the edit exactly three nodes fail, each on the digest assertion (`live protected span digest 4de9f5... != recorded pin ffa6ff...` / `protected requirements history span changed`), while every marker/heading assertion in those same nodes passes. After the edit `4 passed` and 0 failed."
+        },
+        {
+          "test_id": "P30-T7-02",
+          "linked_acceptance_criterion": [
+            "AC-P30-07-PIN-ONLY"
+          ],
+          "type": "unit",
+          "description": "Run `tests/test_p14_cache_guard.py::test_p28_t14_repin_is_pin_only`, which re-reads both files and asserts the three exact anchors are still present inside each fence function and that no containment / `startswith` form appears.",
+          "expected_result": "PASS: every anchor (`start = text.index(...)`, the slice to `\\n### D53 `, the exact-equality comparison) is found in each fence body and neither relaxed form is present \u2014 the re-pin introduced no tolerance and no test was skipped or loosened."
+        },
+        {
+          "test_id": "P30-T7-03",
+          "linked_acceptance_criterion": [
+            "AC-P30-07-PIN-ONLY"
+          ],
+          "type": "manual",
+          "description": "From the repo root run `git diff -U0 956f9f8 -- tests/test_p14_cache_guard.py tests/test_p15_surfacing.py` and read every changed line.",
+          "expected_result": "Every changed line is either a `#` comment line or the digest literal itself (`PROTECTED_SPAN_SHA256 = ` value line, the parenthesised string line, or the `expected = (` value in `test_p28_t14_pin_matches_live_span`); no assertion, expression, import, signature or test decorator changed. `git diff --name-only 956f9f8` shows these two files as this task's only writes (other paths, e.g. `docs/requirements/requirements.md`, `tests/test_d64_batch_gate.py`, are other agents' concurrent writes \u2014 neither reverted nor counted)."
+        },
+        {
+          "test_id": "P30-T7-04",
+          "linked_acceptance_criterion": [
+            "AC-P30-07-AUDIT"
+          ],
+          "type": "manual",
+          "description": "Read the comment block immediately above each `PROTECTED_SPAN_SHA256 = (` in both files (and the comment above `expected = (` in `test_p28_t14_pin_matches_live_span` if one is added) \u2014 e.g. `sed -n '62,95p' tests/test_p14_cache_guard.py` and `sed -n '66,85p' tests/test_p15_surfacing.py`.",
+          "expected_result": "Each comment names the 2026-11-20 closure of `RG-P7-1`, `RG-P7-2` and `RG-D23-1` as the authorising record, states what moved inside the span (Current Tech Stack / Constraints LWC-only end state with pyqtgraph removed, the marker sentence restated, the D23.1 reconciliation), and retains the previous P28-T14 / `RG-P29-1` re-pin as history \u2014 `RG-P29-1`, `Q120`, `AC-D75.1`, `2026-11-20` all still present and the Q120 / `AC-D75.1` edit still marked outside the pin. No comment line quotes a `PROTECTED_SPAN_SHA256 = (` assignment form (that would break the guard's regex), and blank separator lines inside the block stay `#`-prefixed so the block remains contiguous."
+        }
+      ],
+      "expected_artifacts": [
+        "`tests/test_p14_cache_guard.py` \u2014 `PROTECTED_SPAN_SHA256` and the `expected` in `test_p28_t14_pin_matches_live_span` re-pinned to the new digest; audit comment extended, prior P28-T14 record retained",
+        "`tests/test_p15_surfacing.py` \u2014 `PROTECTED_SPAN_SHA256` re-pinned to the new digest; audit comment extended, prior P28-T14 record retained",
+        "a recorded RED-before / GREEN-after for the four guard nodes in `docs/build/results/P30-T7.json`"
+      ],
+      "touches_files": [
+        "tests/test_p14_cache_guard.py",
+        "tests/test_p15_surfacing.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the live span digest supplied by the Requirements Analyst: `4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede` (previous `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a`; span boundaries unchanged, 531,306 -> 532,623 bytes)",
+        "the owner-approved 2026-11-20 requirements working-tree edit inside the span: marker sentence (line 416), Current Tech Stack / Constraints rows (lines 561+, 594+), and the D23.1 record's reconciliation",
+        "the P28-T14 guard suite in `tests/test_p14_cache_guard.py` (pin matches live span, pin-only, audit-trail assertions)"
+      ],
+      "outputs": [
+        "three digest literals equal to the live span digest",
+        "a green P28-T14 guard suite with the fences structurally unchanged",
+        "audit comments traceable to the 2026-11-20 RG-P7-1 / RG-P7-2 / RG-D23-1 closures, with the P28-T14 / RG-P29-1 re-pin preserved as history"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "60-90",
+            "why": "edit: the pin comment block and `PROTECTED_SPAN_SHA256` (line 84) \u2014 new digest + authorising-record comment; keep blank separator lines `#`-prefixed"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "418-530",
+            "why": "edit: `expected` at line ~454 inside `test_p28_t14_pin_matches_live_span`; read-only: `test_t34_history_markers_intact`'s marker assertions and `test_p28_t14_repin_is_pin_only`'s anchors/audit-token list \u2014 do not change them"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "64-82",
+            "why": "edit: the pin comment block and `PROTECTED_SPAN_SHA256` (line 77) \u2014 same two changes as the p14 site"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "405-450",
+            "why": "read-only: `test_t33_history_markers_intact`'s marker assertions and exact-equality comparison \u2014 byte-identical after the edit"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_p14_cache_guard.py:test_p28_t14_pin_matches_live_span",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p14_cache_guard.py:test_p28_t14_repin_is_pin_only",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p15_surfacing.py:test_t33_history_markers_intact",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "PROTECTED_SPAN_SHA256 = \"4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede\"",
+            "module": "tests/test_p14_cache_guard.py"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#Phase P30",
+        "requirement_ids": [
+          "AC-P28-03",
+          "RG-P7-1",
+          "RG-P7-2",
+          "RG-D23-1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p14_cache_guard.py::test_p28_t14_pin_matches_live_span tests/test_p14_cache_guard.py::test_p28_t14_repin_is_pin_only tests/test_p15_surfacing.py::test_t33_history_markers_intact -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
     }
   ]
 }

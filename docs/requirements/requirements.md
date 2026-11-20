@@ -3,7 +3,7 @@
 > **[NEW 2026-11-04] Batch 30 (D55) — documentation consolidation (FULL plan execution, docs-only) — OWNER-ORDERED; all 4 blocking questions answered 2026-11-04 — READY_FOR_PLAN.** The owner ordered FULL execution of `docs/documentation_consolidation_plan.md` (9 phases: inventory, fact reconciliation, navigation/labels, user-guide fixes, chart-migration records, backfill-plan wording, cumulative-spec navigation, disposition matrix, final consistency review; plus the disposition matrix and conditional deletion candidates). Owner context on record: the 9-category / ~95-file inventory stands as the starting point; `dev_docs/` deletion is approved EXCEPT the one live code-comment reference (`services/sound_service.py:3` cites `dev_docs/delta.md` §3) which must be resolved inside this batch, not left dangling; `spikes/lwc/` is a throwaway boundary (never imported); legacy unsuffixed logs and generated precheck output are deletion candidates; the 16 investigation files are the knowledge base (consolidate-by-index, do not destroy). **Docs-only batch: no product-code behaviour change.** Any consolidation step that would imply app behaviour (e.g. the USAGE-vs-`usage.md` live/paper contradiction) is recorded as a question/escalation — product behaviour is NOT decided here. **D1–P15 are NOT reopened.** See Phase P16 (D55), Journeys 48–50, `AC-D55.1`–`AC-D55.10`, A149–A155, R110–R113, `open_questions.md` Q84–Q87 (all answered 2026-11-04), `design_gaps.md` DG102–DG105.
 
 
-> **Current baseline (appended 2026-10-28, Q-52 — navigation only, no criteria changed).** Chart engine: **Lightweight Charts only** — P6-T13 removed pyqtgraph 2026-10-27 (removal commit `6e35b27`, owner-approved; gate `docs/build/gate_P6_T13.md` records owner approval SATISFIED and the one-clean-live-session sign-off **WAIVED, NOT SATISFIED** — never write it satisfied). Active phases: **P7** (data-path batch, `docs/plan.md` § Phase P7) and **P8** (D48 weekly/monthly, drafted 2026-10-28, `Status: READY_FOR_PLAN`). Open requirements debt: `AC-D16.8` restatement (RG-P7-1, `ESCALATED_TO_REQUIREMENTS`), RG-D46-2…RG-D46-9 and RG-P7-2 (open, non-blocking, analyst-owned — see the open-items index in `docs/plan_notes.md`). Authority: `docs/README.md`. As-built history: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`). The D47 plan-time sentences in this file ("pyqtgraph retained and default", dual-engine selection, deletion gated on a future live session) describe the 2026-10-26 plan as drafted and are **superseded by the P6-T13 outcome above** — preserved as decision lineage, not current guidance.
+> **Current baseline (appended 2026-10-28, Q-52 — navigation only, no criteria changed).** Chart engine: **Lightweight Charts only** — P6-T13 removed pyqtgraph 2026-10-27 (removal commit `6e35b27`, owner-approved; gate `docs/build/gate_P6_T13.md` records owner approval SATISFIED and the one-clean-live-session sign-off **WAIVED, NOT SATISFIED** — never write it satisfied). Active phases: **P7** (data-path batch, `docs/plan.md` § Phase P7) and **P8** (D48 weekly/monthly, drafted 2026-10-28, `Status: READY_FOR_PLAN`). Open requirements debt: RG-D46-2…RG-D46-9 (open, non-blocking, analyst-owned — see the open-items index in `docs/plan_notes.md`). **[UPDATED 2026-11-20 — RG-P7-1 and RG-P7-2 CLOSED: `AC-D16.8` has carried the successive-loads restatement since 2026-10-28 (below), and the Current Tech Stack in `## Existing Repository` now records the shipped LWC-only engine end state (no pyqtgraph). Both entries are `Status: addressed — 2026-11-20` in `docs/plan_notes.md`.]** Authority: `docs/README.md`. As-built history: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`). The D47 plan-time sentences in this file ("pyqtgraph retained and default", dual-engine selection, deletion gated on a future live session) describe the 2026-10-26 plan as drafted and are **superseded by the P6-T13 outcome above** — preserved as decision lineage, not current guidance.
 
 
 > **[NEW 2026-10-28] Batch 23 (D48) — P8 lite: add `1 week` (2Y) and `1 month` (10Y) timeframes — OWNER-REQUESTED; lite lane (defaults A113–A120, no question round).** The owner asked for weekly bars covering 2 years and monthly bars covering 10 years (IBKR bar sizes `1 week` / `1 month` exist; today's picker stops at `1 day`). D48 adds the two `TIMEFRAME_CONFIG` rows (`1 week` → `1 week` / `2 Y`; `1 month` → `1 month` / `10 Y`), Monday-anchored weekly + calendar-month aggregation, planner/backfill treatment (daily+ timeframes skip the `AC-D16.8` intraday floor; day-presence is already bar-granular), UI picker inclusion, and RTH/ETH irrelevance for weekly/monthly; acceptance is **standalone-probe-verified durations + suite green**. Week-anchor day, month-span durations and the year-unit duration spelling are **analyst defaults** (A113–A120). **D1–D47 are NOT reopened** beyond the recorded timeframe-enumeration extension (`AC-D16.1`'s "all six timeframes" now reads eight). No blocking question remains (lite lane; no `open_questions.md` entry); `requirements.md` carries `Status: READY_FOR_PLAN`.
@@ -250,8 +250,9 @@
 > The owner **reversed** the 2026-10-16 Locked Decision declining the LWC migration (recorded in `docs/memory.md` 2026-10-16; the reversal is recorded in `### D47` below with the original rationale kept beside it, A80/A90 pattern — `docs/memory.md` itself is Orchestrator-appended and is flagged for the matching append). The chart stack migrates **via strangler behind a `ChartView` protocol** (`ui/chart_view.py`), with **pyqtgraph retained until parity is accepted** — the sanctioned route the decline itself named. **Three owner approvals, verbatim (decided 2026-10-26):** (1) *"Reverse the 2026-10-16 decision declining the LWC migration"* — YES; (2) *"No soak, but one live session sign-off before any delete"* — YES: **no calendar soak**; cutover when the owner accepts **and** the parity matrix is all Done/accepted **and** Phase 0 perf holds; **pyqtgraph deletion is a separate wave on explicit owner approval only**, gated on **one live trading session with no engine defect**; (3) *"Phase 0 spike as single exception to no-prototype"* — YES: `spikes/lwc/` throwaway only, proving the 9 API behaviours, results in `docs/lwc_spike_results.md` with a go/no-go gate. The attached migration plan (updated, no soak) is the primary input: strangler seam + `DrawingController`/`AlarmController` signal preservation, `create_chart_view(tz_offset, editable)` on `NDT_CHART_ENGINE` (pyqtgraph default, lwc) or `QSettings`; shared Qt-free `ChartModel`; `QWebEngineView` + vendored lightweight-charts v5.2.x via `ndt://` scheme handler; `QWebChannel` `LwBridge` batched transport; panes (v5), logical-index time axis, custom tz formatters; in-HTML controls with Python shims; Python `RouterMode` + JS mirror; primitives library; Qt dialogs stay; **Phases 0–11** (effort S/M/L/XL as stated); **19-row parity matrix** (`docs/lwc_parity_matrix.md`, kept updated); pyramid test strategy; **66 chart-adjacent test files** classified keep/retarget/engine-specific; 10 risks; explicit out-of-scope list. **D1–D46 are NOT reopened** beyond the recorded supersessions/reversals (density-cap AC retirement is **proposed, pending Q60**; the 2026-10-16 decline is **reversed**). **Section-8 owner questions Q1–Q4** are recorded as **Q60–Q63** (`open_questions.md`): Q60 answered-by-default (the plan already justifies it); Q61–Q63 open with recommended defaults. `requirements.md` carries `Status: READY_FOR_PLAN`.
 
 ## Problem Statement
-NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
-official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
+NDThinkChart is a feature-complete desktop trading terminal (PyQt6, official `ibapi`,
+live TWS port 7496) whose chart engine is in-page Lightweight Charts behind the Python
+seam (no pyqtgraph — removed in P6-T13) — built through Phases 1–10. (That roadmap,
 `PENDING_IMPLEMENTATION_PLAN.md`, was deleted by the owner on 2026-10-15;
 `docs/phase-changelog.md` is the surviving phase-by-phase record.) It is now in a
 **feedback-driven stabilization phase**: the user reviewed the running app and reported functional issues and UI
@@ -413,7 +414,8 @@ port guard's wording, the startup path's backup, the engine's docstrings) the ch
 match the code, never to change the stack.
 
 This is an existing repository. NDThinkChart is a stabilization/extension run against an
-already-built PyQt6 + pyqtgraph + `ibapi` desktop trading terminal (development build:
+already-built PyQt6 desktop trading terminal whose chart engine is in-page Lightweight
+Charts (QtWebEngine) with an `ibapi` broker feed (development build:
 `python main.py`; bundled: PyInstaller windowed `.app`, bundle id `com.ndthinkchart.app`).
 The D1–D15 work is built and green. This section is preserved through every rewrite because
 Plan, the Plan Artifact Editor & Validator, and the Orchestrator key **existing-repo mode**
@@ -558,7 +560,17 @@ repository files, which remain authoritative if the two disagree.
 
 **Current Tech Stack:**
 - **Language/runtime:** Python 3.11+ (`.venv`), macOS Apple Silicon (arm64).
-- **UI:** PyQt6 (`PyQt6>=6.6`), pyqtgraph (`>=0.13`).
+- **UI:** PyQt6 (`PyQt6>=6.6`) + **QtWebEngine** (`PyQt6-WebEngine`, the chart host inside the
+  Qt window). **pyqtgraph is NOT part of the stack** (removed — see the chart-engine line below).
+- **Chart engine (shipped end state — LWC only, no pyqtgraph):** **Lightweight Charts v5.2.x**,
+  **vendored** (no CDN/npm at runtime; attribution kept) and rendered **in-page as JavaScript
+  inside the `QWebEngineView`**, driven from Python through the `QWebChannel` `LwBridge`
+  (`{v:1, ops:[]}` batched ops) with **Python shims** behind the in-HTML controls. The chart is
+  therefore an **in-page renderer behind a Python seam**, not a Python plotting widget, and there
+  is **no second engine and no engine selector**: **pyqtgraph was removed in P6-T13** (commit
+  `6e35b27`, 2026-10-27, owner-approved) and is **not installed, imported, selected or retained**.
+  Any sentence naming pyqtgraph as present, default or a fallback (including D47's plan-time
+  "retained until parity" and dual-engine wording) is **stale history, superseded by P6-T13**.
 - **Broker:** official `ibapi` — pinned `ibapi-latest==10.51.1` (PyPI dist name; provides the `ibapi` module), Interactive Brokers TWS, **live port 7496 only — no paper mode**.
 - **Numerics:** numpy (`>=1.26`).
 - **Secondary data source (D38):** `yfinance==1.7.0` (pinned; the sole secondary source for corporate events/news — owner decision 2026-10-13; quarterly re-pin policy).
@@ -579,8 +591,10 @@ repository files, which remain authoritative if the two disagree.
 
 ### Observed from repository (confirmed, Q5)
 - **Language/runtime:** Python 3.11+ (`.venv`), macOS Apple Silicon (arm64).
-- **UI:** PyQt6 (`PyQt6>=6.6`), pyqtgraph (`>=0.13`) for charting.
-- **D47 chart-migration stack (NEW 2026-10-26, owner-directed; pyqtgraph retained until parity accepted):**
+- **UI:** PyQt6 (`PyQt6>=6.6`) + QtWebEngine (`PyQt6-WebEngine`, the chart host); charting is the
+  in-page **Lightweight Charts** renderer behind the Python seam — **no pyqtgraph** (removed in P6-T13,
+  commit `6e35b27`, 2026-10-27; see Current Tech Stack).
+- **D47 chart-migration stack (NEW 2026-10-26, owner-directed; **superseded 2026-10-27 by P6-T13 — pyqtgraph removed, LWC only**, retained as decision lineage):**
   `QWebEngineView` host + **vendored lightweight-charts v5.2.x** (no CDN/npm at runtime; attribution kept),
   `QWebChannel` bridge, shared Qt-free `services/chart_model.py`.
 - **Broker:** official `ibapi` — pinned `ibapi-latest==10.51.1` (provides the `ibapi` module), Interactive Brokers TWS.

@@ -3106,9 +3106,10 @@ class LwcChartView(QWidget):
     def _on_page_control_pressed(self, payload: dict) -> None:
         """A restored cluster button crossed from the page (D101).
 
-        The page cannot see the shim's answer (a QWebChannel call returns
-        nothing), so the refusal is reported here — once — and the router
-        op the shim publishes is what drives the page's pressed state.
+        The page cannot see the shim's answer — a bridge call returns
+        before the page can read it — so the refusal is reported here —
+        once — and the router op the shim publishes is what drives the
+        page's pressed state.
         An unknown id is ignored: a stale page must never raise across the
         bridge.
         """

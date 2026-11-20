@@ -19,8 +19,17 @@ Joint-behaviour gate over P22-T1..T4. Edits no production file.
   above carrying the history-intact property forward; the P22 page formatter
   core is green via node --test. Full offscreen + node green is established
   by the suite run this file ships in.
+
+P30-T6 repaired DG116's scope fence: it compares ``tests/`` against the
+phase's declared base (``docs/tasks/task-graph.json``'s
+``meta.baseline_commit``) and flags only paths outside the phase's declared
+``tests/`` footprint (the ``tests/`` subset of every task's
+``touches_files``). No hardcoded base and no hardcoded path list, so P31+
+keeps working; untracked files never appear in ``git diff`` and stay out of
+scope, exactly as before.
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -30,6 +39,13 @@ REPO = Path(__file__).resolve().parent.parent
 REQ = REPO / "docs" / "requirements" / "requirements.md"
 GAPS = REPO / "docs" / "requirements" / "design_gaps.md"
 LWC_DIR = REPO / "chart_assets" / "lwc"
+GRAPH = REPO / "docs" / "tasks" / "task-graph.json"
+
+#: P30's D19/D20 fixtures must never enter the phase footprint (DG116).
+D19_D20_FIXTURES = frozenset({
+    "tests/test_toolbar_scroll_d19.py",
+    "tests/test_toolbar_d20.py",
+})
 
 MARKER_SENTENCE = "This is an existing repository."
 
@@ -41,6 +57,55 @@ def _git(*args):
     )
     assert proc.returncode == 0, f"git {' '.join(args)} failed: {proc.stderr.strip()}"
     return proc.stdout
+
+
+# -- phase-relative scope fence (P30-T6 repair of DG116) --------------------
+
+
+def _phase_graph(graph_path: Path = GRAPH) -> tuple[str, frozenset[str]]:
+    """(meta.baseline_commit, every task's tests/ touches_files) — the phase's declared base + test footprint."""
+    data = json.loads(Path(graph_path).read_text(encoding="utf-8"))
+    meta = data.get("meta") or {}
+    base = meta.get("baseline_commit")
+    assert isinstance(base, str) and base.strip(), (
+        "docs/tasks/task-graph.json has no meta.baseline_commit: the phase's "
+        "declared base is required here and HEAD is never a substitute"
+    )
+    allowlist = frozenset(
+        path
+        for task in data.get("tasks") or ()
+        for path in task.get("touches_files") or ()
+        if path.startswith("tests/")
+    )
+    return base.strip(), allowlist
+
+
+def _phase_test_allowlist(graph_path: Path = GRAPH) -> frozenset[str]:
+    """The phase's declared ``tests/`` footprint, read from the task graph."""
+    return _phase_graph(graph_path)[1]
+
+
+def _breaches_from_names(names, allowlist: frozenset[str]) -> list[str]:
+    """Sorted ``tests/`` paths named by a diff and absent from ``allowlist``."""
+    return sorted({
+        name.strip()
+        for name in names
+        if name.strip().startswith("tests/") and name.strip() not in allowlist
+    })
+
+
+def _scope_breaches(
+    repo: Path, base: str, allowlist: frozenset[str]
+) -> list[str]:
+    """Sorted `tests/` paths that differ from `base` and are not in `allowlist` (untracked files never appear in git diff)."""
+    proc = subprocess.run(
+        ["git", "diff", "--name-only", base, "--", "tests/"],
+        capture_output=True, text=True, cwd=str(repo),
+    )
+    assert proc.returncode == 0, (
+        f"git diff against phase base {base!r} failed: {proc.stderr.strip()}"
+    )
+    return _breaches_from_names(proc.stdout.splitlines(), allowlist)
 
 
 # -- P22-T5-AC1: history intact (AC-D64.3, narrowed, never weakened) --------
@@ -112,14 +177,104 @@ def test_p22_t5_ac2_shared_seam_record():
         "Magnet token in interaction.js - DG115 assumed, not closed")
 
     # DG116 - CLOSED: the D61 fix stayed label-field-local. No D19/D20
-    # fixture was re-baselined: no tracked test file differs from HEAD (the
-    # P22 suites are new files only, never fixture edits).
-    status = _git("status", "--porcelain", "--", "tests/")
-    modified = [line for line in status.splitlines()
-                if not line.startswith("??")]
-    assert not modified, (
-        f"D19/D20 fixtures re-baselined, DG116 not closed: {modified}"
+    # fixture was re-baselined. The comparison is phase-relative (P30-T6):
+    # paths under tests/ that differ from the phase's declared base and lie
+    # outside the phase's declared tests/ footprint are breaches. An
+    # uncommitted edit inside the footprint is admitted (the same verdict
+    # committed or not), and untracked files never appear in `git diff`.
+    base, allowlist = _phase_graph()
+    base = _git("rev-parse", "--verify", f"{base}^{{commit}}").strip()
+    _git("merge-base", "--is-ancestor", base, "HEAD")
+    assert allowlist.isdisjoint(D19_D20_FIXTURES), (
+        "D19/D20 fixture declared in the phase footprint, DG116 not closed: "
+        f"{sorted(allowlist & D19_D20_FIXTURES)}"
     )
+    breaches = _scope_breaches(REPO, base, allowlist)
+    assert not breaches, (
+        f"D19/D20 fixtures re-baselined, DG116 not closed: {breaches}"
+    )
+
+
+# -- P30-T6: DG116's fence is phase-relative (AC-P30-06-BASE) ---------------
+
+
+def test_p30_t6_dg116_phase_base_scope_fence(tmp_path):
+    """An allowlisted edit is admitted committed or not; an unlisted one is named."""
+    repo = tmp_path / "scratch"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "tests" / "listed.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "tests" / "unlisted.py").write_text("y = 1\n", encoding="utf-8")
+    identity = [
+        "-c", "user.name=gate",
+        "-c", "user.email=gate@example.invalid",
+        "-c", "commit.gpgsign=false",
+    ]
+
+    def scratch_git(*args):
+        proc = subprocess.run(
+            ["git", *identity, *args],
+            capture_output=True, text=True, cwd=str(repo),
+        )
+        assert proc.returncode == 0, (
+            f"scratch git {' '.join(args)} failed: {proc.stderr.strip()}"
+        )
+        return proc.stdout
+
+    scratch_git("init", "-q")
+    scratch_git("add", "-A")
+    scratch_git("commit", "-q", "-m", "base")
+    base = scratch_git("rev-parse", "HEAD").strip()
+    allowlist = frozenset({"tests/listed.py"})
+
+    # (a) an uncommitted allowlisted edit: the defect this repair fixes.
+    (repo / "tests" / "listed.py").write_text("x = 2\n", encoding="utf-8")
+    assert _scope_breaches(repo, base, allowlist) == []
+
+    # (b) the same edit committed: same verdict, not invisible.
+    scratch_git("commit", "-qam", "allowlisted edit")
+    assert _scope_breaches(repo, base, allowlist) == []
+
+    # (c) a real scope breach is still reported, by name.
+    (repo / "tests" / "unlisted.py").write_text("y = 2\n", encoding="utf-8")
+    assert _scope_breaches(repo, base, allowlist) == ["tests/unlisted.py"]
+
+    # The live base is the graph's own value — never HEAD — and resolves.
+    graph = json.loads(GRAPH.read_text(encoding="utf-8"))
+    live_base, _ = _phase_graph()
+    assert live_base == graph["meta"]["baseline_commit"]
+    assert _git("rev-parse", "--verify", f"{live_base}^{{commit}}").strip()
+    _git("merge-base", "--is-ancestor", live_base, "HEAD")
+
+
+# -- P30-T6: the allowlist is the graph's declared footprint (AC-P30-06-ALLOWLIST) --
+
+
+def test_p30_t6_dg116_allowlist_derivation():
+    """The allowlist is the graph-derived tests/ footprint, D19/D20 excluded."""
+    graph = json.loads(GRAPH.read_text(encoding="utf-8"))
+    expected = frozenset(
+        path
+        for task in graph["tasks"]
+        for path in task.get("touches_files") or ()
+        if path.startswith("tests/")
+    )
+    allowlist = _phase_test_allowlist()
+    assert allowlist == expected, (
+        f"phase allowlist drifted from the graph: {sorted(allowlist ^ expected)}"
+    )
+    assert "tests/test_d64_batch_gate.py" in allowlist, (
+        "this gate file is part of the phase delta once edited"
+    )
+    assert allowlist.isdisjoint(D19_D20_FIXTURES), (
+        f"D19/D20 fixture in the phase footprint: "
+        f"{sorted(allowlist & D19_D20_FIXTURES)}"
+    )
+    assert _breaches_from_names(
+        ["tests/test_toolbar_d20.py"], allowlist
+    ) == ["tests/test_toolbar_d20.py"]
+    assert _breaches_from_names(
+        ["tests/test_d101_control_cluster.py"], allowlist
+    ) == []
 
 
 # -- P22-T5-AC3: green gate + guard adjudication (re-pin, never weaken) -----

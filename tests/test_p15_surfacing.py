@@ -73,8 +73,19 @@ CLAIM_PHRASES = (
 # marker assertion, the span-extraction expressions and the exact-equality
 # comparison below are byte-identical, so the fence still reddens on any
 # unauthorised change to this span.
+#
+# Re-pinned again 2026-11-20 after the owner-approved record corrections that
+# closed RG-P7-1, RG-P7-2 and RG-D23-1 landed inside this span: the Current
+# Tech Stack and Constraints rows now record the shipped LWC-only engine end
+# state with pyqtgraph removed as the engine (its name survives in the span as
+# decision lineage), the "This is an existing repository." marker sentence was
+# restated to match, and the D23.1 record carries its reconciliation. The
+# RG-P29-1 re-pin above stays as history and the Q120 / AC-D75.1 reword still
+# lands after \n### D53, outside this pin. Again only this literal and this
+# comment changed: boundaries, the span-extraction expressions and the
+# exact-equality comparison below are byte-identical.
 PROTECTED_SPAN_SHA256 = (
-    "ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a"
+    "4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede"
 )
 
 
