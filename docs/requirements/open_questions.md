@@ -1991,3 +1991,12 @@
 - **What a different answer changes:** only D67's display arm — the aggregation arithmetic, the marker, and the fixtures. No other phase or criterion is affected; the "no illegal request" criterion (`AC-D67.3`) holds under every arm.
 - **Why it is not blocking:** both acceptable arms produce a testable, honest outcome, and the default is a strict improvement over today's silent wrong candle. If the owner prefers (b) or a specific coarser fetch, the criteria are re-pointed at that arm without touching anything else.
 - **Affected requirement section:** Phase P25 / D67 / `AC-D67.1`, `AC-D67.2`, `AC-D67.3`; A220; R160, R161; `design_gaps.md` DG129.
+
+## Q120 — P26 / D75 vs D72: does an identical-triple reload of a parked wave issue the queued plans, or nothing at all?
+
+- **Status:** **OPEN — NON-BLOCKING; flagged by Task Manager while decomposing P26 (2026-11-19).** Raised from the approved P26 plan's `FI-P26-1`; the graph implements the plan's adopted reading (`AP-P26-5`) and does not wait on this answer.
+- **Question:** `AC-D75.1` says an identical-triple reload of a queue-only wave issues "no new request … for the parked plans", while `AC-D72.3` says the *same* load "issues the oldest queued plan" and its measurable is "issued-plan order + pacing-manager call log". Read literally the two cannot both hold.
+- **Reading the plan and the graph use:** the reload **resumes** the parked queue — no cancel, no re-plan, no duplicate, no extra request beyond the queued plans themselves (oldest first). Under this reading both measurables hold: `AC-D75.1`'s measurable names only the cancel spy, the queue's contents and `_pending_prefetch`.
+- **What a different answer changes:** only the wording of `AC-D75.1`'s last clause (e.g. "no *duplicate* request") and `AC-D72.3`'s first clause; the implementation is unaffected. If instead the literal no-issue reading is intended, `AC-D72.3` must be restated and P26-T2's resume step drops the `_issue_wave_chunks()` call — a criterion change, not a build change.
+- **Why it is not blocking:** both clauses are satisfiable under one reading, and the plan records that reading with its rationale; no acceptance test in P26 depends on the unresolved wording.
+- **Affected requirement section:** Phase P26 / D72, D75 / `AC-D72.3`, `AC-D75.1`; A227; AP-P26-5 / FI-P26-1 in `docs/plan.md`.

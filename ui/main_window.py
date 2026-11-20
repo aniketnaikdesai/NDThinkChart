@@ -771,6 +771,12 @@ class MainWindow(QMainWindow):
         # first-issue wording is untouched.
         self._backfill_retry_in_flight: bool = False
         self._backfill_retry_req_ids: list[int] = []
+        # P26/D72 (A227/DG130): parked marker for the D53 surfacing. Derived
+        # on every refresh from session state (``_wave_parked`` with nothing
+        # in flight), never latched by a caller, and cleared with the other
+        # latches on the unchanged terminal paths. A resuming load leaves the
+        # state by construction, so the indicator cannot disagree.
+        self._backfill_parked: bool = False
         # P19-T1 (S-P19-1): last settled-viewport trigger verdict
         # (``{"oldest_visible_ts", "following", "fire"}``). Decision only —
         # issuance belongs to P19-2.
@@ -797,6 +803,19 @@ class MainWindow(QMainWindow):
         self.md_manager = MarketDataManager(self.ib_client)
         self.rt_manager = RealtimeBarsManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
+        # P26/D71: the replay retires every line it supersedes through the
+        # owning manager's own cancel path — one resolver per replayed tag,
+        # installed once so SubscriptionManager.subscribe stays frozen.
+        self.sub_manager.set_cancel_hook(
+            RT_BARS, self._retire_rt_subscription
+        )
+        self.sub_manager.set_cancel_hook(
+            OPTION_LEGS, self._retire_option_subscription
+        )
+        # P26/D71: the replay deferral's epoch. A newer replay (or a
+        # disconnect) supersedes a pending QTimer callback instead of
+        # letting two passes stack and double-subscribe live lines.
+        self._replay_serial: int = 0
 
         # D22 Phase 4: bounded, exactly-once contract-details lookup correlation.
         # The service owns the pending-request map and emits ``lookup_finished``
@@ -973,6 +992,10 @@ class MainWindow(QMainWindow):
         # been torn down (popped from _sessions). Live sessions carry their
         # own tags; this set keeps teardown from erasing them — a 162 for
         # any of these is still a superseded ack (debug, no status bar).
+        # P26/D74: the merged tags live in a bounded window of the last two
+        # teardown batches; _superseded_history_reqs stays the flattened
+        # union (same name, same read) so nothing downstream changes.
+        self._superseded_history_windows: list[set[int]] = []
         self._superseded_history_reqs: set[int] = set()
         self._primary_session: TickerSession | None = None
         # D24: open pop-out windows (capped at MAX_POPOUTS).
@@ -1092,6 +1115,38 @@ class MainWindow(QMainWindow):
     def _unregister_req_id(self, req_id: int) -> None:
         self._req_to_session.pop(req_id, None)
 
+    def _retire_rt_subscription(self, req_id: int) -> None:
+        """P26/D71: retire a superseded RT line (routing, then the line)."""
+        try:
+            self._unregister_req_id(req_id)
+        except Exception:  # pragma: no cover - defensive
+            _LOG.warning(
+                "replay: RT routing unregister failed for %s", req_id,
+                exc_info=True,
+            )
+        try:
+            self.rt_manager.unsubscribe(req_id)
+        except Exception:  # pragma: no cover - defensive
+            _LOG.warning(
+                "replay: RT unsubscribe failed for %s", req_id, exc_info=True
+            )
+
+    def _retire_option_subscription(self, req_id: int) -> None:
+        """P26/D71: retire a superseded option/spot line (maps, then TWS)."""
+        try:
+            self._option_req_ids.pop(req_id, None)
+        except Exception:  # pragma: no cover - defensive
+            _LOG.warning(
+                "replay: option map cleanup failed for %s", req_id,
+                exc_info=True,
+            )
+        try:
+            self.md_manager.cancel_mkt_data(req_id)
+        except Exception:  # pragma: no cover - defensive
+            _LOG.warning(
+                "replay: option cancel failed for %s", req_id, exc_info=True
+            )
+
     def _teardown_session(self, symbol: str) -> None:
         """Drop a session whose last view detached and which is not monitored."""
         session = self._sessions.pop(symbol.upper(), None)
@@ -1112,8 +1167,17 @@ class MainWindow(QMainWindow):
             self.clear_backfill_indicator()
         # P7-W1 (S-P7-2): the session leaves the registry, but its cancel
         # tags must survive it — merged AFTER teardown, which is what
-        # populates them. See _superseded_history_reqs.
-        self._superseded_history_reqs |= session._cancelled_history_req_ids
+        # populates them. P26/D74: the merge keeps the last two teardown
+        # batches; _superseded_history_reqs is rebuilt as their union, so the
+        # window is bounded without changing the attribute readers use.
+        self._superseded_history_windows.append(
+            set(session._cancelled_history_req_ids)
+        )
+        if len(self._superseded_history_windows) > 2:
+            del self._superseded_history_windows[:-2]
+        self._superseded_history_reqs = set().union(
+            *self._superseded_history_windows
+        )
         session.deleteLater()
 
     def _session_for_req_id(self, req_id: int) -> TickerSession | None:
@@ -2038,10 +2102,21 @@ class MainWindow(QMainWindow):
         clear+re-add path (pinned by AC-D22.7.2), so MARKET_DATA stays
         excluded here — replaying it too would double-subscribe every row.
 
-        D28.1: the replay is all-or-nothing under pacing pressure
-        (SubscriptionManager.replay_all raises PacingExceeded before any
-        reissue); defer the whole replay via singleShot — never sleep.
+        P26/D71: the pass is one transaction over the union of the pacing
+        budgets it spends (realtime slots and the generic minimum-interval
+        gate), and it retires every line it supersedes through the resolvers
+        installed beside ``self.sub_manager`` in ``__init__``. A refusal is
+        one deferral for the whole registry — never a partial pass, never
+        stacked retries.
+
+        D28.1: all-or-nothing under pacing pressure — defer the whole replay
+        via singleShot, never sleep. The callback is epoch-guarded: a newer
+        replay (another reconnect, or a drop that makes this wait stale)
+        bumps ``_replay_serial``, so an older scheduled callback returns
+        without re-issuing anything.
         """
+        serial = int(getattr(self, "_replay_serial", 0)) + 1
+        self._replay_serial = serial
         try:
             self.sub_manager.replay_all(
                 include_types={RT_BARS, S0_TICKS, OPTION_LEGS})
@@ -2051,8 +2126,14 @@ class MainWindow(QMainWindow):
                 f"retrying in {e.wait_seconds:.0f}s…",
                 15000,
             )
+
+            def _resume_replay(serial=serial):
+                if int(getattr(self, "_replay_serial", 0)) != serial:
+                    return
+                self._replay_subscriptions()
+
             QTimer.singleShot(
-                int(e.wait_seconds * 1000), self._replay_subscriptions
+                int(e.wait_seconds * 1000), _resume_replay
             )
 
     # ── D65 option spreads: the live wiring (P23-05) ──────────────────────
@@ -2389,7 +2470,12 @@ class MainWindow(QMainWindow):
         )
 
     def _option_reissue_leg(self, leg: LegKey) -> int:
-        """The replay hook: one fresh ``reqMktData`` for the same contract."""
+        """The replay hook: one fresh ``reqMktData`` for the same contract.
+
+        P26/D71: the old reqId is no longer dropped here "silently"; the
+        replay's retire phase cancels it through
+        ``_retire_option_subscription`` once every reissue has succeeded.
+        """
         contract = get_option_contract(
             SPX_OPTION_SYMBOL, self._option_expiry, leg.strike, leg.right
         )
@@ -2756,6 +2842,10 @@ class MainWindow(QMainWindow):
 
     def _on_disconnected(self):
         self._ibkr_connected = False
+        # P26/D71: invalidate a pending replay deferral. A callback scheduled
+        # for this connection must not fire against a dead transport or a
+        # later generation; the next connect schedules its own pass.
+        self._replay_serial = int(getattr(self, "_replay_serial", 0)) + 1
         # D65/AC-D65.14 (iii): a transport drop freezes the walk and marks every
         # option cell STALE; nothing is cancelled and the engine adds no
         # reconnect mechanism of its own (``on_reconnected`` resumes it).
@@ -2866,10 +2956,23 @@ class MainWindow(QMainWindow):
         stalled wave is finalised through the same path as a disconnect (cancel
         remaining reqIds, stop the continuation timer, clear the plan queue,
         advance the generation, surface the shortfall once).
+
+        P26/D72: a cap-yielded queue with nothing in flight is healthy work,
+        not a stall — the session has already settled its bound, so this is
+        only the belt-and-braces guard. It lives HERE and only here: the
+        disconnect path (``_finalize_stranded_history_wave``) still strands
+        and drops a parked queue, because a dead transport cannot resume it.
+
+        P26/D76: when the wave was deferred on a readiness episode, the
+        finalise reason names the transport instead of the generic timeout.
         """
-        self._finalize_stranded_history_wave(
-            session, reason="Historical backfill timed out"
-        )
+        if session._wave_parked and not session._history_req_ids:
+            return
+        if session._wave_deferral_reason:
+            reason = session._wave_deferral_reason
+        else:
+            reason = "Historical backfill timed out"
+        self._finalize_stranded_history_wave(session, reason=reason)
 
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
         if self._closing:
@@ -3072,22 +3175,42 @@ class MainWindow(QMainWindow):
         # already in flight. Any change of the triple is a genuine new wave
         # and falls through to the cancel+generation block below exactly as
         # before. ``_current_*`` still hold the previous load here.
+        # P26/D72/D75: a cap-parked queue qualifies too — the queue itself
+        # (not a replan) is the resume, so a parked wave is never stranded by
+        # the next load of the identical chart.
         if (
-            bool(new_session._history_req_ids)
+            (
+                bool(new_session._history_req_ids)
+                or bool(new_session._wave_plan_queue)
+            )
             and symbol == self._current_symbol
             and timeframe == self._current_tf
             and extended_hours == new_session._wave_extended_hours
         ):
             _LOG.debug(
                 "Reload of %s [%s] coalesced into the running wave "
-                "(%d in-flight request(s)); no cancel, no re-spend.",
-                symbol, timeframe, len(new_session._history_req_ids),
+                "(%d in-flight request(s), %d queued); no cancel, no "
+                "re-spend.",
+                symbol, timeframe,
+                len(new_session._history_req_ids),
+                len(new_session._wave_plan_queue),
             )
             self.status_bar.showMessage(
                 f"{symbol} — already backfilling; reload coalesced into "
                 "the running wave…",
                 4000,
             )
+            # P26/D72/D75: a parked wave resumes from its own queue — oldest
+            # plan first, no cancel, no generation advance, no replan. The
+            # queue's identity and contents are untouched (the gate above
+            # only reads them); the resume spends a fresh per-load allowance
+            # and bounds the resumed work again. An in-flight wave keeps the
+            # no-op coalesce below.
+            if new_session._wave_parked and not new_session._history_req_ids:
+                new_session._wave_issued_this_load = 0
+                new_session._wave_parked = False
+                new_session._arm_history_wave_watchdog()
+                new_session._issue_wave_chunks()
             # P14-W2 (S-P14-2): coalesced keep — the running indicator stays
             # up with its elapsed baseline unreset (no cancel, no new stamp;
             # the refresh below is a pure read of the running baseline).
@@ -3118,6 +3241,11 @@ class MainWindow(QMainWindow):
         # never restarts it. Uses the previous load's mode (set below).
         new_session.flush_pending_bars()
         new_session._cancel_history_requests()
+        # P26/D72/D75: a genuine triple change abandons the previous wave's
+        # queue — it belongs to the old triple and must never issue under the
+        # new one. (The coalesce gate above already kept a same-triple queue.)
+        new_session._wave_plan_queue.clear()
+        new_session._wave_continue_timer.stop()
         new_session._history_generation += 1
         new_session._backfill_failed_req_ids = set()
         new_session._backfill_missing_spans = []
@@ -3341,6 +3469,10 @@ class MainWindow(QMainWindow):
             markers.append("partial")
         if self._backfill_retry_in_flight:
             markers.append("retry")
+        # P26/D72 (A227/DG130): one added word on the existing label — the
+        # park is visible without a new widget, a new window or a new surface.
+        if self._backfill_parked:
+            markers.append("parked")
         label = "Backfill" + (
             f" ({', '.join(markers)})" if markers else ""
         )
@@ -3370,6 +3502,9 @@ class MainWindow(QMainWindow):
         # paths only) — the idle line itself is unchanged.
         self._backfill_retry_in_flight = False
         self._backfill_retry_req_ids = []
+        # P26/D72: the parked marker dies with the wave on every terminal
+        # path (the idle line itself is unchanged).
+        self._backfill_parked = False
         self._backfill_indicator.setText("Backfill: idle")
 
     def _raise_backfill_indicator(self, session: TickerSession) -> None:
@@ -3415,6 +3550,12 @@ class MainWindow(QMainWindow):
         if retry_ids:
             self._backfill_retry_in_flight = True
             self._backfill_retry_req_ids = retry_ids
+        # P26/D72: the park is derived, never latched by a caller — a
+        # cap-yielded queue with nothing in flight is the parked state; one
+        # with members outstanding is still "in flight" until the last ends.
+        self._backfill_parked = bool(
+            session._wave_parked and not session._history_req_ids
+        )
         self.set_backfill_state(
             len(session._history_req_ids),
             len(session._wave_plan_queue),
@@ -3868,6 +4009,11 @@ class MainWindow(QMainWindow):
             if session is None:
                 return
         session._disarm_history_wave_watchdog()
+        # P26/D72/D76: a finalised wave can never be parked and its readiness
+        # episode dies with it — no terminal path leaves a stale park behind.
+        session._wave_parked = False
+        session._wave_deferral_reason = ""
+        session._wave_not_ready_announced = False
         # P14-W2 (S-P14-2): the wave terminated (normal or stranded) — clear
         # the session elapsed baseline so the next wave re-stamps it.
         # (Cancel paths clear it via _cancel_history_requests; the finalize

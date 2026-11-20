@@ -1,545 +1,608 @@
 {
   "meta": {
-    "phase": "P25",
-    "plan_ref": "docs/plan.md#Phase P25",
-    "architecture_ref": "docs/architecture.md#Phase P25",
-    "requirements_ref": "docs/requirements/requirements.md#Phase P25",
-    "notes": "docs/tasks/task_manager_notes_P25.md",
+    "phase": "P26",
+    "plan_ref": "docs/plan.md#Phase P26",
+    "architecture_ref": "docs/architecture.md#Phase P26",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P26",
+    "notes": "docs/tasks/task_manager_notes_P26.md",
+    "baseline_commit": "629be4a",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P25-T1",
-      "title": "D67 part 1 \u2014 the page and the bridge accept set_partial, rendered as one series marker",
-      "description": "Land the transport half of S-P25-2 so the emitter P25-T2 adds cannot be rejected by an unknown op (AR-P25-3). Page: envelope.js::validateOp accepts {\"op\":\"set_partial\",\"ts\":<int>,\"partial\":<bool>} as a directive with no series/cols; chart.js::applyOps lifts it before describeOp (mirroring the set_visible_range branch), keeps one marked time in closure state, and re-applies one guarded createSeriesMarkers(candleSeries, [...]) entry after every rows application. Bridge: _check_op_shape accepts the directive and apply_ops_to_bars ignores it explicitly. Do NOT restructure _stage/flush (P25-T4 owns the emission order), do NOT change mergeRows (P25-T4 owns its whitespace rule) and do not touch ENVELOPE_VERSION, COALESCE_MS, LIVE_OPS or CHANNELS.",
+      "id": "P26-T1",
+      "title": "D71 \u2014 the reconnect replay is one transaction over a union budget and retires every line it supersedes",
+      "description": "Make replay_all what its docstring already claims. ibkr/pacing.py gains generic_wait_for_batch(count) -> float (0.0 when count <= 1, else max(0.0, (count - 1) * (1.0 / settings.MAX_REQ_PER_SEC) - (now - self._last_req_time)) under the lock) and generic_batch(count), a contextlib.contextmanager that re-checks the wait and raises PacingExceeded(wait) from inside __enter__ (so the body never runs), sets _batch_remaining = int(count), and in finally clears it and calls record_request_slot(); throttle() gains one branch before the clock read that decrements _batch_remaining and returns, and reset_for_tests clears the counter. ibkr/subscription_manager.py gains _cancel_hooks / set_cancel_hook and replay_all becomes three phases: one union pre-check (rt_n = the RT_BARS entries, generic_n = len(pending) - rt_n, one PacingExceeded(max(rt_wait, generic_wait)) before any mutation), then every pending entry's reissue() in registry order inside `with pacing_manager.generic_batch(generic_n):` with a full unwind on any raise, then rebind + retire the old id through the entry's own resolver + move the registry key. ui/main_window.py installs the two resolvers beside `self.sub_manager = SubscriptionManager()` (RT_BARS -> _unregister_req_id(old) + rt_manager.unsubscribe(old); OPTION_LEGS -> _option_req_ids.pop(old, None) + md_manager.cancel_mkt_data(old)) and makes _replay_subscriptions' deferral replaceable with an epoch (self._replay_serial, read via getattr) in front of the same single QTimer.singleShot(int(e.wait_seconds * 1000), ...). The generic gate is the 20 ms minimum-interval gate derived from MAX_REQ_PER_SEC = 50 and RT sends never touch it, so generic_n = len(pending) - rt_n is exact; S0_TICKS is declared but nothing in production registers under it, so it contributes nothing to the union and the arithmetic stays correct if a hook is ever added. subscribe's frozen signature, its four test doubles and the _Entry field set are untouched.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given the page's validateOp/validateEnvelope (chart_assets/lwc/envelope.js), When {\"op\":\"set_partial\",\"ts\":<int>,\"partial\":<bool>} is validated, Then it is accepted as a directive carrying no series and no cols key, and an op with a missing or non-integer ts, a non-boolean partial, or any series/cols key is rejected with a non-null message, while an unknown op kind still rejects the whole envelope.",
-        "Given the page's applyOps (chart_assets/lwc/chart.js), When set_partial {ts, partial:true} is applied, Then exactly one series marker exists for that candle -- position \"aboveBar\", shape \"circle\", and the one named colour constant whose value differs from LW_UP_COLOR and LW_DOWN_COLOR -- and that marker is re-applied after every later rows application: a set_bars replace, an update_bar upsert, and a full re-apply of the op log.",
-        "Given the page's applyOps, When set_partial {ts:A, partial:false} is applied, Then the marker is cleared only when A equals the marked time; a second partial:true for a different ts moves the single mark (never two marks at once); a mark whose time is absent from the current rows is not applied; and no marker exists when no directive has arrived.",
-        "Given ui/lwc_bridge.py, When _check_op_shape validates a set_partial op, Then it requires an integer ts and a boolean partial and rejects any series/cols key with ValueError, while apply_ops_to_bars over an op list containing set_partial returns exactly the same [(ts, open, high, low, close)] list as the same list without it (the directive carries no series, so the reconstruction is unchanged, and the docstring says so)."
+        "Given a subscription registry holding entries of more than one type (one RT_BARS entry plus two OPTION_LEGS entries, each carrying reissue/rebind) and a pacing manager whose generic gate will refuse after the first send, When one replay pass runs, Then zero reissues are attempted and the registry is unchanged, exactly one retry is scheduled for the reported wait, and after that wait a single pass reissues every entry exactly once, in registration order.",
+        "Given the same fixtures and a replay that completes, When the pass returns, Then the number of live subscriptions equals the pre-replay number, every old reqId was retired exactly once through its own type's resolver, and no new reqId is registered twice; a second replay from the settled state reproduces the same live count, the same per-id retire counts and the same new-id set.",
+        "Given a replay whose reissue phase raises after at least one entry has been reissued, When the pass unwinds, Then every reqId issued during that phase is retired, each successful entry's routing is rebound to its old reqId, the registry is identical to its pre-pass state (no old line was cancelled), and the exception propagates to the caller.",
+        "Given a replay with both budgets open throughout, When the pass runs, Then it returns the same [(old_req_id, new_req_id)] pairs in the same order as the pre-change pass, performs exactly one rebind per entry, and the pre-existing replay suites stay green with no assertion re-baselined.",
+        "Given PacingManager and an open generic batch of n, When throttle() is called n times, Then all n calls return without sleeping; an (n+1)th call inside the batch falls through to the unchanged minimum-interval gate and raises PacingExceeded when the interval has not genuinely elapsed; a throttle() call after the batch has closed behaves exactly as before; and reset_for_tests() clears the reservation so it can never admit a later send."
       ],
       "tests": [
         {
-          "test_id": "P25-T1-AC1",
-          "linked_acceptance_criterion": "Given the page's validateOp/validateEnvelope (chart_assets/lwc/envelope.js), When {\"op\":\"set_partial\",\"ts\":<int>,\"partial\":<bool>} is validated, Then it is accepted as a directive carrying no series and no cols key, and an op with a missing or non-integer ts, a non-boolean partial, or any series/cols key is rejected with a non-null message, while an unknown op kind still rejects the whole envelope.",
+          "test_id": "P26-T1-AC1",
+          "linked_acceptance_criterion": "Given a subscription registry holding entries of more than one type (one RT_BARS entry plus two OPTION_LEGS entries, each carrying reissue/rebind) and a pacing manager whose generic gate will refuse after the first send, When one replay pass runs, Then zero reissues are attempted and the registry is unchanged, exactly one retry is scheduled for the reported wait, and after that wait a single pass reissues every entry exactly once, in registration order.",
           "type": "unit",
-          "description": "In chart_assets/lwc/envelope.test.js, drive the real validateOp/validateEnvelope over the valid directive and over the malformed variants (missing ts, ts:1.5, ts:\"5\", partial:1, partial:\"yes\", and a directive carrying series and cols); keep the existing unknown-op rejection case.",
-          "expected_result": "The valid directive returns a null error; each malformed variant returns a non-null message; a set_partial inside {v:1, ops:[...]} validates; an unknown op kind still rejects the whole envelope. RED before the change (validateOp currently rejects any kind it does not enumerate)."
+          "description": "Fake pacing object exposing realtime_wait_for_slots + generic_wait_for_batch/generic_batch, a fake md_manager counting req_mkt_data/cancel_mkt_data per id, a fake rt_manager counting subscribe/unsubscribe, and a registry with one RT_BARS entry plus two OPTION_LEGS entries whose reissue/rebind call those fakes. Refuse the generic batch, then admit it and run the scheduled callback.",
+          "expected_result": "Refused: zero req_mkt_data and zero rt subscribe calls, the registry's entries unchanged, exactly one scheduled deferral whose delay equals the reported wait_seconds, and no PacingExceeded leaving the pass. Admitted: exactly three reissue calls in registration order and one pass only."
         },
         {
-          "test_id": "P25-T1-AC2",
-          "linked_acceptance_criterion": "Given the page's applyOps (chart_assets/lwc/chart.js), When set_partial {ts, partial:true} is applied, Then exactly one series marker exists for that candle -- position \"aboveBar\", shape \"circle\", and the one named colour constant whose value differs from LW_UP_COLOR and LW_DOWN_COLOR -- and that marker is re-applied after every later rows application: a set_bars replace, an update_bar upsert, and a full re-apply of the op log.",
+          "test_id": "P26-T1-AC2",
+          "linked_acceptance_criterion": "Given the same fixtures and a replay that completes, When the pass returns, Then the number of live subscriptions equals the pre-replay number, every old reqId was retired exactly once through its own type's resolver, and no new reqId is registered twice; a second replay from the settled state reproduces the same live count, the same per-id retire counts and the same new-id set.",
           "type": "unit",
-          "description": "In chart_assets/lwc/chart.test.js extend the fake chart/series harness with a recording createSeriesMarkers (setMarkers), then apply set_partial {ts:T, partial:true}, a set_bars replace containing T, an update_bar for T, and finally the whole op log again through lwApplyOps.",
-          "expected_result": "After each of the four steps exactly one marker entry exists with time T, position \"aboveBar\", shape \"circle\", and a colour equal to the module's marker colour constant and different from LW_UP_COLOR and LW_DOWN_COLOR; lwSnapshot() is unchanged by the directive."
+          "description": "Run one completing pass over the mixed registry, then a second pass from the settled state, counting live ids in the registry map and per-id cancel calls on both fakes.",
+          "expected_result": "Live entry count after the pass equals the pre-pass count; each old id appears exactly once in its fake's cancel log; no new id appears twice in the registry; the second pass repeats the same counts and the same new-id set."
         },
         {
-          "test_id": "P25-T1-AC3",
-          "linked_acceptance_criterion": "Given the page's applyOps, When set_partial {ts:A, partial:false} is applied, Then the marker is cleared only when A equals the marked time; a second partial:true for a different ts moves the single mark (never two marks at once); a mark whose time is absent from the current rows is not applied; and no marker exists when no directive has arrived.",
+          "test_id": "P26-T1-AC3",
+          "linked_acceptance_criterion": "Given a replay whose reissue phase raises after at least one entry has been reissued, When the pass unwinds, Then every reqId issued during that phase is retired, each successful entry's routing is rebound to its old reqId, the registry is identical to its pre-pass state (no old line was cancelled), and the exception propagates to the caller.",
           "type": "unit",
-          "description": "In chart_assets/lwc/chart.test.js drive the clear / move / absent-time / no-directive sequences through applyOps (partial:false with the marked and with an unmarked ts; a second partial:true for a new ts; a mark for a ts absent from the rows).",
-          "expected_result": "partial:false for the marked ts clears it (zero entries); for a different ts it leaves it; a second partial:true for a new ts leaves exactly one marker, at the new ts; a mark for a ts absent from the rows produces no marker; with no directive setMarkers is never called with a non-empty list."
+          "description": "Make the second entry's reissue raise IBKRNotReady after the first entry has already been reissued, and catch the propagating exception in the test.",
+          "expected_result": "The first entry's new id is retired, both entries' routing is rebound to their old ids, the old-id cancel log is empty, the registry equals its pre-pass snapshot, and IBKRNotReady propagates out of replay_all."
         },
         {
-          "test_id": "P25-T1-AC4",
-          "linked_acceptance_criterion": "Given ui/lwc_bridge.py, When _check_op_shape validates a set_partial op, Then it requires an integer ts and a boolean partial and rejects any series/cols key with ValueError, while apply_ops_to_bars over an op list containing set_partial returns exactly the same [(ts, open, high, low, close)] list as the same list without it (the directive carries no series, so the reconstruction is unchanged, and the docstring says so).",
+          "test_id": "P26-T1-AC4",
+          "linked_acceptance_criterion": "Given a replay with both budgets open throughout, When the pass runs, Then it returns the same [(old_req_id, new_req_id)] pairs in the same order as the pre-change pass, performs exactly one rebind per entry, and the pre-existing replay suites stay green with no assertion re-baselined.",
+          "type": "integration",
+          "description": "With both budgets open, compare the returned pair list and rebind count against the pre-change shape, then run the named pre-existing replay suites unchanged: tests/test_d28_pacing.py, tests/test_p7_w4_streaming.py, tests/test_p7_w4_deferral.py, tests/test_d65_option_stream.py, tests/test_d27_reconnect.py, tests/test_d40_tws_lifecycle.py, tests/test_d24_popouts.py.",
+          "expected_result": "Same [(old, new)] pairs in the same order, one rebind per entry, one pass; the seven suites pass with no assertion edited."
+        },
+        {
+          "test_id": "P26-T1-AC5",
+          "linked_acceptance_criterion": "Given PacingManager and an open generic batch of n, When throttle() is called n times, Then all n calls return without sleeping; an (n+1)th call inside the batch falls through to the unchanged minimum-interval gate and raises PacingExceeded when the interval has not genuinely elapsed; a throttle() call after the batch has closed behaves exactly as before; and reset_for_tests() clears the reservation so it can never admit a later send.",
           "type": "unit",
-          "description": "Add one case to tests/test_lwc_bridge.py that calls _check_op_shape on the valid directive and on three malformed ones, and compares apply_ops_to_bars over a log with and without a set_partial op.",
-          "expected_result": "The valid directive raises nothing; ts:None, partial:\"yes\" and a directive carrying series/cols each raise ValueError; the two reconstructions are equal element-for-element."
+          "description": "Drive a real PacingManager: open generic_batch(3), call throttle() three times, then a fourth inside the batch, then one after the block, then reset_for_tests and one more.",
+          "expected_result": "The first three throttle() calls return; the fourth raises PacingExceeded while the interval has not elapsed; the post-batch call behaves exactly as the pre-change gate; after reset_for_tests() the reservation is gone and the next call is gated normally."
         }
       ],
       "expected_artifacts": [
-        "chart_assets/lwc/envelope.js \u2014 validateOp accepts the set_partial directive",
-        "chart_assets/lwc/chart.js \u2014 lifted directive, one guarded createSeriesMarkers marker re-applied after every rows application, one named colour constant",
-        "chart_assets/lwc/envelope.test.js and chart_assets/lwc/chart.test.js \u2014 the node cases above",
-        "ui/lwc_bridge.py \u2014 _check_op_shape acceptance and the apply_ops_to_bars docstring note",
-        "tests/test_lwc_bridge.py \u2014 one shape + reconstruction case"
+        "ibkr/pacing.py \u2014 generic_wait_for_batch(count), the generic_batch(count) reservation (raising from __enter__, clearing and stamping in finally), throttle()'s one reservation branch, reset_for_tests clearing _batch_remaining",
+        "ibkr/subscription_manager.py \u2014 _cancel_hooks / set_cancel_hook, replay_all's union pre-check -> one generic_batch reissue phase with a full unwind -> rebind/retire/move-key, and a restated class docstring",
+        "ui/main_window.py \u2014 the two set_cancel_hook registrations beside SubscriptionManager() and an epoch-guarded _replay_subscriptions deferral keeping the one QTimer.singleShot shape",
+        "tests/test_d71_replay_transaction.py \u2014 the new suite"
       ],
       "touches_files": [
-        "chart_assets/lwc/envelope.js",
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/envelope.test.js",
-        "chart_assets/lwc/chart.test.js",
-        "ui/lwc_bridge.py",
-        "tests/test_lwc_bridge.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "docs/architecture.md \u00a7 Phase P25 S-P25-2 (directive op + marker)",
-        "the frozen page contract in \u00a7 Frozen Interfaces"
-      ],
-      "outputs": [
-        "a page that accepts and renders the set_partial directive",
-        "a bridge that accepts it on the bar path"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "chart_assets/lwc/envelope.js",
-            "lines": "30-120",
-            "why": "validateEnvelope/validateOp enumerate the accepted kinds \u2014 the directive is added here, before describeOp exists downstream"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.test.js",
-            "lines": "1-80",
-            "why": "node test conventions for the validateOp cases (plain node:test + assert, module.exports factory)"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1495-1560",
-            "why": "applyOps and its set_visible_range lift \u2014 the pattern the set_partial lift must mirror; also the rows-application order"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1650-1700",
-            "why": "applyRows / upsertRow / setSnapshot \u2014 the three places a rows application ends and the marker must be re-applied"
-          },
-          {
-            "path": "chart_assets/lwc/chart.test.js",
-            "lines": "1-100",
-            "why": "the fake chart/series harness that gains createSeriesMarkers/setMarkers"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "100-160",
-            "why": "_check_op_shape \u2014 accept the directive beside set_visible_range (int ts, bool partial, no series/cols)"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "208-242",
-            "why": "apply_ops_to_bars \u2014 must ignore the directive explicitly; put the reason in its docstring"
-          },
-          {
-            "path": "tests/test_lwc_bridge.py",
-            "lines": "1-80",
-            "why": "the bridge suite's conventions for a shape case; the file gains exactly one case"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_bridge.py:_check_op_shape",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:apply_ops_to_bars",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/envelope.js",
-            "signature": "validateOp(op) accepts {\"op\": \"set_partial\", \"ts\": <int>, \"partial\": <bool>} \u2014 a directive: no series, no cols; any other key shape is rejected"
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/chart.js",
-            "signature": "applyOps lifts {\"op\": \"set_partial\", \"ts\": <int>, \"partial\": <bool>} before describeOp; one marked time in closure state; marker = createSeriesMarkers(candleSeries, [{time: <marked ts>, position: \"aboveBar\", shape: \"circle\", color: <MARKER_COLOR>}]), re-applied after every rows application, guarded by typeof createSeriesMarkers === \"function\""
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/chart.js",
-            "signature": "one named module colour constant for the marker whose value differs from LW_UP_COLOR (\"#34d399\") and LW_DOWN_COLOR (\"#f87171\")"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#P25-01",
-        "requirement_ids": [
-          "AC-D67.2"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_bridge.py -q -m \"not webengine\" && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "LWC"
-        ],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P25-T2",
-      "title": "D67 part 2 \u2014 period base, first_ts covering rule, partial flag, skipped week/month prime, marker leg",
-      "description": "Give the forming 1 week / 1 month candle a real source (S-P25-1/S-P25-3). data/models.py gains the transient Bar.partial. data/bar_aggregator.py gains _AggState.first_ts (written in push at the one state-creation site), adopt_period_base(bar), drop_period_base() and a covering_since property, leaving push's observable contract, _last_pushed_ts and TIMEFRAME_SECONDS alone. services/market_calendar.py gains first_session_open(). ui/ticker_session.py adopts the last bar as the base in set_bars when its bucket is the current period, drops a stale base otherwise, returns False from prime_aggregator without issuing a request when a current-period base exists (fresh and retrying=True), updates the Per-span priming table while keeping the '1 week'/'1 month' tokens, stamps partial on the forming bar in _on_aggregated_bar, and gains the _wall_now seam. ui/main_window.py gets exactly one line in get_or_create_session (session._wall_now = lambda: self._now_ts(), late-bound, before any set_bars). ui/lwc_view.py drives one marker toward (forming ts, forming.partial) in update_live_bar on every emitting tick (including its new_period branch) and in set_series against rows[-1]. tests/test_d48_mode_parity.py restates its prime-carve-out docstring sentence only. P25-T1 must already be done: the directive op must validate before this task emits it.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P25-T1"
-      ],
-      "acceptance_criteria": [
-        "Given a 1 week and a 1 month chart whose cached series holds a current-period row built as the aggregate of an explicit component list, When the chart renders, Then the forming candle's open equals the first in-period component's open, its high and low are those components' extremes, its close is the latest close, its volume is the sum, its Bar.partial is False, and no set_partial op is emitted for it.",
-        "Given the cache cannot cover the period (empty or pruned) and a prime is injected through TickerSession.on_historical_bar into BarAggregator.push, When the forming candle is emitted, Then its open/high/low/close/volume equal the aggregate of exactly the injected bars, Bar.partial is True, and exactly one set_partial op names that forming ts -- never a value derived from an unmarked window.",
-        "Given every cached or primed bar is at or after the period's first session open (the period begins today), When the forming candle is emitted, Then its values are the full aggregate of those bars, Bar.partial is False, and no set_partial op is emitted.",
-        "Given a current-period base exists for 1 week or 1 month, When prime_aggregator runs on both the fresh and the retrying=True entry, Then it returns False, issues no historical request, and the caller may attach the live feed; Given no base exists, Then the issued (bar_size, duration) pair is inside the accepted set (5 secs within [60 S, 3600 S]; 1 min within [60 S, 1 D]), no pair outside that set is ever issued, and a rejected pair is never re-issued as-is.",
-        "Given the forming candle is marked, When a live bar in the next period arrives, Then exactly one new candle is appended (the completed period's candle is never duplicated) and the envelope carries exactly one set_partial naming the new forming ts, or {old_ts, partial:false} when the new forming bar is complete; Given a base is adopted after live bars were pushed, When the same 5-second ts is redelivered, Then the base-derived volume is unchanged while a genuinely newer ts still merges into it.",
-        "Given a full series replacement whose last row is the partial forming bar, When set_series emits it, Then exactly one set_partial op follows the rows in that batch and it names that last row's ts; Given MainWindow.get_or_create_session creates a session, Then session._wall_now() returns the window's _now_ts() value, a MainWindow._now_ts replacement made after creation is honoured (the seam is late-bound), and TickerSession's default _wall_now is time.time."
-      ],
-      "tests": [
-        {
-          "test_id": "P25-T2-AC1",
-          "linked_acceptance_criterion": "Given a 1 week and a 1 month chart whose cached series holds a current-period row built as the aggregate of an explicit component list, When the chart renders, Then the forming candle's open equals the first in-period component's open, its high and low are those components' extremes, its close is the latest close, its volume is the sum, its Bar.partial is False, and no set_partial op is emitted for it.",
-          "type": "integration",
-          "description": "New tests/test_d67_forming_candle.py, parametrized over 1 week and 1 month: seed the series with a current-period row built as the aggregate of an explicit component list, drive the real set_bars path, and read the emitted forming bar (values + partial) and any set_partial op through a headless LwBridge.",
-          "expected_result": "The forming bar's open/high/low/close/volume equal the independently computed aggregate of the component list, Bar.partial is False, and the emitted op list contains no set_partial."
-        },
-        {
-          "test_id": "P25-T2-AC2",
-          "linked_acceptance_criterion": "Given the cache cannot cover the period (empty or pruned) and a prime is injected through TickerSession.on_historical_bar into BarAggregator.push, When the forming candle is emitted, Then its open/high/low/close/volume equal the aggregate of exactly the injected bars, Bar.partial is True, and exactly one set_partial op names that forming ts -- never a value derived from an unmarked window.",
-          "type": "integration",
-          "description": "Same suite: empty/pruned cache, then inject a prime through TickerSession.on_historical_bar (the real write path into BarAggregator.push) and read the forming bar plus the envelope.",
-          "expected_result": "The forming bar's four values plus volume equal the aggregate of exactly the injected bars, Bar.partial is True, and exactly one set_partial names that forming ts."
-        },
-        {
-          "test_id": "P25-T2-AC3",
-          "linked_acceptance_criterion": "Given every cached or primed bar is at or after the period's first session open (the period begins today), When the forming candle is emitted, Then its values are the full aggregate of those bars, Bar.partial is False, and no set_partial op is emitted.",
-          "type": "integration",
-          "description": "Same suite: every bar at or after the period's first session open (the 'period begins today' leg).",
-          "expected_result": "Full aggregate values, Bar.partial is False, and no set_partial op is emitted."
-        },
-        {
-          "test_id": "P25-T2-AC4",
-          "linked_acceptance_criterion": "Given a current-period base exists for 1 week or 1 month, When prime_aggregator runs on both the fresh and the retrying=True entry, Then it returns False, issues no historical request, and the caller may attach the live feed; Given no base exists, Then the issued (bar_size, duration) pair is inside the accepted set (5 secs within [60 S, 3600 S]; 1 min within [60 S, 1 D]), no pair outside that set is ever issued, and a rejected pair is never re-issued as-is.",
-          "type": "unit",
-          "description": "Same suite: a fake md_manager recording (bar_size, duration); call prime_aggregator with a current-period base present (fresh and retrying=True), then without a base for both calendar timeframes; also simulate a rejected pair with an already-issued pair recorded.",
-          "expected_result": "With a base: returns False and the recorded request list is empty (both entry modes). Without a base: exactly one request whose pair is inside the accepted set (5 secs in [60 S,3600 S] or 1 min in [60 S,1 D]); over the whole suite no pair outside the set is issued and a rejected pair never re-appears as-is."
-        },
-        {
-          "test_id": "P25-T2-AC5",
-          "linked_acceptance_criterion": "Given the forming candle is marked, When a live bar in the next period arrives, Then exactly one new candle is appended (the completed period's candle is never duplicated) and the envelope carries exactly one set_partial naming the new forming ts, or {old_ts, partial:false} when the new forming bar is complete; Given a base is adopted after live bars were pushed, When the same 5-second ts is redelivered, Then the base-derived volume is unchanged while a genuinely newer ts still merges into it.",
-          "type": "integration",
-          "description": "Same suite, rollover leg: mark the forming candle, then push a live bar in the next bucket through on_realtime_bar; assert the appended series and the emitted directive.",
-          "expected_result": "Exactly one new candle is appended, the completed period's candle appears once in the series, and exactly one set_partial names the new forming ts (or {old_ts, partial:false} when that bar is complete)."
-        },
-        {
-          "test_id": "P25-T2-AC5-REPLAY",
-          "linked_acceptance_criterion": "Given the forming candle is marked, When a live bar in the next period arrives, Then exactly one new candle is appended (the completed period's candle is never duplicated) and the envelope carries exactly one set_partial naming the new forming ts, or {old_ts, partial:false} when the new forming bar is complete; Given a base is adopted after live bars were pushed, When the same 5-second ts is redelivered, Then the base-derived volume is unchanged while a genuinely newer ts still merges into it.",
-          "type": "unit",
-          "description": "Same suite, replay-guard leg: push a live 5-second bar, adopt a current-period base via set_bars, then re-push the same ts, then push a newer ts.",
-          "expected_result": "The base-derived volume is unchanged by the redelivered ts (no re-count) while the newer ts merges into the same candle; the candle's first_ts/covering_since still names the period start."
-        },
-        {
-          "test_id": "P25-T2-AC6",
-          "linked_acceptance_criterion": "Given a full series replacement whose last row is the partial forming bar, When set_series emits it, Then exactly one set_partial op follows the rows in that batch and it names that last row's ts; Given MainWindow.get_or_create_session creates a session, Then session._wall_now() returns the window's _now_ts() value, a MainWindow._now_ts replacement made after creation is honoured (the seam is late-bound), and TickerSession's default _wall_now is time.time.",
-          "type": "integration",
-          "description": "Same suite, marker-replacement leg: a full replace whose last row is a partial bar through a real LwcChartView and a headless LwBridge; assert one set_partial after the rows op(s) in that batch and its ts.",
-          "expected_result": "Exactly one set_partial, ordered after the set_bars/set_volume ops, naming the last row's ts."
-        },
-        {
-          "test_id": "P25-T2-AC6-SEAM",
-          "linked_acceptance_criterion": "Given a full series replacement whose last row is the partial forming bar, When set_series emits it, Then exactly one set_partial op follows the rows in that batch and it names that last row's ts; Given MainWindow.get_or_create_session creates a session, Then session._wall_now() returns the window's _now_ts() value, a MainWindow._now_ts replacement made after creation is honoured (the seam is late-bound), and TickerSession's default _wall_now is time.time.",
-          "type": "unit",
-          "description": "Same suite: build the real MainWindow offscreen, call get_or_create_session, then replace MainWindow._now_ts and re-read session._wall_now(); also check TickerSession's default.",
-          "expected_result": "session._wall_now() equals win._now_ts() before and after the replacement (late-bound); a fresh TickerSession._wall_now() equals time.time()'s value within a second."
-        }
-      ],
-      "expected_artifacts": [
-        "data/models.py \u2014 the transient Bar.partial field",
-        "data/bar_aggregator.py \u2014 _AggState.first_ts, adopt_period_base, drop_period_base, covering_since",
-        "services/market_calendar.py \u2014 first_session_open (session_windows untouched)",
-        "ui/ticker_session.py \u2014 base adoption in set_bars, suppressed week/month prime, partial stamping, _wall_now seam",
-        "ui/main_window.py \u2014 the one-line clock wiring in get_or_create_session",
-        "ui/lwc_view.py \u2014 the marker leg in update_live_bar and set_series",
-        "tests/test_d48_mode_parity.py \u2014 one restated docstring sentence, assertions unchanged",
-        "tests/test_d67_forming_candle.py \u2014 the new suite"
-      ],
-      "touches_files": [
-        "data/models.py",
-        "data/bar_aggregator.py",
-        "services/market_calendar.py",
-        "ui/ticker_session.py",
+        "ibkr/pacing.py",
+        "ibkr/subscription_manager.py",
         "ui/main_window.py",
-        "ui/lwc_view.py",
-        "tests/test_d48_mode_parity.py",
-        "tests/test_d67_forming_candle.py"
+        "tests/test_d71_replay_transaction.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P25-T1's accepted set_partial directive",
-        "docs/architecture.md \u00a7 Phase P25 S-P25-1/S-P25-3 and Data Model",
-        "the verified TWS 1 min ceiling (1 D accepted; 2 D/7 D rejected 321) and oldest-first arrival"
+        "the pre-pass registry contents and the two pacing budgets",
+        "ibkr/market_data.py's req_mkt_data / cancel_mkt_data and ibkr/realtime_bars.py's subscribe / unsubscribe as the two cancel paths"
       ],
       "outputs": [
-        "a forming week/month candle whose values are the period aggregate or an exactly-aggregated partial",
-        "one marker directive per forming-state change",
-        "no week/month prime when a base exists"
+        "one replay pass that is zero-or-all over the union budget",
+        "a per-type retire resolver installed once by the window",
+        "one replaceable deferral instead of stacked retries"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "data/bar_aggregator.py",
-            "lines": "28-60",
-            "why": "_AggState's fields \u2014 first_ts is added here and set at the one state-creation site"
+            "path": "ibkr/subscription_manager.py",
+            "lines": "35-140",
+            "why": "edit: the four tags, _Entry, subscribe (signature frozen) and replay_all \u2014 the body this task rewrites into three phases"
           },
           {
-            "path": "data/bar_aggregator.py",
-            "lines": "100-215",
-            "why": "BarAggregator.push (the dedup guard and bucket rollover that must not change) and current_bar; the adoption entry points sit beside them"
-          },
-          {
-            "path": "data/models.py",
-            "lines": "1-15",
-            "why": "Bar's field list in order \u2014 append partial, change nothing else"
-          },
-          {
-            "path": "services/market_calendar.py",
-            "lines": "140-216",
-            "why": "is_trading_day / trading_days / session_windows \u2014 first_session_open is a sibling of session_windows, which stays byte-identical"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "460-505",
-            "why": "aggregator_for / set_bars / _append_bar \u2014 adoption runs inside set_bars, the single series-replacement choke point"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "566-620",
-            "why": "on_realtime_bar / _on_aggregated_bar \u2014 where partial is stamped on the bar the session emits"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "1454-1582",
-            "why": "prime_aggregator and its Per-span priming table docstring (test_d48_gate.py greps the tokens within 2,000 characters)"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2480-2620",
-            "why": "set_series and update_live_bar \u2014 the two sites that drive the marker; the new_period branch is the rollover edge"
+            "path": "ibkr/pacing.py",
+            "lines": [
+              "1-95",
+              "200-230"
+            ],
+            "why": "edit: PacingExceeded, PacingManager.__init__ / throttle / reset_for_tests \u2014 the gate the batch reservation sits beside"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "1070-1090",
-            "why": "get_or_create_session \u2014 the one-line, late-bound clock wiring, placed before any set_bars path"
+            "lines": [
+              "780-815",
+              "2029-2075",
+              "2334-2425"
+            ],
+            "why": "edit: the sub_manager creation site (resolver installation), _replay_subscriptions, and the option reissue/rebind hooks"
           },
           {
-            "path": "tests/test_d48_mode_parity.py",
-            "lines": "1-40",
-            "why": "the prime-carve-out docstring sentence to restate; its assertions must not change"
+            "path": "tests/test_p7_w4_streaming.py",
+            "lines": "570-620",
+            "why": "read-only: pins the deferral's one QTimer.singleShot(2000) call \u2014 keep that shape, do not change this file"
+          },
+          {
+            "path": "tests/test_d28_pacing.py",
+            "lines": "140-190",
+            "why": "read-only: the RT-only replay case that must stay green unchanged (generic_n is 0 there) \u2014 do not change it"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "625-675",
+            "why": "read-only: asserts include_types is exactly {RT_BARS, S0_TICKS, OPTION_LEGS} \u2014 that set is frozen"
           }
         ],
         "contracts": [
           {
-            "ref": "data/models.py:Bar",
+            "ref": "ibkr/subscription_manager.py:subscribe",
             "status": "existing"
           },
           {
-            "ref": "data/bar_aggregator.py:BarAggregator",
+            "ref": "ibkr/subscription_manager.py:replay_all",
             "status": "existing"
           },
           {
-            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
+            "ref": "ibkr/pacing.py:throttle",
             "status": "existing"
           },
           {
-            "ref": "services/market_calendar.py:session_windows",
+            "ref": "ibkr/pacing.py:realtime_wait_for_slots",
             "status": "existing"
           },
           {
-            "ref": "services/market_calendar.py:trading_days",
+            "ref": "ibkr/market_data.py:req_mkt_data",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:TickerSession",
+            "ref": "ibkr/market_data.py:cancel_mkt_data",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_view.py:LwcChartView",
+            "ref": "ibkr/realtime_bars.py:unsubscribe",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:MainWindow",
+            "ref": "ui/main_window.py:_option_reissue_leg",
             "status": "existing"
           },
           {
             "status": "new",
-            "module": "data/models.py",
-            "signature": "partial: bool = field(default=False, compare=False, repr=False)  # transient, presentation-only, never persisted"
+            "module": "ibkr/pacing.py",
+            "signature": "def generic_wait_for_batch(self, count: int) -> float:  # 0.0 when count <= 1, else max(0.0, (count - 1) * (1.0 / settings.MAX_REQ_PER_SEC) - (now - self._last_req_time))"
           },
           {
             "status": "new",
-            "module": "data/bar_aggregator.py",
-            "signature": "def adopt_period_base(self, bar) -> None:  # sets the open candle's OHLCV from one rendered period row, first_ts = period_start, records base-derived; leaves _last_pushed_ts untouched"
+            "module": "ibkr/pacing.py",
+            "signature": "@contextlib.contextmanager\ndef generic_batch(self, count: int):  # re-check the wait and raise PacingExceeded before the body runs; set _batch_remaining = int(count); finally clears it and calls record_request_slot()"
           },
           {
             "status": "new",
-            "module": "data/bar_aggregator.py",
-            "signature": "def drop_period_base(self) -> None:  # clears a base-derived state only"
+            "module": "ibkr/subscription_manager.py",
+            "signature": "def set_cancel_hook(self, req_type: str, fn: Callable[[int], None]) -> None:  # stored in self._cancel_hooks: dict[str, Callable[[int], None]]"
           },
           {
             "status": "new",
-            "module": "data/bar_aggregator.py",
-            "signature": "@property\ndef covering_since(self) -> int:  # the earliest bar folded into the open candle (first_ts)"
+            "module": "ui/main_window.py",
+            "signature": "installed once beside self.sub_manager = SubscriptionManager(): RT_BARS -> self._unregister_req_id(old) + self.rt_manager.unsubscribe(old); OPTION_LEGS -> self._option_req_ids.pop(old, None) + self.md_manager.cancel_mkt_data(old)  # both best-effort"
           },
           {
             "status": "new",
-            "module": "data/bar_aggregator.py",
-            "signature": "_AggState.first_ts: int  # written as ts in push() where the state is created; period_start when adopted"
-          },
-          {
-            "status": "new",
-            "module": "services/market_calendar.py",
-            "signature": "def first_session_open(period_start: int, now_ts: int, ext_hours: bool) -> int | None:  # first ET session open in [period_start, now_ts], holiday-aware; None before any open"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "_wall_now: Callable[[], int]  # default time.time; assigned at session creation as lambda: self._now_ts()"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "partial = agg.covering_since > first_session_open(agg.period_start, now_ts, ext_hours)  # stamped on the forming Bar for '1 week'/'1 month' with the load's mode; False for every other timeframe"
-          },
-          {
-            "status": "new",
-            "module": "ui/lwc_view.py",
-            "signature": "_partial_ts: int | None  # emits {\"op\": \"set_partial\", \"ts\": <int>, \"partial\": <bool>} after the rows when the forming bar's (ts, partial) differs from the mark"
+            "module": "ui/main_window.py",
+            "signature": "def _replay_subscriptions(self):  # unchanged shape: one replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS}) and one QTimer.singleShot(int(e.wait_seconds * 1000), <epoch-guarded callback>); self._replay_serial: int"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#P25-01",
+        "architecture_ref": "docs/architecture.md#Phase P26",
+        "plan_ref": "docs/plan.md#P26-01",
         "requirement_ids": [
-          "AC-D67.1",
-          "AC-D67.2",
-          "AC-D67.3"
+          "AC-D71.1",
+          "AC-D71.2",
+          "AC-D71.3",
+          "A225",
+          "A226",
+          "R165",
+          "DG131"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d67_forming_candle.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d71_replay_transaction.py -q",
         "memory_refs": [
-          "IBKR"
+          "pacing"
         ],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P25-T3",
-      "title": "D68 \u2014 a pop-out releases at most the one RT hold it acquired",
-      "description": "Move the acquisition state from attach's local into a pop-out-local latch (S-P25-4). PopoutChartWindow gains self._hold_acquired (True only on the else branch where ensure_rt_subscribed() returned) and self._closed (set first in detach, consulted by _retry_rt_subscribe); attach's unwind reads the attribute instead of the local, detach releases only when it is set and then clears it, and a retry that fires after close acquires nothing. TickerSession.ensure_rt_subscribed / release_rt / _rt_holders and every signature stay frozen \u2014 tests/test_p13_hold_fix.py fences them. Comment each write site with D68 and state the P13 fence reason.",
+      "id": "P26-T2",
+      "title": "D72 + D75 + D76 \u2014 a cap-parked wave is a healthy, resumable state and a readiness loop stays bounded",
+      "description": "One lifecycle, three faces. ui/ticker_session.py gains _wave_parked and _settle_parked_wave() (disarm the watchdog and stop _wave_continue_timer when _wave_parked and not self._history_req_ids; return whether it settled); the cap branch of _issue_wave_chunks sets _wave_parked = True after the unchanged status message and calls the settle step (it normally does not settle \u2014 members are in flight), and on_historical_data_end / on_historical_error call it before their _wave_may_complete() checks, so the bound is released at end/error/162/strand/disconnect settle time and only when the last in-flight member ends. _wave_parked is cleared by queue_wave_plans, _cancel_history_requests and _finalize_history_wave. _issue_wave_chunks' single except (PacingExceeded, IBKRNotReady) splits: PacingExceeded keeps _schedule_wave_continuation(wait); IBKRNotReady sets _wave_deferral_reason = \"IBKR not ready\", arms the watchdog only if not self._history_wave_timer.isActive() (base bound, no wait), surfaces one status line per episode (_wave_not_ready_announced), and starts the continuation at the unchanged 1 s fallback without re-arming; same split in _retry_silent_chunk. _schedule_wave_continuation gains one keyword-only transport_not_ready: bool = False so the default path is byte-identical. ui/main_window.py: _on_session_history_wave_timeout returns without stranding when session._wave_parked and not session._history_req_ids (the guard lives in the timeout handler ONLY \u2014 _finalize_stranded_history_wave stays unchanged so a disconnect still strands and drops the parked queue), and passes \"IBKR not ready\" when the session's _wave_deferral_reason names the transport, else \"Historical backfill timed out\"; _load_chart_resolved's coalesce gate widens to (bool(_history_req_ids) or bool(_wave_plan_queue)) and same triple, and for a parked session the coalesce branch resets _wave_issued_this_load = 0, clears _wave_parked, re-arms the watchdog, calls _issue_wave_chunks() and refreshes the indicator while leaving the queue's identity intact (no list(...) copy, no clear, no re-plan); an in-flight coalesce keeps today's no-op; set_backfill_state gains one derived marker word `parked` from a _backfill_parked latch set by _refresh_backfill_indicator as session._wave_parked and not session._history_req_ids and cleared in clear_backfill_indicator \u2014 signature, keys and idle line unchanged. The bound formula, both window fractions, per_load_historical_cap() and the D54 expiry block are untouched.",
       "agent": "build_worker",
       "task_type": "build",
-      "dependencies": [],
+      "dependencies": [
+        "P26-T1"
+      ],
       "acceptance_criteria": [
-        "Given a main chart holding one RT hold and a pop-out whose ensure_rt_subscribed() raised PacingExceeded, When the pop-out is closed before its retry fires, Then no release happens: the session's holder count equals its pre-open value, the fake realtime manager records no unsubscribe for the main reqId, and the pop-out's own _hold_acquired is False.",
-        "Given a pop-out that acquired its hold, When it closes, Then exactly one release_rt is recorded, _hold_acquired is cleared, and a second detach() releases nothing further.",
-        "Given two pop-outs on the same symbol, one of them pacing-deferred, When they are closed in either order, Then the holder count returns to its pre-open value, closing one while the main chart stays open leaves the main's hold intact, and no window releases a hold it never acquired.",
-        "Given a deferred pop-out closed before its retry fires, When _retry_rt_subscribe runs, Then it returns without calling ensure_rt_subscribed (the closed latch), so the subscribe and unsubscribe logs are unchanged by the retry.",
-        "Given the main chart is closed first, When the pop-out's hold is the only one left, Then the subscription stays live (no unsubscribe for its reqId) until the pop-out closes, at which point exactly one release is recorded.",
-        "Given the phase's change, When tests/test_p13_hold_fix.py runs, Then the session hold API is still a plain integer refcount with [\"self\"] parameters and no acquire_rt / release_rt_for / _rt_owners, and PopoutChartWindow.attach/detach/closeEvent signatures are unchanged."
+        "Given a wave whose every issued member has ended and which stopped issuing at the per-load cap, When the clock advances past twice the watchdog bound, Then no stranded finalise occurs, _wave_plan_queue is intact (same length, same objects), the D53 indicator reports the parked/queued state, no timeout shortfall is recorded, and the watchdog timer is not active.",
+        "Given a cap-yielded wave with an in-flight member that never answers and no queue progress, When the watchdog bound elapses, Then the wave is finalised exactly once with the stranded reason and the AC-D16.4 shortfall line, and the queue is dropped exactly as before the change.",
+        "Given a parked wave, When the identical chart is loaded again, Then the oldest queued plan is issued first and the indicator leaves the parked state, the watchdog is re-armed for the resumed work, and the total number of requests issued across both loads stays inside the budget the pacing manager allows.",
+        "Given a session with queued plans and no in-flight ids for the current triple, When the identical triple is loaded, Then no cancel occurs, the plan queue keeps its identity and contents, _pending_prefetch survives, and no duplicate or extra request is issued for the parked plans beyond the queued plans themselves.",
+        "Given a parked wave and a load of a different symbol, timeframe or mode, When the load path runs, Then the existing cancel path runs, the generation advances, and the old queue is cleared.",
+        "Given a client that reports not-ready indefinitely, When the bound's worth of time passes, Then the wave ends through a bounded path \u2014 one finalise with a surfaced reason that names the transport, or one surfaced message after a bounded retry budget \u2014 and the retry count is bounded by the bound rather than growing with elapsed time; the bound is armed once per episode, never re-armed on the fixed short tick.",
+        "Given not-ready for two seconds and then readiness, When the wave continues, Then it issues as soon as readiness lands with one continuation at a time, and the watchdog arm arguments are the base bound for the deferral the episode actually covers.",
+        "Given a parked wave and a disconnect, When the disconnect path settles the wave, Then the parked queue is dropped and the wave is finalised exactly once \u2014 the parked guard exists only in the watchdog timeout handler, so the disconnect strand path is unchanged."
       ],
       "tests": [
         {
-          "test_id": "P25-T3-AC1",
-          "linked_acceptance_criterion": "Given a main chart holding one RT hold and a pop-out whose ensure_rt_subscribed() raised PacingExceeded, When the pop-out is closed before its retry fires, Then no release happens: the session's holder count equals its pre-open value, the fake realtime manager records no unsubscribe for the main reqId, and the pop-out's own _hold_acquired is False.",
-          "type": "integration",
-          "description": "New tests/test_d68_hold_balance.py: a real MainWindow/host with the fake realtime manager recording subscribe/unsubscribe per reqId, a real TickerSession holding one hold for the main chart, and a pop-out whose first ensure_rt_subscribed raises PacingExceeded; close the pop-out before the retry fires.",
-          "expected_result": "Session holder count == its pre-open value; no unsubscribe recorded for the main reqId; the manager's live set is unchanged; the pop-out's _hold_acquired is False. RED before the fix (detach releases unconditionally and consumes the main hold)."
-        },
-        {
-          "test_id": "P25-T3-AC2",
-          "linked_acceptance_criterion": "Given a pop-out that acquired its hold, When it closes, Then exactly one release_rt is recorded, _hold_acquired is cleared, and a second detach() releases nothing further.",
-          "type": "integration",
-          "description": "Same suite: an acquired pop-out closes, then detach() is called a second time.",
-          "expected_result": "Exactly one release_rt for the first detach (holder count drops by exactly one), _hold_acquired is False afterwards, and the second detach records no further release."
-        },
-        {
-          "test_id": "P25-T3-AC3",
-          "linked_acceptance_criterion": "Given two pop-outs on the same symbol, one of them pacing-deferred, When they are closed in either order, Then the holder count returns to its pre-open value, closing one while the main chart stays open leaves the main's hold intact, and no window releases a hold it never acquired.",
-          "type": "integration",
-          "description": "Same suite, parametrized over both close orders: two pop-outs on one symbol, one pacing-deferred, with the main chart open.",
-          "expected_result": "In both orders the holder count returns to its pre-open value at the end; after closing one window the main's hold still exists (count unchanged, no unsubscribe); no window releases a hold it did not acquire."
-        },
-        {
-          "test_id": "P25-T3-AC4",
-          "linked_acceptance_criterion": "Given a deferred pop-out closed before its retry fires, When _retry_rt_subscribe runs, Then it returns without calling ensure_rt_subscribed (the closed latch), so the subscribe and unsubscribe logs are unchanged by the retry.",
+          "test_id": "P26-T2-AC1",
+          "linked_acceptance_criterion": "Given a wave whose every issued member has ended and which stopped issuing at the per-load cap, When the clock advances past twice the watchdog bound, Then no stranded finalise occurs, _wave_plan_queue is intact (same length, same objects), the D53 indicator reports the parked/queued state, no timeout shortfall is recorded, and the watchdog timer is not active.",
           "type": "unit",
-          "description": "Same suite: close a deferred pop-out, then call _retry_rt_subscribe() directly.",
-          "expected_result": "ensure_rt_subscribed is never called by the retry (subscribe log unchanged) and no release is recorded, because the closed latch returns first."
+          "description": "Clock-controlled host (_now_ts, the session's timers driven directly) and a stub md_manager recording issue order: queue more plans than per_load_historical_cap(), drive every issued chunk to its end, then advance the clock past twice the bound and read the finalise spy, the queue length, the timer's isActive() and the indicator text.",
+          "expected_result": "The finalise spy is never called; _wave_plan_queue has the same length and objects; _history_wave_timer.isActive() is False; the indicator text contains 'parked'; no timeout shortfall line was rendered."
         },
         {
-          "test_id": "P25-T3-AC5",
-          "linked_acceptance_criterion": "Given the main chart is closed first, When the pop-out's hold is the only one left, Then the subscription stays live (no unsubscribe for its reqId) until the pop-out closes, at which point exactly one release is recorded.",
-          "type": "integration",
-          "description": "Same suite: main chart closes first, then the pop-out closes.",
-          "expected_result": "Between the two closes no unsubscribe is recorded for the pop-out's reqId (its hold keeps the feed alive); on the pop-out's close exactly one release is recorded and the manager's live set drops that reqId."
+          "test_id": "P26-T2-AC2",
+          "linked_acceptance_criterion": "Given a cap-yielded wave with an in-flight member that never answers and no queue progress, When the watchdog bound elapses, Then the wave is finalised exactly once with the stranded reason and the AC-D16.4 shortfall line, and the queue is dropped exactly as before the change.",
+          "type": "unit",
+          "description": "Cap-yield the wave, leave one issued member unanswered, advance the clock past the bound, and read the finalise spy's call count, reason and shortfall text plus the queue length.",
+          "expected_result": "Exactly one finalise, reason 'Historical backfill timed out', the AC-D16.4 shortfall line present, and the queue empty afterwards."
         },
         {
-          "test_id": "P25-T3-AC6",
-          "linked_acceptance_criterion": "Given the phase's change, When tests/test_p13_hold_fix.py runs, Then the session hold API is still a plain integer refcount with [\"self\"] parameters and no acquire_rt / release_rt_for / _rt_owners, and PopoutChartWindow.attach/detach/closeEvent signatures are unchanged.",
+          "test_id": "P26-T2-AC3",
+          "linked_acceptance_criterion": "Given a parked wave, When the identical chart is loaded again, Then the oldest queued plan is issued first and the indicator leaves the parked state, the watchdog is re-armed for the resumed work, and the total number of requests issued across both loads stays inside the budget the pacing manager allows.",
+          "type": "unit",
+          "description": "Park a wave, then drive the identical triple through the load path with a stub md_manager recording (plan, reqId) in issue order and a pacing stub counting admitted requests across both loads.",
+          "expected_result": "The first plan issued after the reload is the queue's head object; the indicator no longer contains 'parked'; _history_wave_timer.isActive() is True; the total admitted request count across both loads is inside the pacing stub's budget and equals the plans actually issued (no duplicates)."
+        },
+        {
+          "test_id": "P26-T2-AC4",
+          "linked_acceptance_criterion": "Given a session with queued plans and no in-flight ids for the current triple, When the identical triple is loaded, Then no cancel occurs, the plan queue keeps its identity and contents, _pending_prefetch survives, and no duplicate or extra request is issued for the parked plans beyond the queued plans themselves.",
+          "type": "unit",
+          "description": "Set the parked state with a populated queue and _pending_prefetch set, then run the identical-triple coalesce branch with a cancel spy in place.",
+          "expected_result": "The cancel spy is not called; _wave_plan_queue is the same object with the same contents; _pending_prefetch is still set; the issued plans are the queued ones, each once, with no extra request."
+        },
+        {
+          "test_id": "P26-T2-AC5",
+          "linked_acceptance_criterion": "Given a parked wave and a load of a different symbol, timeframe or mode, When the load path runs, Then the existing cancel path runs, the generation advances, and the old queue is cleared.",
+          "type": "unit",
+          "description": "Park a wave, then load a different symbol (then, in a second case, a different timeframe and a different mode) through the same branch with a cancel spy and a generation reader.",
+          "expected_result": "The cancel spy is called, _history_generation advanced, and the old queue is empty in each of the three cases."
+        },
+        {
+          "test_id": "P26-T2-AC6",
+          "linked_acceptance_criterion": "Given a client that reports not-ready indefinitely, When the bound's worth of time passes, Then the wave ends through a bounded path \u2014 one finalise with a surfaced reason that names the transport, or one surfaced message after a bounded retry budget \u2014 and the retry count is bounded by the bound rather than growing with elapsed time; the bound is armed once per episode, never re-armed on the fixed short tick.",
+          "type": "unit",
+          "description": "A stub client that raises IBKRNotReady on every historical issue: run the continuation ticks for longer than the bound while recording every arm call's argument and the surfaced status lines.",
+          "expected_result": "The bound is armed once with the base bound and never re-armed by the 1 s ticks; the wave ends in exactly one finalise whose reason names the transport (or one surfaced message after the bounded budget); the retry count does not keep growing with elapsed time."
+        },
+        {
+          "test_id": "P26-T2-AC7",
+          "linked_acceptance_criterion": "Given not-ready for two seconds and then readiness, When the wave continues, Then it issues as soon as readiness lands with one continuation at a time, and the watchdog arm arguments are the base bound for the deferral the episode actually covers.",
+          "type": "unit",
+          "description": "Report not-ready for two seconds, then let the client become ready, recording continuation starts and arm arguments.",
+          "expected_result": "At most one continuation is pending at a time; the plans are issued as soon as readiness lands; every arm call used the base bound, not a per-tick re-arm."
+        },
+        {
+          "test_id": "P26-T2-AC8",
+          "linked_acceptance_criterion": "Given a parked wave and a disconnect, When the disconnect path settles the wave, Then the parked queue is dropped and the wave is finalised exactly once \u2014 the parked guard exists only in the watchdog timeout handler, so the disconnect strand path is unchanged.",
           "type": "integration",
-          "description": "Run the pre-existing fence suite after the change; it is the regression floor, not re-baselined.",
-          "expected_result": "tests/test_p13_hold_fix.py is green with its own absence and signature assertions unchanged (no acquire_rt, no release_rt_for, no _rt_owners, [\"self\"] parameters)."
+          "description": "Park a wave with queued plans, then drive the disconnect path that finalises stranded waves and read the queue, the generation and the finalise spy.",
+          "expected_result": "The parked queue is empty after the disconnect, exactly one finalise ran with the stranded reason, and the parked guard is not applied on this path (a source check that _finalize_stranded_history_wave's body carries no _wave_parked test is allowed as a supporting assertion)."
         }
       ],
       "expected_artifacts": [
-        "ui/popout_window.py \u2014 the _hold_acquired and _closed latches, read by attach's unwind, detach and _retry_rt_subscribe",
-        "tests/test_d68_hold_balance.py \u2014 the new suite"
+        "ui/ticker_session.py \u2014 _wave_parked, _settle_parked_wave(), the cap-yield park, the end/error settle steps, the readiness episode (_wave_deferral_reason, _wave_not_ready_announced, the transport_not_ready keyword), and the clears in queue_wave_plans / _cancel_history_requests / _finalize_history_wave",
+        "ui/main_window.py \u2014 the parked guard in _on_session_history_wave_timeout only, the transport-named reason, the widened coalesce gate with the parked resume, and the parked marker in set_backfill_state / _refresh_backfill_indicator / clear_backfill_indicator",
+        "tests/test_d72_d75_d76_parked_wave.py \u2014 the new suite"
       ],
       "touches_files": [
-        "ui/popout_window.py",
-        "tests/test_d68_hold_balance.py"
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_d72_d75_d76_parked_wave.py"
       ],
       "doc_required": false,
       "inputs": [
-        "docs/architecture.md \u00a7 Phase P25 S-P25-4",
-        "tests/test_p13_hold_fix.py's frozen session-hold shape"
+        "the per-load cap (per_load_historical_cap()), the existing watchdog bound and its two window fractions",
+        "the D53 indicator state and its marker list",
+        "P26-T1's settled replay deferral shape"
       ],
       "outputs": [
-        "a pop-out whose close can never consume another owner's RT hold"
+        "a parked wave state that survives until the last in-flight member ends",
+        "a coalesce-resume for a parked triple",
+        "one bounded readiness episode with a transport-named reason",
+        "one derived indicator word"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": [
+              "940-1110",
+              "1180-1350",
+              "1395-1500"
+            ],
+            "why": "edit: _register_history_request / _cancel_history_requests, the arm/disarm/bound trio, _retry_silent_chunk, queue_wave_plans / _issue_wave_chunks / _schedule_wave_continuation / _wave_may_complete, on_historical_data_end / on_historical_error"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": [
+              "2820-2895",
+              "3054-3135",
+              "3311-3425",
+              "3847-3890"
+            ],
+            "why": "edit: _finalize_stranded_history_wave / _on_session_history_wave_timeout, the coalesce gate in _load_chart_resolved, set_backfill_state / _refresh_backfill_indicator / clear_backfill_indicator, _finalize_history_wave"
+          },
+          {
+            "path": "tests/test_p7_w2_watchdog.py",
+            "lines": "80-125",
+            "why": "read-only: pins the pacing-deferral arm behaviour the default continuation path must keep \u2014 do not change it"
+          },
+          {
+            "path": "tests/test_p14_indicator.py",
+            "lines": "170-215",
+            "why": "read-only: the indicator's identity/text conventions the one added marker word must not disturb"
+          },
+          {
+            "path": "tests/test_p7_w1_coalesce.py",
+            "lines": "1-70",
+            "why": "read-only: the in-flight coalesce no-op this task keeps for non-parked waves"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:per_load_historical_cap",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_issue_wave_chunks",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_wave_may_complete",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_history_wave_watchdog_bound_ms",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_arm_history_wave_watchdog",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_disarm_history_wave_watchdog",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:on_historical_data_end",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:on_historical_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_session_history_wave_timeout",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:set_backfill_state",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:clear_backfill_indicator",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "def _settle_parked_wave(self) -> bool:  # disarm the watchdog and stop _wave_continue_timer when self._wave_parked and not self._history_req_ids; return whether it settled"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "def _schedule_wave_continuation(self, wait_s: float, *, transport_not_ready: bool = False) -> None:"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "self._wave_parked: bool; self._wave_deferral_reason: str (\"\" | \"IBKR not ready\"); self._wave_not_ready_announced: bool"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "self._backfill_parked: bool  # derived on every _refresh_backfill_indicator as session._wave_parked and not session._history_req_ids; cleared in clear_backfill_indicator"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P26",
+        "plan_ref": "docs/plan.md#P26-02",
+        "requirement_ids": [
+          "AC-D72.1",
+          "AC-D72.2",
+          "AC-D72.3",
+          "AC-D75.1",
+          "AC-D75.2",
+          "AC-D76.1",
+          "AC-D76.2",
+          "A227",
+          "R166",
+          "R169",
+          "DG130"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d72_d75_d76_parked_wave.py -q",
+        "memory_refs": [
+          "pacing",
+          "watchdog"
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P26-T3",
+      "title": "D73 + D74 \u2014 one chunk-surrender rule for both retry paths and one wave-scoped retry ledger",
+      "description": "Extract _surrender_chunk_bars(req_id) in ui/ticker_session.py \u2014 pop _req_bars[req_id] and drop exactly those Bar objects from _pending_bars by id() \u2014 and call it from _retry_silent_chunk (replacing its inline block, behaviour identical) and from on_historical_error's code == 162 branch BEFORE the plan is re-queued. Nothing else in either path changes: the cancel, the tag, the post-issue slot, the _retried_plans allowance and the continuation/arm behaviour stay as they are; persisted rows are untouched because save_bars is INSERT OR REPLACE on the mode-aware PK. Then scope the ledger: queue_wave_plans also resets self._backfill_failed_req_ids = set() (beside _retried_plans) and calls the new _prune_cancel_tags(); _cancelled_history_gen: dict[int, int] records _history_generation at each _cancelled_history_req_ids.add(...) site (the cancel path and the silence retry); _register_history_request's existing discard also pops the gen entry; _prune_cancel_tags() keeps ids whose tagged generation is >= _history_generation - 1 and runs at the start of queue_wave_plans. is_superseded stays a set-membership read. In ui/main_window.py, _teardown_session merges each batch into _superseded_history_windows (keeping the last two) and rebuilds _superseded_history_reqs as their union, so the attribute's name and meaning survive. This is generation-windowed bookkeeping, not a TTL, an LRU or a numeric cap; no cancel tag for the current generation is ever cleared.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P26-T2"
+      ],
+      "acceptance_criteria": [
+        "Given a chunk that delivers N bars and then a 162, When the retry succeeds and the wave finalises, Then _pending_bars holds at most one bar per (symbol, timeframe, ts) and the persisted row count equals the number of distinct timestamps; the same invariant holds when the retry is refused twice (the wave finalises short with the partial bars surrendered) and when the 162 arrives with zero partial bars (a no-op surrender).",
+        "Given the same scenario driven through the silence path instead of the 162 path, When the wave finalises, Then the post-condition is identical and is asserted by the same invariant helper, not by two different expectations.",
+        "Given two hundred waves in one session, When the waves finish, Then the cancel-tag set's size is bounded by the ids cancelled in the current and previous generation (it does not grow linearly with wave count), and a late acknowledgement for an id cancelled in the current wave still classifies as superseded \u2014 logged at debug, with no status-bar error.",
+        "Given wave A with two failed chunks followed by wave B with none, When wave B finalises, Then its shortfall line reports zero failures and the failure set is empty; a prefetch wave started immediately after a failed load reports only its own failures."
+      ],
+      "tests": [
+        {
+          "test_id": "P26-T3-AC1",
+          "linked_acceptance_criterion": "Given a chunk that delivers N bars and then a 162, When the retry succeeds and the wave finalises, Then _pending_bars holds at most one bar per (symbol, timeframe, ts) and the persisted row count equals the number of distinct timestamps; the same invariant holds when the retry is refused twice (the wave finalises short with the partial bars surrendered) and when the 162 arrives with zero partial bars (a no-op surrender).",
+          "type": "unit",
+          "description": "A stub md_manager whose req can return a chosen set of bars per reqId and a controllable _silence_now: deliver five bars then a 162, let the retry deliver the same five plus five more, finalise the wave, and read the _pending_bars multiset plus the cache row count via the mode-aware key. Repeat with the retry refused twice and with a zero-bar 162.",
+          "expected_result": "Every timestamp in _pending_bars appears exactly once and the cache row count equals the distinct-timestamp count in all three cases; the refused-twice case finalises short with no duplicated bars, and the zero-bar 162 changes nothing."
+        },
+        {
+          "test_id": "P26-T3-AC2",
+          "linked_acceptance_criterion": "Given the same scenario driven through the silence path instead of the 162 path, When the wave finalises, Then the post-condition is identical and is asserted by the same invariant helper, not by two different expectations.",
+          "type": "unit",
+          "description": "Drive the same five-bars-then-retry scenario through _retry_silent_chunk and assert the post-condition with the same assertion helper the 162 case uses.",
+          "expected_result": "The silence path satisfies the identical invariant via the shared helper (one helper, two callers), with no second, differently-worded expectation."
+        },
+        {
+          "test_id": "P26-T3-AC3",
+          "linked_acceptance_criterion": "Given two hundred waves in one session, When the waves finish, Then the cancel-tag set's size is bounded by the ids cancelled in the current and previous generation (it does not grow linearly with wave count), and a late acknowledgement for an id cancelled in the current wave still classifies as superseded \u2014 logged at debug, with no status-bar error.",
+          "type": "unit",
+          "description": "Run many waves in one session, recording len(_cancelled_history_req_ids) per generation, then drive a late ack for an id cancelled in the current wave through _on_error with a status-bar spy.",
+          "expected_result": "The tag set's size stays bounded by the ids cancelled in the last two generations and does not grow with the wave count; the current-wave ack is classified superseded and produces no status-bar error."
+        },
+        {
+          "test_id": "P26-T3-AC4",
+          "linked_acceptance_criterion": "Given wave A with two failed chunks followed by wave B with none, When wave B finalises, Then its shortfall line reports zero failures and the failure set is empty; a prefetch wave started immediately after a failed load reports only its own failures.",
+          "type": "unit",
+          "description": "Record two failed chunks in wave A, then run wave B with none and read B's shortfall text and _backfill_failed_req_ids; then start a prefetch wave right after a failed load and read its own shortfall.",
+          "expected_result": "Wave B's shortfall reports zero failures and the failure set is empty; the prefetch wave reports only its own failures."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/ticker_session.py \u2014 _surrender_chunk_bars(req_id) called from both the silence retry and the 162 branch, the per-wave _backfill_failed_req_ids reset and _prune_cancel_tags() call in queue_wave_plans, generation-tagged cancel tags in _cancelled_history_gen with the discard in _register_history_request",
+        "ui/main_window.py \u2014 _teardown_session's two-batch window with _superseded_history_reqs rebuilt as the flattened union",
+        "tests/test_d73_d74_retry_ledger.py \u2014 the new suite"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_d73_d74_retry_ledger.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P26-T2's park resets and resume in queue_wave_plans / the coalesce branch",
+        "the existing 162 branch, _retry_silent_chunk and _cancelled_history_req_ids bookkeeping"
+      ],
+      "outputs": [
+        "one surrender rule shared by both retry paths",
+        "a cancel-tag set bounded by two generations",
+        "a per-wave failure set",
+        "a two-batch window on teardown"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/popout_window.py",
-            "lines": "335-490",
-            "why": "attach: the local hold_acquired, the pacing/error branches that schedule the retry, and the unwind that must read the instance latch"
+            "path": "ui/ticker_session.py",
+            "lines": [
+              "930-1115",
+              "1180-1260",
+              "1395-1500"
+            ],
+            "why": "edit: _register_history_request / is_superseded / _cancel_history_requests, _retry_silent_chunk and its inline surrender block, queue_wave_plans, _finalize_history_wave's shortfall accounting, on_historical_error's 162 branch"
           },
           {
-            "path": "ui/popout_window.py",
-            "lines": "489-550",
-            "why": "_retry_rt_subscribe (the membership guard and the acquire) and detach (the unconditional release_rt to replace)"
+            "path": "ui/main_window.py",
+            "lines": [
+              "1095-1125",
+              "2874-2935",
+              "3847-3890"
+            ],
+            "why": "edit: _teardown_session's merge, _on_error's superseded classification, _finalize_history_wave's shortfall line"
           },
           {
-            "path": "tests/test_p13_hold_fix.py",
-            "lines": "60-160",
-            "why": "read-only: the P13 fence that forbids an owner-keyed session API and pins the [\"self\"] parameters \u2014 do not change it"
+            "path": "tests/test_d56_silence_retry.py",
+            "lines": "1-70",
+            "why": "read-only: the silence-retry ledger the extracted helper must preserve exactly \u2014 do not change it"
           },
           {
-            "path": "tests/test_d24_popouts.py",
+            "path": "tests/test_p19_prefetch_honesty.py",
             "lines": "1-60",
-            "why": "read-only: the fake realtime manager convention (win.rt_manager.subscribe patched to an id source) the new suite reuses"
+            "why": "read-only: how the prefetch wave reports its own failures, which the per-wave reset must keep true"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/popout_window.py:PopoutChartWindow",
+            "ref": "ui/ticker_session.py:is_superseded",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:TickerSession",
+            "ref": "ui/ticker_session.py:_cancel_history_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_register_history_request",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_retry_silent_chunk",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:queue_wave_plans",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:on_historical_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_teardown_session",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_finalize_history_wave",
             "status": "existing"
           },
           {
             "status": "new",
-            "module": "ui/popout_window.py",
-            "signature": "self._hold_acquired: bool  # True only where ensure_rt_subscribed() returned; cleared where released; read by attach's unwind and by detach"
+            "module": "ui/ticker_session.py",
+            "signature": "def _surrender_chunk_bars(self, req_id: int) -> None:  # pop self._req_bars[req_id] and drop exactly those Bar objects from self._pending_bars by id()"
           },
           {
             "status": "new",
-            "module": "ui/popout_window.py",
-            "signature": "self._closed: bool  # set first in detach(); consulted by _retry_rt_subscribe before it acquires"
+            "module": "ui/ticker_session.py",
+            "signature": "def _prune_cancel_tags(self) -> None:  # keep ids whose tagged generation in self._cancelled_history_gen is >= self._history_generation - 1"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "self._cancelled_history_gen: dict[int, int]  # reqId -> _history_generation at cancel time"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "self._superseded_history_windows: list[set[int]]  # at most two teardown batches; _superseded_history_reqs stays the flattened union"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#P25-02",
+        "architecture_ref": "docs/architecture.md#Phase P26",
+        "plan_ref": "docs/plan.md#P26-03",
         "requirement_ids": [
-          "AC-D68.1",
-          "AC-D68.2"
+          "AC-D73.1",
+          "AC-D73.2",
+          "AC-D74.1",
+          "AC-D74.2",
+          "A228",
+          "A229",
+          "R168"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d68_hold_balance.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d73_d74_retry_ledger.py -q",
         "memory_refs": [
           "offscreen"
         ],
@@ -548,241 +611,68 @@
       }
     },
     {
-      "id": "P25-T4",
-      "title": "D69 + D70 \u2014 arrival-ordered flush with one replace per series, and one whitespace rule on both sides",
-      "description": "Stamp every staged op with a monotonic sequence and emit data ops in arrival order (S-P25-5): per series keep only the last full replace (set_bars / set_volume / clear) and drop that series' ops with a smaller seq, then append the non-series directives (set_visible_range, set_partial) in arrival order. _op_log, replay_log and the counters keep plain arrival order. Apply the whitespace rule in both reconstruction branches (S-P25-6): apply_ops_to_bars's update_bar branch removes a None-close ts and writes nothing; envelope.js::mergeRows skips a whitespace row on set_bars/set_volume and deletes that time on update_bar; chart.js::upsertRow sends {time} only for a whitespace row. Prove the parity through the page's real lwApplyOps + lwSnapshot() over both fixtures, never a hand-written JS mirror. Do not change ENVELOPE_VERSION, COALESCE_MS, LIVE_OPS, the op shapes, seriesRows/barRows, the viewport block in applyOps or any counter.",
+      "id": "P26-T4",
+      "title": "P26 fence suite, the delta-scope record and the two named owner gates",
+      "description": "Add tests/test_p26_fence.py \u2014 one assertion per named artefact of AC-D76.3 plus the module constants the phase relies on \u2014 and record the phase's delta scope. The D41-D70 assertion is presence per id in a heading, never a literal ### D<n> prefix (the record is mixed, exactly as P25's fence records). Read every value off the live modules (ui.ticker_session's per_load_historical_cap and the two window fractions, _history_wave_watchdog_bound_ms() against pacing_manager._hist_window, ibkr.subscription_manager's four tags, the include_types set _replay_subscriptions passes, ibkr.market_data.TIMEFRAME_CONFIG's keys), never off prose and never as a copied literal. Record git diff --name-only 629be4a in the wave result against the phase allowlist; list gates G3 and G4 as owner-run and do not claim them. Publish no literal file/line counts and no phase commit hash, so a later phase cannot redden this fence.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [
-        "P25-T1",
-        "P25-T2"
+        "P26-T1",
+        "P26-T2",
+        "P26-T3"
       ],
       "acceptance_criteria": [
-        "Given one coalesce window in which an update_bar for a candle is staged before a set_bars that replaces the series, When flush() runs, Then the emitted envelope carries no op for that series older than the replace and apply_ops_to_bars over it yields exactly the set_bars rows; Given the same two ops staged in the reverse order, Then the update applies last; every surviving op appears exactly once, a series carries at most one full replace per envelope, and set_visible_range/set_partial still follow the rows.",
-        "Given a window holding updates for several series and one replace per series, Then every op that survives coalescing is emitted exactly once, per-series arrival order is preserved, an older replace is dropped in favour of the later one, and _op_log / replay_log still carry every accepted op in arrival order with unchanged fidelity.",
-        "Given a replay log containing an update_bar whose close is None, When it is reconstructed by apply_ops_to_bars, Then the series contains no row for that timestamp and an existing row for it is removed; the same whitespace row delivered through set_bars is excluded too (one rule, two branches), and both fixtures yield the same expected series.",
-        "Given the page's real lwApplyOps and window.lwSnapshot(), When the same op lists are applied in the page, Then the whitespace row is absent from the page's bar series for both the update_bar and the set_bars fixture, the page's series equals apply_ops_to_bars's output element-for-element, and a whitespace row reaches the library as a {time} placeholder only -- never a null-valued point.",
-        "Given clear followed by update_bar, Then the series is one bar; Given an update_bar that arrived before a replace which removed its timestamp, Then supersession drops it and the removed bar does not come back, while an update_bar that arrived after the replace applies normally; Given an empty flush, Then no envelope is emitted (flush returns None)."
+        "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D70 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D71-D76 entries, Journey 68-Journey 70, AC-D1.1-AC-D70.3 plus AC-D71.1-AC-D76.3, A1-A224 plus A225-A229, R1-R164 plus R165-R169 and the Current Tech Stack section are all present.",
+        "Given the live modules, When the fence reads them, Then per_load_historical_cap() == max(1, settings.MAX_HISTORICAL_PER_600S // 4); _WATCHDOG_BASE_WINDOW_FRACTION == 1 / 5 and _WATCHDOG_MARGIN_WINDOW_FRACTION == 1 / 20; _history_wave_watchdog_bound_ms() at a zero wait equals int(pacing_manager._hist_window * 1000 / 5); the four subscription tags have their recorded values; _replay_subscriptions passes include_types == {RT_BARS, S0_TICKS, OPTION_LEGS}; and TIMEFRAME_CONFIG's key set is unchanged.",
+        "Given the phase's build record, When the wave result is read, Then git diff --name-only 629be4a is a subset of the phase allowlist (ibkr/subscription_manager.py, ibkr/pacing.py, ui/ticker_session.py, ui/main_window.py, the four new suites, tests/test_p7_w4_streaming.py only if a pre-existing expectation had to move, and docs/), and anything outside it is recorded as a scope breach to escalate, not justified.",
+        "Given the phase's complete change set, When the full offscreen suite runs, Then it is green, and gates G3 and G4 are listed in the result as owner-run \u2014 named, not claimed as satisfied."
       ],
       "tests": [
         {
-          "test_id": "P25-T4-AC1",
-          "linked_acceptance_criterion": "Given one coalesce window in which an update_bar for a candle is staged before a set_bars that replaces the series, When flush() runs, Then the emitted envelope carries no op for that series older than the replace and apply_ops_to_bars over it yields exactly the set_bars rows; Given the same two ops staged in the reverse order, Then the update applies last; every surviving op appears exactly once, a series carries at most one full replace per envelope, and set_visible_range/set_partial still follow the rows.",
+          "test_id": "P26-T4-AC1",
+          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D70 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D71-D76 entries, Journey 68-Journey 70, AC-D1.1-AC-D70.3 plus AC-D71.1-AC-D76.3, A1-A224 plus A225-A229, R1-R164 plus R165-R169 and the Current Tech Stack section are all present.",
           "type": "unit",
-          "description": "New tests/test_d69_d70_bridge_contract.py: a headless LwBridge (no Qt event loop, explicit flush), stage update_bar(bar 50) then a set_bars replacing the series, flush, reconstruct; then the same two ops in the reverse arrival order.",
-          "expected_result": "In the update-then-replace order the envelope carries no op for that series older than the replace and apply_ops_to_bars yields exactly the set_bars rows; in the replace-then-update order the update is the last data op for that series and applies last; both reconstructions equal an independently computed expected series."
+          "description": "Read docs/requirements/requirements.md from the repo root and assert the marker sentence, presence per id in a heading for D41-D70, the #### D71-D76 headings, Journey 68-Journey 70, the AC/A/R id ranges and the Current Tech Stack section.",
+          "expected_result": "Every named artefact is present; the suite holds no literal count of files, lines or entries. RED only if this phase edited the requirements record."
         },
         {
-          "test_id": "P25-T4-AC2",
-          "linked_acceptance_criterion": "Given a window holding updates for several series and one replace per series, Then every op that survives coalescing is emitted exactly once, per-series arrival order is preserved, an older replace is dropped in favour of the later one, and _op_log / replay_log still carry every accepted op in arrival order with unchanged fidelity.",
+          "test_id": "P26-T4-AC2",
+          "linked_acceptance_criterion": "Given the live modules, When the fence reads them, Then per_load_historical_cap() == max(1, settings.MAX_HISTORICAL_PER_600S // 4); _WATCHDOG_BASE_WINDOW_FRACTION == 1 / 5 and _WATCHDOG_MARGIN_WINDOW_FRACTION == 1 / 20; _history_wave_watchdog_bound_ms() at a zero wait equals int(pacing_manager._hist_window * 1000 / 5); the four subscription tags have their recorded values; _replay_subscriptions passes include_types == {RT_BARS, S0_TICKS, OPTION_LEGS}; and TIMEFRAME_CONFIG's key set is unchanged.",
           "type": "unit",
-          "description": "Same suite: one window with updates for bars 1..3 plus one replace per series (candles and volume), including two replaces of the same series.",
-          "expected_result": "Each surviving op appears exactly once, a series carries at most one replace per envelope (the later one), per-series arrival order holds, and _op_log/replay_log still list every accepted op in arrival order with the same contents (no new key, no reordering)."
+          "description": "Import the live modules and read the six pinning values, then instantiate/inspect the window's include_types set and TIMEFRAME_CONFIG's keys.",
+          "expected_result": "per_load_historical_cap() == max(1, settings.MAX_HISTORICAL_PER_600S // 4); the two fractions are 1/5 and 1/20; the zero-wait bound equals int(pacing_manager._hist_window * 1000 / 5); the four tag values match; include_types is exactly the three-tag set; TIMEFRAME_CONFIG's key set equals the pre-phase set."
         },
         {
-          "test_id": "P25-T4-AC3",
-          "linked_acceptance_criterion": "Given a replay log containing an update_bar whose close is None, When it is reconstructed by apply_ops_to_bars, Then the series contains no row for that timestamp and an existing row for it is removed; the same whitespace row delivered through set_bars is excluded too (one rule, two branches), and both fixtures yield the same expected series.",
-          "type": "unit",
-          "description": "Same suite: the same whitespace row (close None) delivered once via update_bar, once via set_bars, each reconstructed with apply_ops_to_bars; assert against one shared expected series.",
-          "expected_result": "Neither branch contains a row for that timestamp; an existing row for it is removed by the update; both fixtures produce the same expected series."
-        },
-        {
-          "test_id": "P25-T4-AC4",
-          "linked_acceptance_criterion": "Given the page's real lwApplyOps and window.lwSnapshot(), When the same op lists are applied in the page, Then the whitespace row is absent from the page's bar series for both the update_bar and the set_bars fixture, the page's series equals apply_ops_to_bars's output element-for-element, and a whitespace row reaches the library as a {time} placeholder only -- never a null-valued point.",
-          "type": "integration",
-          "description": "Same suite: drive the same two fixtures through node with the real lwApplyOps and read window.lwSnapshot(); compare with apply_ops_to_bars. envelope.test.js adds the fold's own unit case (skipped on replace, deleted on upsert, replayed twice identically).",
-          "expected_result": "The page's snapshot equals the Python reconstruction element-for-element for both fixtures, the whitespace timestamp is absent from the page's candles, and the library received a {time} placeholder only (no null-valued point)."
-        },
-        {
-          "test_id": "P25-T4-AC5",
-          "linked_acceptance_criterion": "Given clear followed by update_bar, Then the series is one bar; Given an update_bar that arrived before a replace which removed its timestamp, Then supersession drops it and the removed bar does not come back, while an update_bar that arrived after the replace applies normally; Given an empty flush, Then no envelope is emitted (flush returns None).",
-          "type": "unit",
-          "description": "Same suite, edge legs: clear then update_bar; an update_bar for ts X staged before a set_bars that does not contain X; an update_bar for X staged after that set_bars; an empty flush.",
-          "expected_result": "clear+update yields one bar; the update that arrived before the replace is dropped so X never reappears; the update that arrived after the replace applies as the last data op; an empty flush returns None and emits nothing."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_bridge.py \u2014 sequence-stamped staging, supersession rule, arrival-ordered emission, directive ordering, one whitespace rule in apply_ops_to_bars",
-        "chart_assets/lwc/envelope.js \u2014 mergeRows applies the whitespace rule in both branches",
-        "chart_assets/lwc/chart.js \u2014 upsertRow sends {time} only for a whitespace row",
-        "chart_assets/lwc/envelope.test.js and chart_assets/lwc/chart.test.js \u2014 the fold and parity cases",
-        "tests/test_d69_d70_bridge_contract.py \u2014 the new suite"
-      ],
-      "touches_files": [
-        "ui/lwc_bridge.py",
-        "chart_assets/lwc/envelope.js",
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/envelope.test.js",
-        "chart_assets/lwc/chart.test.js",
-        "tests/test_d69_d70_bridge_contract.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P25-T1's accepted set_partial directive",
-        "docs/architecture.md \u00a7 Phase P25 S-P25-5/S-P25-6"
-      ],
-      "outputs": [
-        "an arrival-ordered envelope with one replace per series",
-        "a whitespace rule the Python reconstruction and the page's bar series share"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "290-400",
-            "why": "_outbox/_live_buf/_stage/_arm_timer/flush \u2014 the staging and emission to restructure (coalesce key and last-tick-wins stay)"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "208-242",
-            "why": "apply_ops_to_bars \u2014 the update_bar branch and the docstring that must state one rule for both branches"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.js",
-            "lines": "118-170",
-            "why": "rowsOf and mergeRows \u2014 the page's fold, where the whitespace rule is applied in both branches"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1650-1700",
-            "why": "applyRows and upsertRow \u2014 the snapshot fold and the display upsert ({time} only for a whitespace row)"
-          },
-          {
-            "path": "chart_assets/lwc/chart.test.js",
-            "lines": "1-100",
-            "why": "the node harness (and the createSeriesMarkers fake P25-T1 added) the parity case rides"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.test.js",
-            "lines": "1-60",
-            "why": "node test conventions for the fold's own unit case"
-          },
-          {
-            "path": "tests/test_d57_joint.py",
-            "lines": "220-250",
-            "why": "the _run_node harness pattern (shell out to node, parse JSON) the parity case reuses \u2014 read-only"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_bridge.py:LwBridge",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:ENVELOPE_VERSION",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:LIVE_OPS",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:apply_ops_to_bars",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "ui/lwc_bridge.py",
-            "signature": "flush(): one staged list; per series keep only the last full replace (set_bars / set_volume / clear) and drop that series' ops with a smaller seq; emit survivors in ascending seq; append the non-series directives (set_visible_range, set_partial) in arrival order; returns None when nothing is staged"
-          },
-          {
-            "status": "new",
-            "module": "ui/lwc_bridge.py",
-            "signature": "apply_ops_to_bars: update_bar with close None -> by_ts.pop(ts, None), write nothing (set_bars keeps its if c is not None filter)"
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/envelope.js",
-            "signature": "mergeRows(base, ops): set_bars/set_volume SKIP a whitespace row (candles: open/close null; volume: value null); update_bar DELETES that time; signature and dispatch otherwise unchanged"
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/chart.js",
-            "signature": "upsertRow(series, row): a whitespace row is sent to the library as {time} only, never a null-valued point"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#P25-03",
-        "requirement_ids": [
-          "AC-D69.1",
-          "AC-D69.2",
-          "AC-D70.1",
-          "AC-D70.2"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d69_d70_bridge_contract.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "LWC"
-        ],
-        "needs_graphify": false,
-        "size": "M"
-      },
-      "generation": 2
-    },
-    {
-      "id": "P25-T5",
-      "title": "P25 fence suite, delta-scope record and the named owner gates",
-      "description": "Add tests/test_p25_fence.py \u2014 one assertion per named artefact of AC-D70.3 plus the module constants the phase relies on \u2014 and record the phase's delta scope. The D41-D66 assertion is presence per id in a heading, never a literal ### D<n> prefix (the record is mixed). Read the bridge constants off the module (ui.lwc_bridge.ENVELOPE_VERSION / .COALESCE_MS / .LIVE_OPS), never off LwBridge, and assert the marker colour constant exists in chart.js and differs from the up/down candle colours. Record git diff --name-only 94d6119 in the wave result against the phase allowlist; list gates G1 and G2 as owner-run and do not claim them. Publish no literal counts of files, lines or ops (a later phase must not redden this fence).",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P25-T1",
-        "P25-T2",
-        "P25-T3",
-        "P25-T4"
-      ],
-      "acceptance_criteria": [
-        "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D66 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D67-D70 entries are present, Journey 65-Journey 67 are present, AC-D1.1-AC-D66.8 and AC-D67.1-AC-D70.3 are present, A1-A219 plus A220-A224 are present, R1-R159 plus R160-R164 are present, and the Current Tech Stack section is present.",
-        "Given the live modules, When the fence reads them, Then ui.lwc_bridge.ENVELOPE_VERSION == 1, ui.lwc_bridge.COALESCE_MS == 33 and ui.lwc_bridge.LIVE_OPS == frozenset({\"update_bar\"}) are read off the module (not off LwBridge), and chart_assets/lwc/chart.js defines the marker colour constant whose value differs from its up and down candle colours.",
-        "Given the phase's build record, When the wave result is read, Then git diff --name-only 94d6119 is a subset of the phase allowlist (data/models.py, data/bar_aggregator.py, services/market_calendar.py, ui/ticker_session.py, ui/lwc_view.py, ui/lwc_bridge.py, ui/popout_window.py, ui/main_window.py, chart_assets/lwc/envelope.js, chart_assets/lwc/chart.js, chart_assets/lwc/chart.test.js, chart_assets/lwc/envelope.test.js, the four new suites, tests/test_d48_mode_parity.py and docs/), and gates G1 and G2 are listed as owner-run -- named, not claimed as satisfied.",
-        "Given the phase's complete change set, When the full offscreen suite runs, Then it is green."
-      ],
-      "tests": [
-        {
-          "test_id": "P25-T5-AC1",
-          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D66 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D67-D70 entries are present, Journey 65-Journey 67 are present, AC-D1.1-AC-D66.8 and AC-D67.1-AC-D70.3 are present, A1-A219 plus A220-A224 are present, R1-R159 plus R160-R164 are present, and the Current Tech Stack section is present.",
-          "type": "unit",
-          "description": "Read docs/requirements/requirements.md from the repo root and assert the marker sentence, presence per id for D41-D66 in a heading, the #### D67-D70 headings, Journey 65-Journey 67, the AC id ranges, the A and R id ranges, and the Current Tech Stack section.",
-          "expected_result": "Every named artefact is present; the suite contains no literal count of files, lines or ops. RED only if the phase edited the requirements record."
-        },
-        {
-          "test_id": "P25-T5-AC2",
-          "linked_acceptance_criterion": "Given the live modules, When the fence reads them, Then ui.lwc_bridge.ENVELOPE_VERSION == 1, ui.lwc_bridge.COALESCE_MS == 33 and ui.lwc_bridge.LIVE_OPS == frozenset({\"update_bar\"}) are read off the module (not off LwBridge), and chart_assets/lwc/chart.js defines the marker colour constant whose value differs from its up and down candle colours.",
-          "type": "unit",
-          "description": "Import the live modules and read the three constants plus the page's marker colour constant from chart.js's source.",
-          "expected_result": "ui.lwc_bridge.ENVELOPE_VERSION == 1, COALESCE_MS == 33, LIVE_OPS == frozenset({\"update_bar\"}) read off the module; chart.js defines the marker constant and its value differs from LW_UP_COLOR and LW_DOWN_COLOR."
-        },
-        {
-          "test_id": "P25-T5-AC3",
-          "linked_acceptance_criterion": "Given the phase's build record, When the wave result is read, Then git diff --name-only 94d6119 is a subset of the phase allowlist (data/models.py, data/bar_aggregator.py, services/market_calendar.py, ui/ticker_session.py, ui/lwc_view.py, ui/lwc_bridge.py, ui/popout_window.py, ui/main_window.py, chart_assets/lwc/envelope.js, chart_assets/lwc/chart.js, chart_assets/lwc/chart.test.js, chart_assets/lwc/envelope.test.js, the four new suites, tests/test_d48_mode_parity.py and docs/), and gates G1 and G2 are listed as owner-run -- named, not claimed as satisfied.",
+          "test_id": "P26-T4-AC3",
+          "linked_acceptance_criterion": "Given the phase's build record, When the wave result is read, Then git diff --name-only 629be4a is a subset of the phase allowlist (ibkr/subscription_manager.py, ibkr/pacing.py, ui/ticker_session.py, ui/main_window.py, the four new suites, tests/test_p7_w4_streaming.py only if a pre-existing expectation had to move, and docs/), and anything outside it is recorded as a scope breach to escalate, not justified.",
           "type": "manual",
-          "description": "The build record, not a test: run git diff --name-only 94d6119 at the end of the phase and list the result in the wave result beside the allowlist, with G1/G2 named as owner-run.",
-          "expected_result": "The diff is a subset of the allowlist (the seven production modules, ui/main_window.py, the two page sources, the four new suites, tests/test_d48_mode_parity.py, docs/); anything else is recorded as a scope breach to escalate, not justified. G1 and G2 appear as named, not run."
+          "description": "The build record, not a test: run git diff --name-only 629be4a at the end of the phase and list the result in the wave result beside the allowlist.",
+          "expected_result": "The diff is a subset of the allowlist (the four production modules, the four new suites, docs/); anything else is recorded as a scope breach to escalate, never justified."
         },
         {
-          "test_id": "P25-T5-AC4",
-          "linked_acceptance_criterion": "Given the phase's complete change set, When the full offscreen suite runs, Then it is green.",
+          "test_id": "P26-T4-AC4",
+          "linked_acceptance_criterion": "Given the phase's complete change set, When the full offscreen suite runs, Then it is green, and gates G3 and G4 are listed in the result as owner-run \u2014 named, not claimed as satisfied.",
           "type": "integration",
-          "description": "Run the full offscreen suite once at the end of the phase and record the result.",
-          "expected_result": "The full offscreen suite passes (a clean full-suite run, not an incremental one)."
+          "description": "Run the full offscreen suite once at the end of the phase and record the result together with the G3/G4 lines.",
+          "expected_result": "A clean full-suite run is green (not an incremental one); G3 and G4 appear as owner-run, named and not claimed."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p25_fence.py \u2014 the fence suite",
-        "the wave result's delta-scope record (git diff --name-only 94d6119 vs the allowlist) and the G1/G2 named-gates line"
+        "tests/test_p26_fence.py \u2014 the fence suite (requirements presence per id, the module-read pinning assertions)",
+        "the wave result's delta-scope record (git diff --name-only 629be4a against the phase allowlist) and the G3/G4 named-gates line"
       ],
       "touches_files": [
-        "tests/test_p25_fence.py"
+        "tests/test_p26_fence.py"
       ],
       "doc_required": false,
       "inputs": [
-        "the four preceding tasks' change set",
+        "the three preceding tasks' change set",
         "docs/requirements/requirements.md (read-only input)"
       ],
       "outputs": [
         "a fence that pins the requirements record and the phase's constants without pinning a count",
-        "the phase's delta-scope record"
+        "the phase's delta-scope record",
+        "G3/G4 named as owner-run"
       ],
       "status": "done",
       "size": "S",
@@ -790,398 +680,61 @@
         "read_files": [
           {
             "path": "tests/test_d66_delta_fence.py",
-            "lines": "1-110",
-            "why": "the P24 fence precedent: REQUIREMENTS path, marker grep, presence-per-id style and the delta-record-is-not-a-test note"
+            "lines": "1-120",
+            "why": "read-only: the P24 fence precedent \u2014 REQUIREMENTS path, marker grep, presence-per-id style and the note that the delta record is a build artefact, not a test"
           },
           {
-            "path": "tests/test_d66_delta_fence.py",
-            "lines": "240-300",
-            "why": "read-only: how the precedent asserts requirements presence and keeps later phases green"
+            "path": "ui/ticker_session.py",
+            "lines": "88-115",
+            "why": "read-only: the two watchdog window fractions and per_load_historical_cap the fence reads off the module"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "55-70",
-            "why": "read-only: LW_UP_COLOR / LW_DOWN_COLOR, the two colours the marker constant must differ from"
+            "path": "ui/main_window.py",
+            "lines": "2029-2065",
+            "why": "read-only: the include_types set _replay_subscriptions passes, which the fence asserts"
           },
           {
-            "path": "ui/lwc_bridge.py",
-            "lines": "80-100",
-            "why": "read-only: the three module-level constants the fence reads (never off LwBridge)"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_bridge.py:ENVELOPE_VERSION",
-            "status": "existing"
+            "path": "ibkr/subscription_manager.py",
+            "lines": "30-45",
+            "why": "read-only: the four tag constants' recorded values"
           },
           {
-            "ref": "ui/lwc_bridge.py:COALESCE_MS",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:LIVE_OPS",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "tests/test_p25_fence.py",
-            "signature": "one assertion per named artefact: the requirements marker sentence, D41-D66 presence per id in a heading, #### D67-D70, Journey 65-67, AC-D1.1-AC-D66.8 + AC-D67.1-AC-D70.3, A1-A219 + A220-A224, R1-R159 + R160-R164, the Current Tech Stack section, and the three bridge constants + the marker colour constant"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#P25-04",
-        "requirement_ids": [
-          "AC-D70.3"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p25_fence.py -q",
-        "memory_refs": [
-          "offscreen"
-        ],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P25-T6",
-      "title": "ESC-126 \u2014 no import-time QApplication in the P7-W4 suites, and the invariant enforced tree-wide",
-      "description": "ESC-126 (Q-79 follow-up). tests/test_p7_w4_streaming.py:39 (`_APP = QApplication.instance() or QApplication([])`) and tests/test_p7_w4_deferral.py:32 (`APP = ...`) create a dead module-level QApplication at import; collecting either before tests/test_lwc_render_smoke.py reproduces its ImportError. Remove both import-time constructions and give each module a session-scoped autouse `_qt_app` fixture that creates the app at test time \u2014 the pattern Q-79 used in tests/test_d67_forming_candle.py (:66-78) \u2014 so the suite's widget construction still has an app without one existing at import. Add tests/test_qt_app_import_invariant.py: a static AST check that no module under tests/ constructs QApplication/QCoreApplication at module scope, a subprocess collection regression on the escalated explicit order (each P7-W4 suite before the smoke suite), and a guard that every test id the two files defined before the rework is still collected. Do not edit tests/test_lwc_render_smoke.py \u2014 its raw QtWebEngineWidgets import and ordering are P28/R-07 territory; do not delete or rename a case in either suite.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "Given tests/test_p7_w4_streaming.py and tests/test_p7_w4_deferral.py, When either module is imported, Then its module scope constructs neither QApplication nor QCoreApplication (no `_APP = QApplication.instance() or QApplication([])` / `APP = ...` line survives), and each module's tests obtain their QApplication at test time from a session-scoped autouse fixture (the Q-79 pattern in tests/test_d67_forming_candle.py), so the deferral suite's WatchlistPanel construction still succeeds.",
-        "Given every Python module under tests/, When its module-level statements are inspected without descending into function or class bodies, Then no module constructs a QApplication or QCoreApplication at import time \u2014 the static check fails while naming the file and line, and it catches a construction nested in a BooleanOp, ternary or module-level `if` as well as a direct assignment.",
-        "Given the escalated explicit collection order \u2014 tests/test_p7_w4_streaming.py followed by tests/test_lwc_render_smoke.py, and tests/test_p7_w4_deferral.py followed by tests/test_lwc_render_smoke.py, collected offscreen \u2014 Then collection succeeds in both orders and neither run reports the `QtWebEngineWidgets must be imported or Qt.AA_ShareOpenGLContexts must be set` ImportError at test_lwc_render_smoke.py.",
-        "Given the two suites as they stood before the rework, When they are collected after the change, Then every test id they defined before is still collected (the fix removes the import-time app and adds a fixture; it deletes, renames or weakens no case)."
-      ],
-      "tests": [
-        {
-          "test_id": "P25-T6-AC1",
-          "linked_acceptance_criterion": "Given tests/test_p7_w4_streaming.py and tests/test_p7_w4_deferral.py, When either module is imported, Then its module scope constructs neither QApplication nor QCoreApplication (no `_APP = QApplication.instance() or QApplication([])` / `APP = ...` line survives), and each module's tests obtain their QApplication at test time from a session-scoped autouse fixture (the Q-79 pattern in tests/test_d67_forming_candle.py), so the deferral suite's WatchlistPanel construction still succeeds.",
-          "type": "unit",
-          "description": "New tests/test_qt_app_import_invariant.py: parse each of the two files with ast and assert no module-level statement (descending into no def/class) contains a Call to QApplication/QCoreApplication; assert each file defines a `@pytest.fixture(scope=\"session\", autouse=True)` (named `_qt_app`) whose body calls QApplication. The two suites themselves are run by the task's test command (the deferral suite constructs a real WatchlistPanel, which needs the app).",
-          "expected_result": "Neither file's module body calls QApplication/QCoreApplication (before the fix both do, so the case is red), and both files carry the session-scoped autouse fixture that creates the app at test time; the two existing suites pass unchanged."
-        },
-        {
-          "test_id": "P25-T6-AC2",
-          "linked_acceptance_criterion": "Given every Python module under tests/, When its module-level statements are inspected without descending into function or class bodies, Then no module constructs a QApplication or QCoreApplication at import time \u2014 the static check fails while naming the file and line, and it catches a construction nested in a BooleanOp, ternary or module-level `if` as well as a direct assignment.",
-          "type": "unit",
-          "description": "Same new suite: walk tests/*.py, visit only module-level statements (skipping FunctionDef/AsyncFunctionDef/ClassDef subtrees), and collect every Call whose callee name is QApplication/QCoreApplication/QGuiApplication, including calls nested inside a BoolOp, IfExp or module-level `if`/`try` body. Assert the collected list is empty.",
-          "expected_result": "The scan returns an empty list on the phase tree; prepending `_APP = QApplication.instance() or QApplication([])` to any test module makes it fail with that file and line named."
-        },
-        {
-          "test_id": "P25-T6-AC3",
-          "linked_acceptance_criterion": "Given the escalated explicit collection order \u2014 tests/test_p7_w4_streaming.py followed by tests/test_lwc_render_smoke.py, and tests/test_p7_w4_deferral.py followed by tests/test_lwc_render_smoke.py, collected offscreen \u2014 Then collection succeeds in both orders and neither run reports the `QtWebEngineWidgets must be imported or Qt.AA_ShareOpenGLContexts must be set` ImportError at test_lwc_render_smoke.py.",
-          "type": "integration",
-          "description": "Same new suite: subprocess `[sys.executable, '-m', 'pytest', '--collect-only', '-q', <p7 file>, 'tests/test_lwc_render_smoke.py']` from the repo root with QT_QPA_PLATFORM=offscreen in the environment, once per P7-W4 file (timeout ~180 s).",
-          "expected_result": "Both subprocesses exit 0; neither stdout nor stderr contains 'ImportError' or 'must be imported or Qt.AA_ShareOpenGLContexts'. Before the fix both exit non-zero with that ImportError at tests/test_lwc_render_smoke.py (the ESC-126 repro)."
-        },
-        {
-          "test_id": "P25-T6-AC4",
-          "linked_acceptance_criterion": "Given the two suites as they stood before the rework, When they are collected after the change, Then every test id they defined before is still collected (the fix removes the import-time app and adds a fixture; it deletes, renames or weakens no case).",
-          "type": "integration",
-          "description": "Same new suite: subprocess `pytest --collect-only -q` on each of the two files (offscreen), parse the node ids it prints, and compare against the id list recorded in the test \u2014 the 13 streaming ids (test_p7_t07_t11_* , _t12_* , _t13_*) and the 7 deferral ids (test_t11_*, test_t12_*, test_t12_drive_*) taken from the pre-rework files.",
-          "expected_result": "Every recorded id is present in the collected output; removing or renaming a case makes the comparison fail and names the missing id."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p7_w4_streaming.py \u2014 dead module-level `_APP` removed, session-scoped autouse `_qt_app` fixture added",
-        "tests/test_p7_w4_deferral.py \u2014 dead module-level `APP` removed, session-scoped autouse `_qt_app` fixture added",
-        "tests/test_qt_app_import_invariant.py \u2014 the AST invariant check, the explicit-order collection regression and the case-list guard"
-      ],
-      "touches_files": [
-        "tests/test_p7_w4_streaming.py",
-        "tests/test_p7_w4_deferral.py",
-        "tests/test_qt_app_import_invariant.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "ESC-126 (open, routed to TASK_MANAGER): the two dead module-level apps and the reproduced collection-order failure",
-        "tests/test_d67_forming_candle.py \u2014 Q-79's test-time fixture pattern"
-      ],
-      "outputs": [
-        "no test module constructs a QApplication at import time",
-        "an invariant suite that fails on a third case and on the escalated collection order"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "tests/test_p7_w4_streaming.py",
-            "lines": "20-45",
-            "why": "the module-level `_APP = QApplication.instance() or QApplication([])` at :39 to delete; the suite test-time app must come from a fixture (extend this module)"
-          },
-          {
-            "path": "tests/test_p7_w4_deferral.py",
-            "lines": "20-95",
-            "why": "the module-level `APP = ...` at :32 and the real `WatchlistPanel(` construction at :81 that needs a QApplication at test time \u2014 extend this module"
-          },
-          {
-            "path": "tests/test_d67_forming_candle.py",
-            "lines": "66-80",
-            "why": "read-only: Q-79's session-scoped autouse `_qt_app` fixture \u2014 the exact shape to copy (argv 'pytest' so Chromium does not hard-abort on an empty argv)"
-          },
-          {
-            "path": "tests/conftest.py",
-            "lines": "95-105",
-            "why": "read-only: the existing session `qapp` fixture the new module fixtures must not conflict with"
-          },
-          {
-            "path": "tests/test_lwc_render_smoke.py",
-            "lines": "650-680",
-            "why": "read-only: the raw QtWebEngineWidgets import whose ImportError the escalated order reproduces \u2014 do NOT change this file (P28/R-07 territory)"
-          }
-        ],
-        "contracts": [
-          {
-            "status": "new",
-            "module": "tests/test_p7_w4_streaming.py and tests/test_p7_w4_deferral.py",
-            "signature": "@pytest.fixture(scope=\"session\", autouse=True)\ndef _qt_app():\n    \"\"\"The session QApplication, created at test time (never at import).\"\"\"\n    app = QApplication.instance() or QApplication([\"pytest\"])\n    yield app"
-          },
-          {
-            "ref": "tests/conftest.py:qapp",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#Phase P25",
-        "requirement_ids": [],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_streaming.py tests/test_p7_w4_deferral.py tests/test_qt_app_import_invariant.py -q -m \"not webengine\"",
-        "memory_refs": [
-          "qt-testing",
-          "offscreen"
-        ],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P25-T7",
-      "title": "ESC-127 \u2014 one candle whitespace predicate, shared by both branches on both sides, with a discriminating parity case",
-      "description": "ESC-127 (D70 follow-up). The whitespace rule is not literally one predicate: ui/lwc_bridge.py::apply_ops_to_bars tests only `close is None`, while chart_assets/lwc/envelope.js::isWhitespaceRow (and the duplicated copy at chart_assets/lwc/chart.js::isWhitespaceRow) tests `open is None OR close is None`. Adopt the page's stricter reading: a candle row IS whitespace iff `open is None or close is None` \u2014 a candle needs both endpoints to be a bar, AC-D70.2 makes the page's merge the reference the Python reconstruction must equal, and every producer today nulls all four value slots together (ui/lwc_view.py::build_series_ops), so no emitted shape changes. State it once per side: one module-level helper in ui/lwc_bridge.py called by BOTH apply_ops_to_bars branches; envelope.js exports isWhitespaceRow and uses it in mergeRows; chart.js's display fold keeps its function name but delegates to window.LwEnvelope.isWhitespaceRow with no second open/close comparison. Extend tests/test_d69_d70_bridge_contract.py's parity fixtures with the discriminating rows so Python and the real lwApplyOps/lwSnapshot() are compared on the shape that currently separates them, and add the fold's own unit case in chart_assets/lwc/envelope.test.js. Do not change ENVELOPE_VERSION, the op shapes, seriesRows/barRows, the volume predicate (`value is None`) or any other behaviour.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P25-T4"
-      ],
-      "acceptance_criteria": [
-        "Given the two sides, When the candle whitespace rule is read, Then it is stated once per side and shared by that side's branches: ui/lwc_bridge.py has ONE module-level predicate (e.g. `_candle_row_is_whitespace(o, c) -> bool`) called by both the set_bars and the update_bar branch of apply_ops_to_bars, and chart_assets/lwc/chart.js's display fold defines no second open/close null comparison \u2014 it delegates to envelope.js's exported predicate, which mergeRows also uses; the rule is `open is None or close is None` for candles and unchanged `value is None` for volume.",
-        "Given a candle row whose open is None and close is real, and the mirror row whose close is None and open is real, When it is delivered through apply_ops_to_bars as a row of set_bars or as an update_bar, Then neither delivery keeps a row for that timestamp \u2014 an update also removes an existing row for that ts \u2014 while a real neighbouring row is retained and the returned series stays ascending and deduped.",
-        "Given the discriminating rows and the ESC-127 op `{open: 1, close: None, high: 2.0, low: 0.5}`, When the same op lists are applied through the page's real lwApplyOps + window.lwSnapshot() in node, Then the page's candles equal apply_ops_to_bars element-for-element for every fixture, the whitespace timestamps are absent from both, and the library receives a {time} placeholder only \u2014 never a null-valued point \u2014 for both the update_bar and the set_bars delivery."
-      ],
-      "tests": [
-        {
-          "test_id": "P25-T7-AC1",
-          "linked_acceptance_criterion": "Given the two sides, When the candle whitespace rule is read, Then it is stated once per side and shared by that side's branches: ui/lwc_bridge.py has ONE module-level predicate (e.g. `_candle_row_is_whitespace(o, c) -> bool`) called by both the set_bars and the update_bar branch of apply_ops_to_bars, and chart_assets/lwc/chart.js's display fold defines no second open/close null comparison \u2014 it delegates to envelope.js's exported predicate, which mergeRows also uses; the rule is `open is None or close is None` for candles and unchanged `value is None` for volume.",
-          "type": "unit",
-          "description": "tests/test_d69_d70_bridge_contract.py gains a source-structure case: read ui/lwc_bridge.py, chart_assets/lwc/envelope.js and chart_assets/lwc/chart.js; assert the Python helper name is called from both apply_ops_to_bars branches and no bare `cols[\"close\"][0] is None` / `if c is not None` candle test survives; assert envelope.js lists isWhitespaceRow in its returned object and calls it from mergeRows; assert chart.js's isWhitespaceRow body calls LwEnvelope.isWhitespaceRow and contains no `open === null`/`close === null` comparison.",
-          "expected_result": "Each assertion holds on the changed tree; on the pre-change tree the chart.js duplicate and the Python close-only tests make the case fail, naming the site."
-        },
-        {
-          "test_id": "P25-T7-AC2",
-          "linked_acceptance_criterion": "Given a candle row whose open is None and close is real, and the mirror row whose close is None and open is real, When it is delivered through apply_ops_to_bars as a row of set_bars or as an update_bar, Then neither delivery keeps a row for that timestamp \u2014 an update also removes an existing row for that ts \u2014 while a real neighbouring row is retained and the returned series stays ascending and deduped.",
-          "type": "unit",
-          "description": "Same suite: build the open-null row and the close-null row (values 1.0 / 2.0 / 0.5 in the non-null slots); run each through set_bars (between two real bars) and through update_bar on top of a series that already contains that ts; reconstruct with apply_ops_to_bars.",
-          "expected_result": "For both rows and both deliveries the returned series contains no tuple for that ts, the two real neighbours are untouched, and the output is ascending with no duplicates; on the pre-change tree the open-null row survives as `(ts, None, 2.0, 0.5, 1.0)` and the case fails."
-        },
-        {
-          "test_id": "P25-T7-AC3",
-          "linked_acceptance_criterion": "Given the discriminating rows and the ESC-127 op `{open: 1, close: None, high: 2.0, low: 0.5}`, When the same op lists are applied through the page's real lwApplyOps + window.lwSnapshot() in node, Then the page's candles equal apply_ops_to_bars element-for-element for every fixture, the whitespace timestamps are absent from both, and the library receives a {time} placeholder only \u2014 never a null-valued point \u2014 for both the update_bar and the set_bars delivery.",
-          "type": "integration",
-          "description": "Extend tests/test_d69_d70_bridge_contract.py's existing node harness fixtures with: an update_bar carrying the open-null row and one carrying the ESC-127 close-null row on top of a seeded series, and a set_bars whose middle row is the open-null row; compare lwSnapshot()['candles'] with apply_ops_to_bars for each. chart_assets/lwc/envelope.test.js adds the fold's unit case: mergeRows skips the open-null row on a replace and deletes its time on an upsert.",
-          "expected_result": "Every fixture's page snapshot equals the Python reconstruction element-for-element, each whitespace ts is absent from both sides, no recorded library row holds a null value for the whitespace time, and the node fold case passes; the open-null fixtures fail on the pre-change tree (Python keeps the row, the page drops it)."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_bridge.py \u2014 one candle-whitespace predicate used by both apply_ops_to_bars branches, docstring stating the rule once",
-        "chart_assets/lwc/envelope.js \u2014 isWhitespaceRow exported and used by mergeRows as the single page-side predicate",
-        "chart_assets/lwc/chart.js \u2014 display fold delegates to LwEnvelope.isWhitespaceRow, no duplicated comparison",
-        "chart_assets/lwc/envelope.test.js \u2014 the fold's unit case for an open-null row",
-        "tests/test_d69_d70_bridge_contract.py \u2014 source-structure case, both-branch behaviour case and the extended node parity fixtures"
-      ],
-      "touches_files": [
-        "ui/lwc_bridge.py",
-        "chart_assets/lwc/envelope.js",
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/envelope.test.js",
-        "tests/test_d69_d70_bridge_contract.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "ESC-127 (open, routed to BUILD): the measured asymmetry and the two candidate rules",
-        "P25-T4's whitespace fold (mergeRows skip/delete, apply_ops_to_bars close-only test)"
-      ],
-      "outputs": [
-        "one candle whitespace predicate, stated once per side and shared by both branches",
-        "parity fixtures that separate the two sides on a null-open row"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "250-300",
-            "why": "apply_ops_to_bars \u2014 the set_bars `if c is not None` filter and the update_bar close-only test to replace with one shared helper; extend this file"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.js",
-            "lines": "150-215",
-            "why": "isWhitespaceRow, mergeRows and the returned-object map where the single predicate becomes exported; extend this file"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "455-505",
-            "why": "the duplicated isWhitespaceRow and its callers (seriesRows/barRows/snapshot) \u2014 replace the copy with a delegation; extend this file"
-          },
-          {
-            "path": "tests/test_d69_d70_bridge_contract.py",
-            "lines": "1-80",
-            "why": "the fixtures and helpers (_bar, _whitespace, candles_set_op/candle_update_op) the discriminating rows extend; extend this file"
-          },
-          {
-            "path": "tests/test_d69_d70_bridge_contract.py",
-            "lines": "281-500",
-            "why": "the _run_node harness and test_ac4_page_parity_for_whitespace_update_and_replace \u2014 where the new parity fixtures go"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.test.js",
-            "lines": "1-40",
-            "why": "node --test conventions (require envelope.js) for the fold's own unit case; extend this file"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "1600-1630",
-            "why": "read-only: build_series_ops nulls all four value slots together, the evidence that no producer emits the mixed row"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_bridge.py:apply_ops_to_bars",
-            "status": "existing"
-          },
-          {
-            "ref": "chart_assets/lwc/envelope.js:mergeRows",
-            "status": "existing"
-          },
-          {
-            "ref": "chart_assets/lwc/chart.js:isWhitespaceRow",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "ui/lwc_bridge.py",
-            "signature": "def _candle_row_is_whitespace(o, c) -> bool:  # the ONE candle predicate: return o is None or c is None"
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/envelope.js",
-            "signature": "isWhitespaceRow(series, row) -> bool: candles => row.open == null || row.close == null (null covers undefined); volume => row.value == null; also exported as LwEnvelope.isWhitespaceRow for chart.js"
-          },
-          {
-            "status": "new",
-            "module": "chart_assets/lwc/chart.js",
-            "signature": "function isWhitespaceRow(name, row) { return window.LwEnvelope.isWhitespaceRow(name, row); }  // delegate only, no second comparison"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#P25-03",
-        "requirement_ids": [
-          "AC-D70.1",
-          "AC-D70.2",
-          "R164"
-        ],
-        "test_command": "node --test chart_assets/lwc/ && QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d69_d70_bridge_contract.py -q",
-        "memory_refs": [
-          "lwc",
-          "qt-testing"
-        ],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P25-T8",
-      "title": "ESC-128 \u2014 usage.md documents the amber partial marker on a forming week/month candle",
-      "description": "ESC-128 (D67 follow-up, routed to TASK_MANAGER for the route decision). D67 renders one amber series marker (chart_assets/lwc/chart.js PARTIAL_MARKER_COLOR '#fbbf24', aboveBar, circle) on the forming 1 week / 1 month candle whenever the period head is not covered; no user-facing doc mentions it. Route chosen: an explicit one-file doc task in this phase's rework (not a docs/pending_doc_sync.md entry): that file is absent and is Plan/quick-owned \u2014 Task Manager neither writes it nor creates it \u2014 while a single usage.md edit lands the wording now, inside the phase, and is verifiable. Edit two places only: one bullet under '### Weekly & Monthly Timeframes (Phase D48)' and the '### Event Markers (removed \u2014 Q-34, commit 1a30d41)' note. The bullet must say what the dot means (the forming candle's values are the aggregate of the bars actually available, because the loaded history does not cover the whole period), where it sits (a small amber dot above that forming candle), and when it goes away (once the new period's data covers the period). The Event Markers note must keep recording that the D38 earnings/dividend/split markers were removed and distinguish the amber dot as a data-completeness cue, not an event marker. No production file changes; do not restate or change D67-D70 behaviour, D67.3's priming rule or any other usage.md section.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P25-T2"
-      ],
-      "acceptance_criteria": [
-        "Given usage.md's '### Weekly & Monthly Timeframes (Phase D48)' section, When a reader opens it, Then one bullet names both timeframes, says the forming candle carries a small amber dot above it while the loaded history cannot cover the whole period (so its open/high/low/close/volume are the aggregate of the bars actually available), and says the dot disappears once the period's data is complete \u2014 stated as the project's user-facing behaviour, with no implementation detail and no other claim changed.",
-        "Given usage.md's '### Event Markers (removed \u2014 Q-34, commit 1a30d41)' note, When a reader opens it, Then it still records that the D38 earnings/dividend/split event markers were removed and now distinguishes the amber dot as a data-completeness marker rather than an event marker; the change is confined to usage.md and to these two spots."
-      ],
-      "tests": [
-        {
-          "test_id": "P25-T8-AC1",
-          "linked_acceptance_criterion": "Given usage.md's '### Weekly & Monthly Timeframes (Phase D48)' section, When a reader opens it, Then one bullet names both timeframes, says the forming candle carries a small amber dot above it while the loaded history cannot cover the whole period (so its open/high/low/close/volume are the aggregate of the bars actually available), and says the dot disappears once the period's data is complete \u2014 stated as the project's user-facing behaviour, with no implementation detail and no other claim changed.",
-          "type": "unit",
-          "description": "New tests/test_p25_usage_doc.py: slice usage.md from '### Weekly & Monthly Timeframes' to the next '### ' heading and assert, case-insensitively, that it mentions '1 week', '1 month', 'amber', 'forming', that the marker means the period's data is not complete (substrings 'cannot cover'/'not covered'/'partial' \u2014 any one), the aggregate-of-available-bars idea (substring 'aggregate' or 'bars actually'), and that it clears when covered ('disappear'/'clears'/'complete').",
-          "expected_result": "Every assertion holds on the edited usage.md and the test fails on the pre-change text (which mentions only history depth and the Ext Hours rule)."
-        },
-        {
-          "test_id": "P25-T8-AC2",
-          "linked_acceptance_criterion": "Given usage.md's '### Event Markers (removed \u2014 Q-34, commit 1a30d41)' note, When a reader opens it, Then it still records that the D38 earnings/dividend/split event markers were removed and now distinguishes the amber dot as a data-completeness marker rather than an event marker; the change is confined to usage.md and to these two spots.",
-          "type": "unit",
-          "description": "Same suite: slice the '### Event Markers' section to the next '### ' heading; assert it still contains 'D38', 'removed' and the earnings/dividend/split list, and that it now contains a distinction phrase ('not an event marker' or 'data-completeness'/'data completeness') plus 'amber'. Additionally assert the byte-level diff scope from the task record: only usage.md changed (recorded in the wave result, not asserted from git in-process).",
-          "expected_result": "The note keeps its removal record and adds the distinction; the phrase 'the chart shows no event markers' is either gone or explicitly qualified as 'no event markers' beside the amber dot; all assertions pass."
-        }
-      ],
-      "expected_artifacts": [
-        "usage.md \u2014 one bullet under '### Weekly & Monthly Timeframes (Phase D48)' and a distinguishing half-sentence in the '### Event Markers (removed)' note",
-        "tests/test_p25_usage_doc.py \u2014 the two content assertions"
-      ],
-      "touches_files": [
-        "usage.md",
-        "tests/test_p25_usage_doc.py"
-      ],
-      "doc_required": true,
-      "inputs": [
-        "ESC-128 (open, routed to TASK_MANAGER): the undocumented amber partial marker and the route question",
-        "P25-T2's delivered marker behaviour (AC-D67.1/AC-D67.2, AC-D67.3)"
-      ],
-      "outputs": [
-        "a user-facing explanation of the amber partial marker and when it clears",
-        "the Event Markers note no longer reads as if the chart draws no markers at all"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "usage.md",
-            "lines": "155-178",
-            "why": "the 'Event Markers (removed)' note at :157-159 and the '### Weekly & Monthly Timeframes (Phase D48)' section at :172-173 \u2014 the only two spots to edit"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "58-70",
-            "why": "read-only: PARTIAL_MARKER_COLOR '#fbbf24', position aboveBar, shape circle \u2014 the vocabulary the bullet must match"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1505-1545",
-            "why": "read-only: the one-marker surface (marker moves with the marked ts, cleared when the period is complete) so the wording states the real behaviour"
-          },
-          {
-            "path": "tests/test_p25_fence.py",
+            "path": "ibkr/market_data.py",
             "lines": "1-60",
-            "why": "read-only: the phase's record-suite conventions, so the new doc test does not duplicate or contradict the fence"
+            "why": "read-only: where TIMEFRAME_CONFIG is defined, for the key-set assertion"
           }
         ],
-        "contracts": [],
-        "architecture_ref": "docs/architecture.md#Phase P25",
-        "plan_ref": "docs/plan.md#Phase P25",
-        "requirement_ids": [
-          "AC-D67.2",
-          "DG129"
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:per_load_historical_cap",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_history_wave_watchdog_bound_ms",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/subscription_manager.py:RT_BARS",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p26_fence.py",
+            "signature": "one assertion per named artefact: the requirements marker sentence, D41-D70 presence per id in a heading, #### D71-D76, Journey 68-70, AC-D1.1-AC-D70.3 + AC-D71.1-AC-D76.3, A1-A224 + A225-A229, R1-R164 + R165-R169, the Current Tech Stack section, and the six module-read pinning values"
+          }
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p25_usage_doc.py -q",
+        "architecture_ref": "docs/architecture.md#Phase P26",
+        "plan_ref": "docs/plan.md#P26-04",
+        "requirement_ids": [
+          "AC-D76.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p26_fence.py -q",
         "memory_refs": [
-          "docs"
+          "offscreen"
         ],
         "needs_graphify": false,
         "size": "S"

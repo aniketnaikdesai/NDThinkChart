@@ -1,3 +1,4 @@
+import contextlib
 import time
 import threading
 from collections import deque
@@ -31,6 +32,10 @@ class PacingManager:
         self._lock = threading.Lock()
         self._last_req_time = 0.0
         self._min_interval = 1.0 / settings.MAX_REQ_PER_SEC
+        # P26/D71: unspent units of an open generic batch reservation. Only
+        # non-zero inside ``generic_batch``; cleared in its ``finally`` and
+        # by ``reset_for_tests`` so it can never admit a later send.
+        self._batch_remaining = 0
         self._rt_window = 600.0
         self._rt_times: deque = deque()
         # D28.3: rolling 600s window for reqHistoricalData. Same shape as
@@ -65,6 +70,52 @@ class PacingManager:
         with self._lock:
             self._last_req_time = time.time()
 
+    def generic_wait_for_batch(self, count: int) -> float:
+        """Seconds until ``count`` back-to-back generic sends may issue.
+
+        Pure and non-blocking. ``count <= 1`` needs no extra room: the next
+        send is gated by the ordinary minimum interval, so 0.0 is reported
+        and the caller lets ``throttle`` decide. For ``count > 1`` the batch
+        is modelled as occupying ``count - 1`` further intervals after the
+        last real send. The lock is held only around the timestamp read.
+        """
+        if count <= 1:
+            return 0.0
+        with self._lock:
+            now = time.time()
+            interval = 1.0 / settings.MAX_REQ_PER_SEC
+            return max(0.0, (count - 1) * interval - (now - self._last_req_time))
+
+    @contextlib.contextmanager
+    def generic_batch(self, count: int):
+        """Reserve ``count`` generic sends as one pacing transaction.
+
+        P26/D71: a replay pass issues many ``reqMktData`` calls back to back,
+        which the minimum-interval gate would refuse from the second send
+        onward. The batch converts that burst into pacing-timeline
+        bookkeeping: it re-checks :meth:`generic_wait_for_batch` before the
+        body runs (raising ``PacingExceeded`` from ``__enter__`` so the body
+        never executes), admits the next ``count`` calls to :meth:`throttle`
+        without consulting the gate, and on exit clears the reservation and
+        stamps the interval clock once for the whole burst.
+
+        Fail-closed: a send beyond the reservation falls through to the
+        unchanged gate — admitted only when the interval has genuinely
+        elapsed since the last real stamp, and raising otherwise — so a
+        reservation can never be spent twice or leak past this ``with``.
+        """
+        wait = self.generic_wait_for_batch(count)
+        if wait > 0:
+            raise PacingExceeded(wait)
+        with self._lock:
+            self._batch_remaining = int(count)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._batch_remaining = 0
+            self.record_request_slot()
+
     def throttle(self):
         """Non-blocking minimum-interval gate (D28.1 / Q-41).
 
@@ -75,7 +126,16 @@ class PacingManager:
         on the GUI thread). On success stamps the interval clock and
         returns. The lock is held only around timestamp bookkeeping and
         is never held across the wait.
+
+        P26/D71: while a :meth:`generic_batch` reservation is open, a call
+        consumes one reserved unit and returns without touching the clock;
+        the reservation's ``finally`` stamps the interval once for the
+        whole burst.
         """
+        with self._lock:
+            if self._batch_remaining > 0:
+                self._batch_remaining -= 1
+                return
         wait = self.request_wait_seconds()
         if wait > 0:
             raise PacingExceeded(wait)
@@ -211,12 +271,17 @@ class PacingManager:
             return True
 
     def reset_for_tests(self) -> None:
-        """Clear pacing state. Test-only: keeps the suite hermetic."""
+        """Clear pacing state. Test-only: keeps the suite hermetic.
+
+        P26/D71: also drops any open batch reservation, so a leftover
+        counter can never admit a later send.
+        """
         with self._lock:
             self._rt_times.clear()
             self._hist_times.clear()
             self._last_hist_time = 0.0
             self._last_req_time = 0.0
+            self._batch_remaining = 0
 
 
 # Global singleton

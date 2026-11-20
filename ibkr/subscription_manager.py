@@ -18,18 +18,22 @@ the mechanism.
 Reconnect division of labour (D27.3): chart RT bars are re-issued here via
 ``replay_all``; watchlist market-data is re-issued by the existing
 ``_restore_watchlist`` clear+re-add path (pinned by AC-D22.7.2), so
-``MainWindow._replay_subscriptions`` replays only the ``rt_bars`` type —
-replaying ``market_data`` too would double-subscribe every row.
+``MainWindow._replay_subscriptions`` replays the ``rt_bars``, ``s0_ticks``
+and ``option_legs`` tags but never ``market_data`` — replaying that too
+would double-subscribe every row.
 Watchlist entries are still registered (and unregistered on clear/remove)
 so the registry is the single source of truth for what is live.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ibkr.pacing import pacing_manager, PacingExceeded
+
+_LOG = logging.getLogger(__name__)
 
 # Type tags for registry entries.
 RT_BARS = "rt_bars"
@@ -50,10 +54,43 @@ class _Entry:
 
 
 class SubscriptionManager:
-    """Registry of active IBKR subscriptions keyed by reqId."""
+    """Registry of active IBKR subscriptions keyed by reqId (D27.3, D71).
+
+    ``replay_all`` is one transaction over the union of every pacing budget
+    a reconnect pass will spend: realtime-bar slots for ``RT_BARS`` entries
+    and the generic minimum-interval gate for every other pending entry
+    (whose reissue goes through ``reqMktData``). If either is short, one
+    ``PacingExceeded`` is raised before anything is re-issued or mutated.
+    The coupling is deliberate (DG131): one throttled option leg defers the
+    chart's RT lines too, because a pass that reissues some entries and
+    defers the rest is exactly the partial replay this transaction exists
+    to prevent — a split pass must never be used to "fix" the coupling.
+
+    Every send happens inside one ``PacingManager.generic_batch``
+    reservation; only after the last reissue returns are entries rebound,
+    their superseded reqIds retired through ``set_cancel_hook`` resolvers,
+    and the registry keys moved. A raise during the reissue phase retires
+    the new ids, rebinds every entry to its old id and re-raises, leaving
+    the registry and every old live line exactly as they were.
+    """
 
     def __init__(self):
         self._entries: dict[int, _Entry] = {}
+        # P26/D71: one retire resolver per replayed type, installed once by
+        # the window. A type without a resolver retires nothing (the replay
+        # still moves its registry key; the owning manager remains the only
+        # process allowed to invent a cancel path).
+        self._cancel_hooks: dict[str, Callable[[int], None]] = {}
+
+    def set_cancel_hook(self, req_type: str, fn: Callable[[int], None]) -> None:
+        """Install the replay's retire resolver for one subscription type.
+
+        ``replay_all`` calls the hook with the superseded reqId after every
+        reissue has succeeded, so a cancelled line can never outlive its
+        replacement. Best-effort at the call site: a raising hook is logged
+        and the pass continues.
+        """
+        self._cancel_hooks[req_type] = fn
 
     def subscribe(
         self,
@@ -98,18 +135,32 @@ class SubscriptionManager:
     def replay_all(
         self, include_types: Optional[set[str]] = None
     ) -> list[tuple[int, int]]:
-        """Re-issue registered subscriptions; rebind the new reqIds.
+        """Re-issue registered subscriptions as one all-or-nothing pass.
 
-        Returns [(old_req_id, new_req_id)]. Only entries whose type is in
+        Returns ``[(old_req_id, new_req_id)]``. Only entries whose type is in
         ``include_types`` (default: all) and that carry a ``reissue`` hook are
-        re-issued; each entry's ``rebind`` hook then points the live routing
-        state at the new reqId, and the registry bookkeeping moves with it.
+        re-issued, in registry (registration) order.
 
-        D28.1: all-or-nothing under pacing pressure. Realtime-bar reissues
-        consume pacing slots, so the budget for ALL of them is checked up
-        front; if it is short, PacingExceeded is raised before anything is
-        re-issued (a partial replay followed by a retry would double-subscribe
-        the already-replayed entries). The caller defers via QTimer.singleShot.
+        Three phases, no mutation before phase three:
+
+        1. **Union pre-check.** ``rt_n`` is the ``RT_BARS`` count and
+           ``generic_n`` every other pending entry (S0 ticks and option legs
+           reissue through ``reqMktData``'s minimum-interval gate). One
+           ``PacingExceeded(max(rt_wait, generic_wait))`` covers both budgets
+           and is raised before any reissue or registry change.
+        2. **Reissue phase.** Every entry's ``reissue()`` runs inside one
+           ``generic_batch(generic_n)`` reservation. If any call raises,
+           every reqId issued so far is retired through its type's resolver,
+           every entry's routing is rebound to its old reqId, and the
+           exception re-raises: the registry is byte-identical to its
+           pre-pass state and no old line was cancelled.
+        3. **Retire phase.** Each entry is rebound to its new reqId, its
+           superseded old reqId is retired through ``set_cancel_hook``'s
+           resolver for its type (best-effort, logged; a type with no
+           resolver retires nothing), and the registry key moves last.
+
+        D28.1: never sleeps — the batch is bookkeeping, and the caller defers
+        the whole pass via ``QTimer.singleShot`` when the union gate refuses.
         """
         pending = [
             (old_id, entry)
@@ -117,16 +168,57 @@ class SubscriptionManager:
             if (include_types is None or entry.req_type in include_types)
             and entry.reissue is not None
         ]
-        rt_needed = sum(1 for _, e in pending if e.req_type == RT_BARS)
-        wait = pacing_manager.realtime_wait_for_slots(rt_needed)
+        rt_n = sum(1 for _, e in pending if e.req_type == RT_BARS)
+        generic_n = len(pending) - rt_n
+        wait = max(
+            pacing_manager.realtime_wait_for_slots(rt_n),
+            pacing_manager.generic_wait_for_batch(generic_n),
+        )
         if wait > 0:
             raise PacingExceeded(wait)
+
+        issued: list[tuple[int, _Entry, int]] = []
+        try:
+            with pacing_manager.generic_batch(generic_n):
+                for old_id, entry in pending:
+                    new_id = entry.reissue()
+                    issued.append((old_id, entry, new_id))
+        except BaseException:
+            # Phase 2 failed: retire only what this pass issued, then put
+            # every entry's routing back on its pre-pass reqId. The registry
+            # was never touched and no old line was cancelled.
+            for _old_id, entry, new_id in issued:
+                self._retire(entry.req_type, new_id)
+            for old_id, entry in pending:
+                if entry.rebind is not None:
+                    try:
+                        entry.rebind(old_id)
+                    except Exception:  # best-effort unwind
+                        _LOG.warning(
+                            "replay unwind: rebind to %s failed for %s",
+                            old_id, entry.req_type, exc_info=True,
+                        )
+            raise
+
         replayed: list[tuple[int, int]] = []
-        for old_id, entry in pending:
-            new_id = entry.reissue()
+        for old_id, entry, new_id in issued:
             if entry.rebind is not None:
                 entry.rebind(new_id)
+            self._retire(entry.req_type, old_id)
             del self._entries[old_id]
             self._entries[new_id] = entry
             replayed.append((old_id, new_id))
         return replayed
+
+    def _retire(self, req_type: str, req_id: int) -> None:
+        """Retire one superseded reqId through its type's resolver."""
+        hook = self._cancel_hooks.get(req_type)
+        if hook is None:
+            return
+        try:
+            hook(req_id)
+        except Exception:  # best-effort: the pass must still settle
+            _LOG.warning(
+                "replay: retire of %s reqId %s failed", req_type, req_id,
+                exc_info=True,
+            )

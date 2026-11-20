@@ -240,6 +240,15 @@ class TickerSession(QObject):
         # these is the expected TWS echo of our own cancel (superseded),
         # classified debug at the error ingress — never a user-facing error.
         self._cancelled_history_req_ids: set[int] = set()
+        # P26/D74: the generation each cancel tag was added at. The set above
+        # stays the membership source ``is_superseded`` reads; this map is the
+        # bookkeeping that lets ``_prune_cancel_tags`` keep the current and
+        # previous generation only (never an id cancelled in either), so the
+        # tag set is bounded by a generation window instead of growing with
+        # the session. Entries are popped when a re-entering reqId's tag is
+        # discarded — no state from a previous load is ever readable by the
+        # current one.
+        self._cancelled_history_gen: dict[int, int] = {}
         self._history_generation: int = 0
         self._pending_bars: list[Bar] = []
         # P7-W1 (S-P7-2): per-chunk persist-and-render. Bars fetched under
@@ -270,6 +279,19 @@ class TickerSession(QObject):
         # when the 600s historical budget is exhausted the remainder stays
         # queued and continues via the timer below (never sleeps).
         self._wave_plan_queue: list = []
+        # P26/D72: the per-load cap yield is a designed outcome, not a stall.
+        # ``_wave_parked`` marks a wave that stopped issuing at the cap with
+        # plans still queued: the queue survives a same-triple reload and the
+        # strand bound is settled once nothing is in flight. Cleared by
+        # queue_wave_plans, _cancel_history_requests and _finalize_history_wave.
+        self._wave_parked: bool = False
+        # P26/D76: the readiness episode. A transport that reports not-ready
+        # defers the wave on the unchanged 1 s fallback; the episode is
+        # surfaced once and its strand bound armed once (never re-armed by the
+        # fixed tick), so an indefinitely not-ready client still ends through
+        # the bounded watchdog path with a reason that names the transport.
+        self._wave_deferral_reason: str = ""
+        self._wave_not_ready_announced: bool = False
         self._req_to_plan: dict[int, object] = {}
         self._wave_contract = None
         # P7-W1 (S-P7-1): per-load spend — reset by queue_wave_plans for each
@@ -464,6 +486,10 @@ class TickerSession(QObject):
         self._rt_holders = 0
         self._unsubscribe_rt()
         self._cancel_history_requests()
+        # P26/D72/D75: a torn-down session's parked queue dies with it — the
+        # queue belongs to this session's triple and must never issue (the
+        # cancel path itself is unchanged; a strand clears explicitly).
+        self._wave_plan_queue.clear()
         self._disarm_history_wave_watchdog()
         self._wave_continue_timer.stop()  # D28.5: no deferred wave chunks
         self._prime_timer.stop()
@@ -950,8 +976,11 @@ class TickerSession(QObject):
         # and on each accepted bar).
         self._history_req_last_activity[req_id] = self._silence_now()
         # A reqId re-entering the wave is live again, not superseded: a
-        # stale cancel tag must never misclassify a later 162 for it.
+        # stale cancel tag must never misclassify a later 162 for it. The
+        # tag's generation entry dies with the tag (P26/D74), so the ledger
+        # never holds a tag whose membership set no longer does.
         self._cancelled_history_req_ids.discard(req_id)
+        self._cancelled_history_gen.pop(req_id, None)
         self._host._register_req_id(req_id, self)
 
     def mark_history_request_issued(self, req_id: int) -> None:
@@ -1004,6 +1033,9 @@ class TickerSession(QObject):
             # (AR-P7-4: refunding issued slots would over-count the budget
             # and risk a real 162 storm); pacing_manager stays the owner.
             self._cancelled_history_req_ids.add(req_id)
+            # P26/D74: stamp the generation this tag belongs to. The tag is
+            # kept for the current and previous generation only.
+            self._cancelled_history_gen[req_id] = self._history_generation
             if req_id not in self._history_req_issued:
                 pacing_manager.refund_historical_slot()
         self._history_req_ids.clear()
@@ -1025,6 +1057,33 @@ class TickerSession(QObject):
         # only wave completion consumes the marker (see
         # MainWindow._on_session_wave_complete), never this path.
         self._pending_prefetch = False
+        # P26/D72/D76: the wave terminated — a park can never survive it and
+        # the readiness episode dies with it (a new wave re-announces).
+        self._wave_parked = False
+        self._wave_deferral_reason = ""
+        self._wave_not_ready_announced = False
+
+    def _prune_cancel_tags(self) -> None:
+        """Bound the cancel-tag ledger to a generation window (P26/D74).
+
+        Keeps every id whose tag was recorded at the current or the previous
+        ``_history_generation`` and drops the rest. An id cancelled in the
+        wave just cancelled (or the one before it) therefore still classifies
+        as superseded — a benign acknowledgement is never a status-bar error
+        (R168) — while a session that runs wave after wave cannot grow the
+        tag set linearly with the wave count. The id set and the generation
+        map are pruned together, so a membership read can never outlive its
+        bookkeeping (or the other way round).
+        """
+        floor = self._history_generation - 1
+        stale = [
+            req_id
+            for req_id, gen in self._cancelled_history_gen.items()
+            if gen < floor
+        ]
+        for req_id in stale:
+            self._cancelled_history_gen.pop(req_id, None)
+            self._cancelled_history_req_ids.discard(req_id)
 
     def _history_wave_watchdog_bound_ms(self, wait_s: float = 0.0) -> int:
         """Window-relative strand bound (P7-W2, S-P7-3): max(base, wait+margin).
@@ -1059,6 +1118,24 @@ class TickerSession(QObject):
     def _disarm_history_wave_watchdog(self) -> None:
         self._history_wave_timer.stop()
 
+    def _settle_parked_wave(self) -> bool:
+        """Settle a parked wave's bound once nothing is in flight (P26/D72).
+
+        A cap-yielded queue is healthy work, not a stall: when the last
+        in-flight member ends there is nothing left to bound, so the strand
+        watchdog and the continuation timer are stopped and the wave waits
+        for a resuming load. While any member is outstanding this is a no-op
+        — a real stall inside a parked wave stays bounded (R166) and the
+        unchanged watchdog path finalises it exactly once.
+
+        Returns True when the wave settled, False otherwise.
+        """
+        if not self._wave_parked or self._history_req_ids:
+            return False
+        self._disarm_history_wave_watchdog()
+        self._wave_continue_timer.stop()
+        return True
+
     def _on_history_wave_timeout(self) -> None:
         self._host._on_session_history_wave_timeout(self)
 
@@ -1085,6 +1162,27 @@ class TickerSession(QObject):
             bound = silence_retry_bound_s(plan.bar_size, plan.duration)
             if now - stamp >= bound:
                 self._retry_silent_chunk(req_id)
+
+    def _surrender_chunk_bars(self, req_id: int) -> None:
+        """Give up a re-requested chunk's in-memory bars (P26/D73).
+
+        Pops the chunk's per-reqId buffer and identity-removes exactly those
+        ``Bar`` objects from the flat wave record, so a chunk that will be
+        re-issued cannot be counted twice when the re-issue redelivers the
+        same timestamps. This is the one rule both retry paths share: the
+        silence retry and the error-162 retry call this helper, so they are
+        identical by construction. Rows already persisted by a completed
+        chunk are untouched — ``save_bars`` is ``INSERT OR REPLACE`` on the
+        mode-aware PK, so nothing is lost and nothing is duplicated. A chunk
+        with no partial bars is a no-op.
+        """
+        chunk_bars = self._req_bars.pop(req_id, [])
+        if not chunk_bars:
+            return
+        doomed = set(map(id, chunk_bars))
+        self._pending_bars = [
+            b for b in self._pending_bars if id(b) not in doomed
+        ]
 
     def _retry_silent_chunk(self, req_id: int) -> None:
         """Cancel one silent chunk and re-issue its identical plan exactly once.
@@ -1113,6 +1211,9 @@ class TickerSession(QObject):
                 self.symbol, req_id, type(exc).__name__, exc,
             )
         self._cancelled_history_req_ids.add(req_id)
+        # P26/D74: the silence retry is the second tag site — record the
+        # generation so the prune can bound this tag like the cancel path's.
+        self._cancelled_history_gen[req_id] = self._history_generation
         # Post-issue rule (P7-W2): the cancelled issue keeps its pacing slot
         # — refund nothing.
         # 2. Drop the old reqId and its per-chunk state.
@@ -1120,16 +1221,10 @@ class TickerSession(QObject):
         self._req_to_plan.pop(req_id, None)
         self._history_req_issued.discard(req_id)
         self._history_req_last_activity.pop(req_id, None)
-        # 3. Pop the old chunk's bars and identity-remove those same Bar
-        # objects from the flat wave list (bars already persisted per-chunk
-        # stay in the cache — PK-idempotent — and are re-read, never
-        # duplicated in memory).
-        chunk_bars = self._req_bars.pop(req_id, [])
-        if chunk_bars:
-            doomed = set(map(id, chunk_bars))
-            self._pending_bars = [
-                b for b in self._pending_bars if id(b) not in doomed
-            ]
+        # 3. Surrender the old chunk's bars: the one shared rule both retry
+        # paths use (bars already persisted per-chunk stay in the cache —
+        # PK-idempotent — and are re-read, never duplicated in memory).
+        self._surrender_chunk_bars(req_id)
         # 4. Record the shared once-only allowance BEFORE re-issuing, so any
         # outcome of the new issue (silence, 162) can never issue a third.
         self._retried_plans.add(plan)
@@ -1146,7 +1241,7 @@ class TickerSession(QObject):
                 bar_size=plan.bar_size,
                 duration=plan.duration,
             )
-        except (PacingExceeded, IBKRNotReady) as e:
+        except PacingExceeded as e:
             # Queue-with-deadline (S-P17-5): wait through the existing
             # continuation path, bounded by the unchanged watchdog.
             wait = getattr(e, "wait_seconds", None)
@@ -1154,6 +1249,13 @@ class TickerSession(QObject):
                 wait = 1.0
             self._wave_plan_queue.insert(0, plan)
             self._schedule_wave_continuation(wait)
+            self._refresh_silence_sweeper()
+            return
+        except IBKRNotReady:
+            # P26/D76: not a pacing wait — a readiness episode, handled by
+            # the same episode rule as the wave's own issue path.
+            self._wave_plan_queue.insert(0, plan)
+            self._note_readiness_deferral()
             self._refresh_silence_sweeper()
             return
         self._register_history_request(new_req_id)
@@ -1196,16 +1298,25 @@ class TickerSession(QObject):
         and resumes on a later load (replanned from the persisted cache),
         never storming TWS with 162s and never sleeping.
         """
+        # P26/D74: a new wave is a new scope — the ledger of cancelled ids is
+        # pruned to the current + previous generation here, and the failure
+        # set starts empty, so neither can report a previous wave's state.
+        self._prune_cancel_tags()
         self._wave_plan_queue = list(plans)
         self._wave_contract = contract
         self._wave_timeframe = timeframe
         self._wave_extended_hours = extended_hours
         self._retried_plans = set()
+        self._backfill_failed_req_ids = set()
         self._req_bars = {}
         self._history_req_issued = set()
         # P17-T1: a new wave re-stamps every chunk it issues.
         self._history_req_last_activity = {}
         self._wave_issued_this_load = 0
+        # P26/D72/D76: a new plan list is never parked and never mid-episode.
+        self._wave_parked = False
+        self._wave_deferral_reason = ""
+        self._wave_not_ready_announced = False
         # P14-W2 (S-P14-2): stamp the wave start once. A coalesced reload
         # never reaches here (Branch-A early-returns before the cancel), so
         # it can never reset the running baseline; a genuine new wave
@@ -1245,13 +1356,20 @@ class TickerSession(QObject):
                     bar_size=plan.bar_size,
                     duration=plan.duration,
                 )
-            except (PacingExceeded, IBKRNotReady) as e:
-                # IBKRNotReady carries no budget wait — retry shortly after
-                # the handshake lands instead of hot-spinning.
+            except PacingExceeded as e:
+                # The pacing owner is authoritative: wait out the reported
+                # deferral on the unchanged path (watchdog re-armed for it).
                 wait = getattr(e, "wait_seconds", None)
                 if wait is None:
                     wait = 1.0
                 self._schedule_wave_continuation(wait)
+                return
+            except IBKRNotReady:
+                # P26/D76: the handshake has not landed — a readiness
+                # episode, not a pacing wait. Retry shortly on the unchanged
+                # fallback; the episode arms the bound once (see
+                # _note_readiness_deferral).
+                self._note_readiness_deferral()
                 return
             self._wave_plan_queue.pop(0)
             self._register_history_request(req_id)
@@ -1259,6 +1377,10 @@ class TickerSession(QObject):
             # The transport accepted the request: it reached TWS, so a
             # later cancel of this reqId keeps (never refunds) its slot.
             self.mark_history_request_issued(req_id)
+            # P26/D76: the transport accepted a request — the readiness
+            # episode is over (a later one re-announces).
+            self._wave_deferral_reason = ""
+            self._wave_not_ready_announced = False
             issued += 1
             self._wave_issued_this_load += 1
         # P17-T1: arm the silence sweeper while chunks are in flight.
@@ -1275,6 +1397,11 @@ class TickerSession(QObject):
                     f"{len(self._wave_plan_queue)} chunk(s) resume on the "
                     "next load…"
                 )
+                # P26/D72: the queue is parked, not stalled. Settle the
+                # strand bound now only when nothing is in flight (normally
+                # members are, so the end/error paths settle it later).
+                self._wave_parked = True
+                self._settle_parked_wave()
                 return
             # Hit the per-tick bound: space waves out over the rolling window.
             wait = pacing_manager.historical_wait_seconds()
@@ -1301,7 +1428,9 @@ class TickerSession(QObject):
             return "<0.1s"
         return f"{wait_s:.1f}s"
 
-    def _schedule_wave_continuation(self, wait_s: float) -> None:
+    def _schedule_wave_continuation(
+        self, wait_s: float, *, transport_not_ready: bool = False
+    ) -> None:
         """Defer the rest of the wave (D28.3): never sleeps, re-arms the
         watchdog so the deferred chunks don't trip the strand bound.
 
@@ -1312,16 +1441,45 @@ class TickerSession(QObject):
         P7-W2 (S-P7-3): the watchdog is re-armed for this exact wait + margin,
         so the deferred chunks never trip the strand bound while waiting out
         their legal deferral.
+
+        P26/D76: ``transport_not_ready`` selects the readiness-episode rule.
+        A not-ready client pays no pacing wait: the caller owns the episode's
+        single surfaced line and has armed the base bound once, so this path
+        starts the timer on the unchanged fallback delay without re-arming —
+        re-arming on every fixed tick would push the bound out forever. The
+        default path is unchanged.
         """
         wait_s = max(0.0, float(wait_s or 0.0))
         self._wave_continue_wait_s = wait_s
         ms = self._continuation_delay_ms(wait_s)
-        self._status(
-            f"{self.symbol} — pacing-limited, continuing backfill in "
-            f"{self._format_wait(wait_s)}…"
-        )
-        self._arm_history_wave_watchdog(wait_s)
+        if not transport_not_ready:
+            self._status(
+                f"{self.symbol} — pacing-limited, continuing backfill in "
+                f"{self._format_wait(wait_s)}…"
+            )
+            self._arm_history_wave_watchdog(wait_s)
         self._wave_continue_timer.start(ms)
+
+    def _note_readiness_deferral(self) -> None:
+        """Defer a wave whose transport reports not-ready (P26/D76).
+
+        One episode, not one retry: the reason names the transport so the
+        watchdog's finalise reason can too, the episode is surfaced exactly
+        once, the base bound is armed once (only when no bound is already
+        running) and the continuation restarts on the unchanged fallback
+        delay without re-arming. An indefinitely not-ready client is
+        therefore bounded by one watchdog interval instead of pushing the
+        bound out on every fixed tick.
+        """
+        self._wave_deferral_reason = "IBKR not ready"
+        if not self._wave_not_ready_announced:
+            self._wave_not_ready_announced = True
+            self._status(
+                f"{self.symbol} — IBKR not ready; retrying backfill…"
+            )
+        if not self._history_wave_timer.isActive():
+            self._arm_history_wave_watchdog()
+        self._schedule_wave_continuation(1.0, transport_not_ready=True)
 
     def _on_wave_continue_timeout(self) -> None:
         self._issue_wave_chunks()
@@ -1445,6 +1603,10 @@ class TickerSession(QObject):
         # stale wave can neither persist nor paint over the current one.
         chunk_bars = self._req_bars.pop(req_id, [])
         self._persist_chunk_bars(chunk_bars)
+        # P26/D72: the end marker is where a parked wave's bound is released
+        # — the last in-flight member of a cap-yielded queue settles it here,
+        # before the (unchanged) completion test below.
+        self._settle_parked_wave()
         if not self._wave_may_complete():
             return
         # Last member ended: the host finalizes (persist the remainder +
@@ -1470,6 +1632,7 @@ class TickerSession(QObject):
                 # wave finalizes with the verbatim AC-D16.4 shortfall.
                 self._contract_rejected_200 = True
                 self._backfill_failed_req_ids.add(req_id)
+                self._settle_parked_wave()
                 if self._wave_may_complete():
                     self._host._on_session_wave_complete(self)
                 else:
@@ -1484,6 +1647,12 @@ class TickerSession(QObject):
             # is dropped from the in-flight set; its plan is re-queued at
             # the front so the retry preserves newest-first order.
             if code == 162:
+                # P26/D73: the retry will redeliver this chunk's timestamps,
+                # so its partial bars are surrendered FIRST — through the one
+                # helper the silence path uses — before the plan is re-queued.
+                # Without this the re-issued chunk's bars would be counted
+                # twice in the in-memory wave record.
+                self._surrender_chunk_bars(req_id)
                 plan = self._req_to_plan.pop(req_id, None)
                 self._history_req_ids.discard(req_id)
                 # P17-T1: the reqId left the wave — drop its silence stamp.
@@ -1527,6 +1696,9 @@ class TickerSession(QObject):
                 "Historical request %s failed [%s]: %s", req_id, code, msg
             )
             self._refresh_silence_sweeper()
+            # P26/D72: a failing member leaving a parked wave settles its
+            # bound here too, exactly like the end marker.
+            self._settle_parked_wave()
             if self._wave_may_complete():
                 self._host._on_session_wave_complete(self)
 
