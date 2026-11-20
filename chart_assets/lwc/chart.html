@@ -46,6 +46,33 @@
     cursor: pointer;
   }
   #goToLatest[hidden] { display: none; }
+  /* D101/S-P30-1: the restored control cluster. Absolutely positioned in the
+   * right price-scale gutter (the ~70px the page already reserves), so
+   * #chart's box — and the plot — is unchanged at the minimum width.
+   * Metrics mirror ui/chart_controls.py's stylesheet (14px/700 labels,
+   * magnifier 21px/700, a pressed tone). */
+  #controls {
+    position: absolute;
+    top: 6px;
+    right: 80px;
+    display: flex;
+    gap: 2px;
+    z-index: 5;
+  }
+  .lw-control {
+    min-width: 28px;
+    min-height: 24px;
+    padding: 2px 6px;
+    border: 1px solid #4b5563;
+    border-radius: 6px;
+    background: rgba(30, 30, 30, 180);
+    color: #e5e7eb;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  #control-magnifier { font-size: 21px; }
+  .lw-control[aria-pressed="true"] { background: rgba(59, 130, 246, 0.5); }
 </style>
 </head>
 <body>
@@ -54,6 +81,11 @@
      +/- zoom, Esc releases focus back to the Qt focus chain. -->
 <div id="chart" tabindex="0" role="application"
      aria-label="Price chart. Arrow keys pan, plus and minus zoom, Escape returns focus."></div>
+<!-- D101/S-P30-1: the restored control cluster. The page mounts the four
+     buttons into this container once per load (chart.js::init); the Python
+     half is ui/lwc_view.py::handle_control through the bridge's
+     controlPressed slot. -->
+<div id="controls" role="toolbar" aria-label="Chart controls"></div>
 <!-- S-P18-1 (D57.1): the visible go-to-latest chevron — a glyph-only button
      (no text label), keyboard-focusable with an aria-label, hidden by
      default. chart.js owns the visibility (away-only) and the click wiring;

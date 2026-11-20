@@ -1,81 +1,43 @@
 {
   "nodes": [
     {
-      "id": "P29-T1",
+      "id": "P30-T1",
       "type": "Task"
     },
     {
-      "id": "P29-T2",
+      "id": "P30-T2",
       "type": "Task"
     },
     {
-      "id": "P29-T3",
+      "id": "P30-T3",
       "type": "Task"
     },
     {
-      "id": "P29-T4",
-      "type": "Task"
-    },
-    {
-      "id": "P29-T5",
-      "type": "Task"
-    },
-    {
-      "id": "P29-T6",
+      "id": "P30-T4",
       "type": "Task"
     }
   ],
   "edges": [
     {
-      "from": "P29-T2",
-      "to": "P29-T3",
+      "from": "P30-T1",
+      "to": "P30-T3",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P29-T1",
-      "to": "P29-T5",
+      "from": "P30-T1",
+      "to": "P30-T4",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P29-T2",
-      "to": "P29-T5",
+      "from": "P30-T2",
+      "to": "P30-T4",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P29-T3",
-      "to": "P29-T5",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P29-T4",
-      "to": "P29-T5",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P29-T1",
-      "to": "P29-T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P29-T2",
-      "to": "P29-T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P29-T3",
-      "to": "P29-T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P29-T4",
-      "to": "P29-T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P29-T5",
-      "to": "P29-T6",
+      "from": "P30-T3",
+      "to": "P30-T4",
       "type": "DEPENDS_ON"
     }
   ],
-  "graph_struct_sha256": "60451adeee2ca81ef4b5a8d5c27679a53c2b6fe5df840d0c68be7a02e50e90f0"
+  "graph_struct_sha256": "458f894a049e8b1c0879d5c164eece0c9acb314fb28ec79fd22d79f94637542c"
 }

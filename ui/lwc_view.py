@@ -167,6 +167,7 @@ from services.time_collapse_service import (
     is_daily_or_coarser,
 )
 from ui import lwc_bridge as LB
+from ui.chart_controls import CONTROL_SPECS
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
 from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
 
@@ -595,8 +596,10 @@ ROUTER_TRANSITIONS = (
     {"id": "TR-17", "from": "DRAWING", "trigger": "symbol_change", "to": "IDLE"},
 )
 
-#: The in-HTML control ids, in the mirror of ``ChartControls``' button order.
-CONTROL_IDS = ("zoom-out", "zoom-in", "magnifier", "reset")
+#: The in-HTML control ids, derived from the one declaration in
+#: ``ui/chart_controls.py`` (Q118/A246 keep the widget; the page owns the
+#: buttons, so ``ChartControls`` is deliberately constructed nowhere).
+CONTROL_IDS = tuple(spec.id for spec in CONTROL_SPECS)
 
 #: Magnifier / zoom multipliers — the same numbers the page's keyboard
 #: handler uses (``chart.js::zoom``), mirrored by ``interaction.js``.
@@ -2021,6 +2024,8 @@ class LwcChartView(QWidget):
         self._bridge.pageAlarmDeleted.connect(self._on_page_alarm_deleted)
         self._bridge.pageZoomRefused.connect(self._on_page_zoom_refused)
         self._bridge.pageKeyPressed.connect(self._on_page_key_pressed)
+        self._bridge.pageControlPressed.connect(
+            self._on_page_control_pressed)
         self._bridge.pageViewportReport.connect(
             self._on_page_viewport_report)
         self._plotted: list = []
@@ -2870,7 +2875,10 @@ class LwcChartView(QWidget):
         ``ui/chart_controls.py``'s signals. The magnifier and reset go through
         the frozen router (so alarm placement refuses the magnifier, TR-9);
         zoom in/out are pure view intents the page applies to its own time
-        scale. Returns ``{"control", "op", "mode", "refused"}``.
+        scale. Returns ``{"control", "op", "mode", "refused"}``. In
+        production the caller is ``LwBridge.controlPressed`` →
+        ``pageControlPressed`` → ``_on_page_control_pressed``; the tests call
+        it directly.
         """
         if control_id not in CONTROL_IDS:
             raise ValueError(f"unknown control: {control_id!r}")
@@ -3094,6 +3102,23 @@ class LwcChartView(QWidget):
     def _on_page_zoom_refused(self, payload: dict) -> None:
         """The page's router refused a zoom (TR-9) → ``zoom_refused``."""
         self.zoom_refused.emit()
+
+    def _on_page_control_pressed(self, payload: dict) -> None:
+        """A restored cluster button crossed from the page (D101).
+
+        The page cannot see the shim's answer (a QWebChannel call returns
+        nothing), so the refusal is reported here — once — and the router
+        op the shim publishes is what drives the page's pressed state.
+        An unknown id is ignored: a stale page must never raise across the
+        bridge.
+        """
+        data = payload if isinstance(payload, dict) else {}
+        control = str(data.get("control") or "")
+        if control not in CONTROL_IDS:
+            return
+        result = self.handle_control(control, data.get("value"))
+        if result.get("refused"):
+            self.zoom_refused.emit()
 
     def _on_page_key_pressed(self, payload: dict) -> None:
         """A keyboard gesture the page handled → ``key_pressed(key)``."""
@@ -3522,9 +3547,14 @@ class LwcChartView(QWidget):
         """Drop every per-view array on close (DG90: no pop-out leak).
 
         Called by the pop-out window after it detaches from the session: the
-        private series copy, the study arrays and the per-channel replay logs
-        go, and the offline host (if one was created) is scheduled for
-        deletion. Idempotent — a second call is a no-op.
+        private series copy, the study arrays, every per-channel replay log
+        (the bar log and the staging buffers, and the five channel logs with
+        their not-ready queue) and the offline host (if one was created) go —
+        the host is scheduled for deletion. Idempotent — a second call is a
+        no-op.
+
+        ``memory_bytes`` still accounts the bar log only; the channel logs are
+        reported empty after this call, not before it (AR-P30-6).
         """
         self._bars = []
         self._plotted = []
@@ -3552,6 +3582,15 @@ class LwcChartView(QWidget):
                     bucket.clear()
                 except Exception:
                     pass
+        # D104: the per-channel replay logs are the structure that grows with
+        # traffic on a live pop-out; the docstring promises they go, so they go.
+        channel_logs = getattr(bridge, "_channel_logs", None)
+        if isinstance(channel_logs, dict):
+            for bucket in channel_logs.values():
+                bucket.clear()
+        channel_queue = getattr(bridge, "_channel_queue", None)
+        if isinstance(channel_queue, list):
+            channel_queue.clear()
         host = self._host
         if host is not None:
             self._host = None

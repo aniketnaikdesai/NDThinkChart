@@ -12,7 +12,7 @@ _EASTERN = ZoneInfo("America/New_York")
 
 
 def _eastern_offset(now: datetime | None = None) -> int:
-    """Return pyqtgraph utcOffset for Eastern Time (positive = behind UTC).
+    """Return the chart's ``utcOffset`` for Eastern Time (positive = behind UTC).
 
     EDT (UTC-4) -> 14400, EST (UTC-5) -> 18000. Uses live DST.
     """
@@ -298,15 +298,14 @@ def _ibkr_end_date(ts: int) -> str:
 
 
 def build_main_chart_view(tz_offset: float, editable: bool = True):
-    """Create the main chart on the engine the seam resolves.
+    """Create the main chart view.
 
-    ``ui.chart_view.create_chart_view`` is the single engine-selection
-    authority: ``NDT_CHART_ENGINE`` first, then the persisted override, and
-    anything other than ``"lwc"`` keeps pyqtgraph (the default). Its LWC
-    branch is still the Phase-1a seam stub, so — exactly as
-    ``ui.popout_window.popout_view`` does for pop-outs — the real LWC driver
-    is re-hosted here when the factory resolves that engine. The pyqtgraph
-    path is returned untouched.
+    ``ui.chart_view.create_chart_view`` is the one engine-selection
+    authority and returns the LWC view unconditionally; the pre-LWC renderer
+    was removed in P6-13 and its engine-name settings are read by deployment
+    tooling only. The driver re-host below is a no-op kept for the pop-out's
+    parallel shape: the factory already returns the LWC driver, so it falls
+    straight through.
     """
     view = create_chart_view(tz_offset=tz_offset, editable=editable)
     if getattr(view, "ENGINE_NAME", None) != "lwc":

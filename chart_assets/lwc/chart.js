@@ -643,6 +643,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
                      || op.intent === "symbol_change") {
             routerState.tool = "cursor";
           }
+          /* D101/S-P30-2: the router mode is durable state — drive the
+           * restored cluster's latch from it. NO consumer is added for
+           * `zoom` / `reset_view`: the viewport change happens at the click,
+           * and _replay_channels replays the whole interaction log on every
+           * page-ready transition, so a replayed STEP would re-apply. A log
+           * replays state, never increments (P29/DG134, AR-P30-1). */
+          var li2 = moduleHandle("LwInteraction");
+          if (li2 && typeof li2.syncControlState === "function") {
+            li2.syncControlState(op);
+          }
           if (gestures && typeof gestures.applyRouterOp === "function") {
             gestures.applyRouterOp(op);
           }
@@ -873,6 +883,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     bindKeyboard(el);
     ensureChevronButton(); // S-P18-1: wire the chevron (hidden by default)
     updateChevron();
+    /* D101/AC-D101.1: the restored zoom/magnifier/Reset cluster. Exactly
+     * once per page load — a renderer recovery is a reload, and a reload is
+     * a fresh document — mounted before bindChannel so a first-frame press
+     * still gets its local viewport action. */
+    mountControlCluster();
     bindChannel();
   }
 
@@ -1253,6 +1268,50 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     if (!target || typeof target.keyPressed !== "function") return false;
     target.keyPressed(JSON.stringify({ key: String(key) }));
     return true;
+  }
+
+  /* D101/S-P30-1: the one lazy bridge lookup (`reportKey`'s pattern). A
+   * press made before the channel binds still reports once it exists. */
+  function pageBridgeTarget() {
+    if (typeof window === "undefined") return null;
+    return window.lwBridge || null;
+  }
+
+  /* D101/S-P30-1: a control press is a page-local view action plus one
+   * reported intent. The viewport action uses this file's own `zoom` /
+   * `fitAndFollow`, so the button and the keyboard cannot diverge. Returns
+   * nothing — the production shape S-P30-2's latch rule relies on. */
+  function controlPressed(controlId, value) {
+    if (chart) {
+      if (controlId === "zoom-in" || controlId === "zoom-out") {
+        var range = chart.timeScale().getVisibleLogicalRange();
+        /* FI-P30-1: a page with no bars has no range — the viewport change
+         * is a no-op, but the press still reports (never a fabricated
+         * refusal). */
+        if (range) zoom(range, controlId === "zoom-in" ? 0.8 : 1.25);
+      } else if (controlId === "reset") {
+        fitAndFollow(); // the page's default framing (D51/D60, unchanged)
+      }
+    }
+    var target = pageBridgeTarget();
+    if (target && typeof target.controlPressed === "function") {
+      target.controlPressed(JSON.stringify({
+        control: String(controlId),
+        value: value,
+      }));
+    }
+    return undefined;
+  }
+
+  /* D101/AC-D101.1: the restored cluster mounts once per page load into
+   * #controls. A recovery is a reload, and a reload is a fresh document, so
+   * one call here is exactly one mount per load. No bridge argument:
+   * `mountControls` resolves window.lwBridge lazily at report time. */
+  function mountControlCluster() {
+    var container = document.getElementById("controls");
+    var li = moduleHandle("LwInteraction");
+    if (!container || !li || typeof li.mountControls !== "function") return [];
+    return li.mountControls(container, controlPressed);
   }
 
   function bindChannel() {

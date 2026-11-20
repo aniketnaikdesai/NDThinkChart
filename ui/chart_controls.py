@@ -1,7 +1,32 @@
-"""Zoom control cluster — outlined top-right widget."""
+"""Zoom control cluster — outlined top-right widget.
+
+``CONTROL_SPECS`` is the one declaration of the control contract — the page's
+buttons, the page's intents, and ``ChartControls``' signals — and
+``ui/lwc_view.py`` derives the ids the page and the shim share from it.
+"""
+
+from typing import NamedTuple
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton
 from PyQt6.QtCore import pyqtSignal
+
+
+class ControlSpec(NamedTuple):
+    """One in-page control: its DOM id, ChartControls' signal, the page's intent."""
+
+    id: str
+    signal: str
+    intent: str
+    toggle: bool
+
+
+#: The four controls, in the order the page mounts them and the shim accepts them.
+CONTROL_SPECS = (
+    ControlSpec("zoom-out", "zoom_out", "zoom_out", False),
+    ControlSpec("zoom-in", "zoom_in", "zoom_in", False),
+    ControlSpec("magnifier", "magnify_toggled", "magnify_toggle", True),
+    ControlSpec("reset", "reset", "reset", False),
+)
 
 
 class ChartControls(QFrame):

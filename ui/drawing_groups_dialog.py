@@ -93,8 +93,22 @@ class DrawingGroupsDialog(QDialog):
         return DrawingStore.drawings_for_symbol(self._symbol)
 
     def reload(self):
+        """Rebuild the groups table and the drawings list from the store.
+
+        D103: the drawings list is re-created on every reload, so the selection
+        the Assign / Ungroup / Delete actions read is restored **by drawing id**
+        — a reload may reorder or shrink the list, and an id that no longer
+        exists is simply absent from the restored set. The groups table's own
+        row selection is deliberately *not* restored: it is a different table,
+        and the checkbox click that triggers a reload leaves its row current.
+        """
         groups = self._groups()
         drawings = self._drawings()
+
+        # Capture the user's drawing selection before any rebuild clears it
+        # (D103 / AC-D103.1, AC-D103.2). Identity is the drawing id, never the
+        # row index.
+        selected = set(self._selected_drawing_ids())
 
         self.groups_table.blockSignals(True)
         self.groups_table.setRowCount(len(groups))
@@ -141,6 +155,8 @@ class DrawingGroupsDialog(QDialog):
             item = QListWidgetItem(f"{prefix}{label}")
             item.setData(Qt.ItemDataRole.UserRole, drawing.id)
             self.drawings_list.addItem(item)
+            if drawing.id in selected:
+                item.setSelected(True)
 
         self.group_combo.blockSignals(True)
         self.group_combo.clear()

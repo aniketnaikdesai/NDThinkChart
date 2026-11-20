@@ -6,10 +6,9 @@ read-only chart view. The panel renders bars, studies, drawings and alarms
 live, but drawing / alarm-placement / studies / timeframe / mode interaction
 is disabled — the main chart is the sole writer.
 
-The view is created through ``ui.chart_view.create_chart_view``, so a pop-out
-re-hosts on whichever engine the seam resolves: pyqtgraph stays present and
-default (``NDT_CHART_ENGINE`` unset), and the ``"lwc"`` value gives the LWC
-driver. Both views satisfy the same session surface the fan-out needs
+The view is created through ``ui.chart_view.create_chart_view``, which
+resolves the LWC view unconditionally — the pre-LWC renderer was removed in
+P6-13. The view satisfies the same session surface the fan-out needs
 (``update_chart`` / ``set_studies`` / ``drawing_overlay.set_data`` /
 ``set_alarms``), so D24's single-writer invariant and the pop-out cap
 (``MAX_POPOUTS = 10``, Q62/A107) are engine-independent.
@@ -61,22 +60,22 @@ MODE_NAMES = {
 POPOUT_MEMORY_LEDGER: dict[int, dict] = {}
 
 #: DG90: bytes budgeted per stored bar when a view reports no account itself
-#: (the pyqtgraph panel keeps a plain list of bars, nothing else per view).
+#: (a bare view keeps a plain list of bars, nothing else per view).
 BAR_BYTES = 128
 
 _popout_serials = itertools.count(1)
 
 
 def popout_view(tz_offset: float = 0.0):
-    """The read-only chart view for one pop-out, on the resolved engine.
+    """The read-only chart view for one pop-out.
 
-    ``ui.chart_view.create_chart_view`` is the single engine-selection
-    authority (``NDT_CHART_ENGINE``, then the persisted override; anything
-    other than ``"lwc"`` → pyqtgraph, which stays present and default). Its
-    LWC branch is still the Phase-1a seam stub — the render driver's factory
-    wiring is cutover work — so when the factory resolves ``"lwc"`` a pop-out
-    re-hosts the real driver, composed directly exactly as the phase suites
-    compose it. No engine name is resolved here: the factory decides.
+    ``ui.chart_view.create_chart_view`` is the one engine-selection authority
+    and returns the LWC view unconditionally; the pre-LWC renderer was removed
+    in P6-13 and its engine-name settings are read by deployment tooling only.
+    The driver re-host below is a no-op kept parallel to
+    ``ui.main_window.build_main_chart_view``: the factory already returns the
+    LWC driver, so it falls straight through. No engine name is resolved
+    here: the factory decides.
     """
     view = create_chart_view(tz_offset=tz_offset, editable=False)
     if getattr(view, "ENGINE_NAME", None) != "lwc":
@@ -92,10 +91,9 @@ def popout_view(tz_offset: float = 0.0):
 def view_memory_estimate(view) -> dict:
     """DG90 memory account for one pop-out's view.
 
-    Engine views that can account themselves (the LWC driver's
-    ``memory_bytes``) are asked; the pyqtgraph panel has no per-view transport
-    or overlay arrays of its own — its bars list is the pop-out's private copy
-    — so it is accounted from that list.
+    A view that can account itself (the LWC driver's ``memory_bytes``) is
+    asked; a view with no account of its own is accounted from its bars list,
+    the pop-out's private copy.
     """
     reporter = getattr(view, "memory_bytes", None)
     if callable(reporter):

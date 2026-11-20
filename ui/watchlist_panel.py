@@ -602,12 +602,22 @@ class WatchlistPanel(QWidget):
         ``MainWindow`` promotes ``header_bar`` to the dock's title bar. It must
         therefore only be visible in the collapsed state, where the expanded
         header/table are hidden and it is the dock's title-bar widget.
+
+        D102: collapsing also dismisses the search-results popup (a top-level
+        ``Qt.Popup`` that the header/table hiding cannot cover) and its items —
+        every collapse path goes through this one visual owner.
         """
         collapsed = self._collapsed
         self.header_bar.setVisible(not collapsed)
         self.table.setVisible(not collapsed)
         self.collapsed_bar.setVisible(collapsed)
         self.collapsed_handle.setVisible(collapsed)
+        # D102: the results popup is a top-level Qt.Popup window parented to
+        # the panel, so hiding header_bar/table cannot hide it. Any state that
+        # removes the search box from view dismisses its results (and their
+        # items), or a floating list outlives the query that produced it.
+        if collapsed:
+            self.clear_search_results()
 
     def _on_collapsed_bar_expand(self) -> None:
         """D44: a click on the collapsed bar restores the panel."""
@@ -696,7 +706,19 @@ class WatchlistPanel(QWidget):
         self.search_text_changed.emit(text)
 
     def show_search_results(self, samples: list) -> None:
-        """Populate the results popup (≤16 ContractDescriptions)."""
+        """Populate the results popup (≤16 ContractDescriptions).
+
+        D102/AC-D102.2: while the panel is collapsed the results are refused
+        (and the popup cleared) — a delivery that arrives after the collapse
+        must not re-open it, and the display decision is this widget's, not
+        the search service's (A248).
+        """
+        # D102 / AC-D102.2: a result that arrives after the collapse must not
+        # re-open the popup — the display decision is this widget's, not the
+        # search service's (A248).
+        if self._collapsed:
+            self.clear_search_results()
+            return
         self._search_list.clear()
         for desc in samples or []:
             contract = getattr(desc, "contract", None)

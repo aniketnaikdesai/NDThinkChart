@@ -366,6 +366,10 @@ class LwBridge(QObject):
     pageAlarmDeleted = pyqtSignal(dict)
     pageZoomRefused = pyqtSignal(dict)
     pageKeyPressed = pyqtSignal(dict)
+    #: D101: a restored chart-control button was pressed in the page.
+    #: Payload ``{"control": <id>, "value": <bool|null>}`` — an input event,
+    #: not state: it is never logged and never replayed.
+    pageControlPressed = pyqtSignal(dict)
     #: S-P11-5: throttled page → Python visible-range report (gesture-end +
     #: post-update only, AP-P11-3). Payload ``{"range": {"from", "to"},
     #: "following"}`` — the freshest report wins at save time (AR-P11-2).
@@ -666,6 +670,16 @@ class LwBridge(QObject):
     def keyPressed(self, payload: str = "") -> None:
         """JS slot: a chart keyboard gesture the page handled."""
         self.pageKeyPressed.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def controlPressed(self, payload: str = "") -> None:
+        """JS slot: a restored chart-control button was pressed (D101).
+
+        Payload ``{"control": <id>, "value": <bool|null>}`` — one JSON
+        string, the mirror of every other Q-20 slot. Nothing is returned
+        to the page: the answer is the interaction channel's router op.
+        """
+        self.pageControlPressed.emit(self._payload(payload))
 
     @pyqtSlot(str)
     def viewportReport(self, payload: str = "") -> None:

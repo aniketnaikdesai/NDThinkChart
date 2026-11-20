@@ -270,7 +270,7 @@ def visible_volume_ceiling(visible_max: float) -> float:
 def heikin_ashi(rows: Sequence) -> list:
     """Transform ``(t, o, h, l, c)`` rows to Heikin-Ashi ``(t, ha_o, ha_h,
     ha_l, ha_c)``. The single value source going forward (LWC phases use
-    this); the pyqtgraph item keeps its identical local copy until P6-13.
+    this); the retired renderer's local copy went with it.
     """
     result = []
     prev_ha_o, prev_ha_c = None, None

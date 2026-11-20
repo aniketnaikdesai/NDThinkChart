@@ -311,7 +311,15 @@
   /* ── browser glue (called from the page; nothing runs at load) ──────── */
 
   function mountControls(container, onControl, bridge) {
-    if (!container || typeof document === "undefined") return [];
+    /* D101: idempotent per container — a second mount returns the buttons
+     * already there instead of appending a duplicate set. The guard is
+     * extended so an inert harness container (no appendChild) stays inert
+     * and a document-less run mounts nothing. */
+    if (!container || typeof container.appendChild !== "function" ||
+        typeof document === "undefined") {
+      return [];
+    }
+    if (container.__lwControls) return container.__lwControls;
     var made = [];
     for (var i = 0; i < CONTROL_BUTTONS.length; i++) {
       (function (spec) {
@@ -323,16 +331,29 @@
         btn.title = spec.title;
         if (spec.toggle) btn.setAttribute("aria-pressed", "false");
         btn.addEventListener("click", function () {
+          /* S-P30-2: no optimistic write. The requested state is computed,
+           * never latched, and the answer decides what the attribute says. */
           var value = null;
           if (spec.toggle) {
-            var next = btn.getAttribute("aria-pressed") !== "true";
-            btn.setAttribute("aria-pressed", next ? "true" : "false");
-            value = next;
+            value = btn.getAttribute("aria-pressed") !== "true";
           }
           var result = (typeof onControl === "function")
             ? onControl(spec.id, value)
             : null;
-          /* Q-20: the router refused this control (TR-9) — report it. */
+          if (spec.toggle) {
+            if (result && result.refused) {
+              /* TR-9: the router declined — the attribute describes what is
+               * true, so a refusal restores the pre-click value. */
+              btn.setAttribute("aria-pressed", value ? "false" : "true");
+            } else if (result && typeof result.mode === "string") {
+              /* drive-from-return: the mode the shim reports is the truth. */
+              btn.setAttribute("aria-pressed",
+                result.mode === "ZOOMING" ? "true" : "false");
+            }
+            /* no synchronous answer (the production bridge): leave it — the
+             * authoritative router_mode op sets it via syncControlState. */
+          }
+          /* Q-20: the router refused this control (TR-9) — report it once. */
           if (result && result.refused) {
             reportZoomRefused(spec.intent, bridge, result.mode);
           }
@@ -341,7 +362,32 @@
         made.push(btn);
       })(CONTROL_BUTTONS[i]);
     }
+    container.__lwControls = made;
     return made;
+  }
+
+  /* D101/S-P30-2: the latch is owned by the mode the app reports. A
+   * `router_mode` (or `reset_view`) op is durable state, so it sets the
+   * magnifier's `aria-pressed`; a `zoom` op carries no mode and changes
+   * nothing. Returns false when nothing is mounted. */
+  function syncControlState(op) {
+    if (!op || (op.op !== "router_mode" && op.op !== "reset_view") ||
+        typeof op.mode !== "string") {
+      return false;
+    }
+    if (typeof document === "undefined" ||
+        typeof document.getElementById !== "function") {
+      return false;
+    }
+    var btn = null;
+    try {
+      btn = document.getElementById("control-magnifier");
+    } catch (err) {
+      btn = null;
+    }
+    if (!btn || typeof btn.setAttribute !== "function") return false;
+    btn.setAttribute("aria-pressed", op.mode === "ZOOMING" ? "true" : "false");
+    return true;
   }
 
   return {
@@ -367,5 +413,6 @@
     pageBridge: pageBridge,
     reportZoomRefused: reportZoomRefused,
     mountControls: mountControls,
+    syncControlState: syncControlState,
   };
 });

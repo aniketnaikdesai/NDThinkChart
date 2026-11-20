@@ -1,848 +1,239 @@
 {
   "meta": {
-    "phase": "P29",
-    "plan_ref": "docs/plan.md#Phase P29",
-    "architecture_ref": "docs/architecture.md#Phase P29",
-    "requirements_ref": "docs/requirements/requirements.md#Phase P29",
-    "notes": "docs/tasks/task_manager_notes_P29.md",
-    "baseline_commit": "3b92ce6",
+    "phase": "P30",
+    "plan_ref": "docs/plan.md#Phase P30",
+    "architecture_ref": "docs/architecture.md#Phase P30",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P30",
+    "notes": "docs/tasks/task_manager_notes_P30.md",
+    "baseline_commit": "956f9f8",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P29-T1",
-      "title": "P29-01 \u2014 D96 + D100: the persisted write and its parameters \u2014 one transaction over one declaration",
-      "description": "Two stores, one rule: a persisted write either applies exactly its declared parameters atomically or leaves the rows untouched. In `StudyStore.save`, build the serialized row list BEFORE any connection use (`rows = [(symbol, study[\"type\"], 1 if study.get(\"enabled\") else 0, json.dumps(deepcopy(study.get(\"params\", {})))) for study in studies]`), then run the `DELETE` and the `executemany` inside `with db.conn:` and remove the trailing `db.conn.commit()`; the original `TypeError`/`IntegrityError`/`OperationalError` surfaces unwrapped, once. In `DrawingStore.update_group`, reject `set(fields) - {\"name\",\"color\",\"visible\",\"locked\"}` with `ValueError(f\"update_group: unknown field(s): {', '.join(unknown)}\")` BEFORE `db.conn.cursor()`, then build one `pairs = [(k, v) for k, v in fields.items() if k in allowed]` list and derive `assigns` and `values` from it \u2014 bool->int only for `visible`/`locked`, a bool supplied for `name`/`color` raises `ValueError(f\"update_group: {key} expects a string, got bool\")`, and empty `fields` stays the today's no-op. Write the new suite `tests/test_d96_d100_store_atomicity.py` (shared temp DB from conftest, one dedicated symbol, fixtures committed before each call). Do not add a helper module, a second connection, an explicit BEGIN/ROLLBACK, a retry/queue, a new exception type, or any change to the studies/drawing_groups DDL, `load`, `sanitize_study_params`, or any other store method; the three `update_group` call sites in `ui/drawing_groups_dialog.py` are AUDITED (each passes one allowed key) and not edited.",
+      "id": "P30-T1",
+      "title": "P30-01 \u2014 D101: the restored control cluster mounts, acts, and tells the truth (Q118 = RESTORE)",
+      "description": "Restore the zoom/magnifier/Reset cluster in the live page (Q118 = RESTORE, final) so it mounts, acts and never advertises a refused state. `chart.html` gains a `#controls` toolbar, `chart.js::init` mounts it once per page load through `mountControlCluster()`, and a click applies the page's own `zoom(range, factor)` / `fitAndFollow()` locally then reports one `{\"control\", \"value\"}` on `LwBridge.controlPressed` and returns nothing; Python validates the id, calls the unchanged `handle_control`, and only the durable `router_mode` op returns (no page consumer is added for the published `zoom`/`reset_view` \u2014 a replayed log replays state, never steps). `mountControls` becomes idempotent per container and applies the three-branch latch rule, `ui/chart_controls.CONTROL_SPECS` becomes the one declaration `ui/lwc_view.CONTROL_IDS` derives from, and the new exported `syncControlState(op)` drives the magnifier's `aria-pressed` from the mode op. Four offscreen layers prove reachability (a DOM suite, a real-page-glue suite, the pytest bridge path, a four-way join); the painted page is owner-run G7 and no case, exit condition or record may claim it.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [],
       "acceptance_criteria": [
         {
-          "id": "AC-D96.1",
-          "criterion": "Given a symbol with stored studies, When `StudyStore.save` raises for EITHER failure class \u2014 a non-serializable param (`TypeError` from `json.dumps`) or a forced DB error between the DELETE and the INSERT (`sqlite3.IntegrityError` from `type=None` against `studies.type NOT NULL`) \u2014 Then `load(symbol)` is byte-identical to before (json.dumps(..., sort_keys=True) comparison), `db.conn.in_transaction is False` immediately after the call, and `load(symbol)` is still byte-identical after an unrelated write + commit on the same connection; and a subsequent valid `save` succeeds and leaves exactly the valid set."
+          "id": "AC-D101.1",
+          "criterion": "Given the page loaded, Then a control container exists, `mountControls` has run exactly once per page load (and once after a render-process recovery), and each control id from the mirror is present in the DOM and activates the corresponding router action. (Measurable: DOM presence per id + an action assertion per control against the existing router seam; a page-recovery case asserting exactly one mount.)"
         },
         {
-          "id": "AC-D96.2",
-          "criterion": "Given a valid study set, When `save` returns, Then the store holds exactly that set \u2014 row count and `load` equality \u2014 and two successive saves leave exactly the second set (replace-all semantics unchanged)."
+          "id": "AC-D101.2",
+          "criterion": "Given a toggle control whose action is refused (TR-9), Then after the handler returns `aria-pressed` describes the app's actual state \u2014 it equals its pre-click value (revert) or the mode the router returned (drive-from-return), and in **neither** case does it read `true` for a refused state \u2014 and the refusal is reported exactly once. The refused path is tested from **both** starting states (off\u2192refused, on\u2192refused). (Measurable: attribute read before/after each refused click in both states + a report counter; a click-handler unit case driving `mountControls` with a refusing `onControl`.)"
         },
         {
-          "id": "AC-D96.3",
-          "criterion": "Given an empty list, When `save(symbol, [])` runs, Then the symbol's rows are removed and committed (`load(symbol) == []`, `db.conn.in_transaction is False`)."
+          "id": "AC-D101.3",
+          "criterion": "Given the end state, Then every control id in the mirror is reachable in the running page, and **no** control surface exists whose only callers are tests \u2014 the reachability check joins the mirror's ids to the DOM, so a surface that regresses to test-only fails it. (Measurable: the join of mirror ids \u2192 DOM ids \u2192 the action each performs; a negative case where an id is removed from the DOM and the check goes red.)"
         },
         {
-          "id": "AC-D100.1",
-          "criterion": "Given an update whose `fields` contain at least one key outside {\"name\",\"color\",\"visible\",\"locked\"}, When `update_group` runs, Then a `ValueError` naming every unknown key is raised before a cursor exists \u2014 a `db.conn.set_trace_callback` installed before the call records ZERO statements \u2014 the group row is unchanged, `in_transaction` is False, and both stay true after an unrelated commit."
+          "id": "AC-D101.4",
+          "criterion": "Given the restored cluster, When the user pans and zooms from the keyboard, Then the documented page affordances still work unchanged alongside the buttons. (Measurable: the existing keyboard/interaction tests, unmodified.)"
         },
         {
-          "id": "AC-D100.2",
-          "criterion": "Given any subset of the four allowed fields (including two at once and the empty subset), When `update_group` runs, Then exactly those columns change and the others are untouched, the empty subset is a no-op, and every UPDATE statement the trace records binds exactly as many parameters as it has placeholders."
+          "id": "AC-D101.5",
+          "criterion": "Given the restored cluster, When a control is clicked in the page, Then its message reaches `LwcChartView.handle_control` through the bridge (the production caller that did not exist), the corresponding Python action runs, and no Python-side control surface remains referenced only by tests or by the mirror \u2014 `ChartControls` is either the receiving surface or its signal names are carried by a module production imports. (Measurable: an offscreen end-to-end click per control asserting the Python slot ran; a production-reference check for `handle_control` and `ChartControls` that fails on a test-only symbol.)"
         },
         {
-          "id": "AC-P29-01-BOOL",
-          "criterion": "Given a boolean value supplied for a column, When `update_group` runs, Then `visible`/`locked` coerce bool to int and read back as True/False, while a bool supplied for `name` or `color` raises `ValueError` and changes nothing."
+          "id": "AC-P30-01-SCOPE",
+          "criterion": "Given the working tree after this task, Then the only paths this task created or modified are `chart_assets/lwc/chart.html`, `chart_assets/lwc/interaction.js`, `chart_assets/lwc/chart.js`, `chart_assets/lwc/interaction.controls.test.js`, `chart_assets/lwc/controls.test.js`, `ui/chart_controls.py`, `ui/lwc_bridge.py`, `ui/lwc_view.py` and `tests/test_d101_control_cluster.py`; every named existing suite and `chart_assets/lwc/chart.test.js` is byte-identical to baseline `956f9f8` (`git diff --quiet 956f9f8 -- <paths>` exits 0); no case in either new suite mentions `QWebEngineView`, `grab(` or a screenshot (G7 stays owner-run and unclaimed); and no case invents a data-limit refusal \u2014 the only refusal driven is TR-9 (`enter_zoom` from `ALARM_PLACING`), while the no-visible-range press asserts no viewport change, no `zoomRefused`, one report (`FI-P30-1`)."
         }
       ],
       "tests": [
         {
-          "test_id": "P29-T1-01",
+          "test_id": "P30-T1-01",
           "linked_acceptance_criterion": [
-            "AC-D96.1"
+            "AC-D101.1"
           ],
           "type": "unit",
-          "description": "Two committed studies for a dedicated symbol; `save` with `params={\"bad\": object()}`; then an unrelated write + `commit()`.",
-          "expected_result": "`TypeError` surfaces once; `load` is byte-identical before/after and again after the unrelated commit; `db.conn.in_transaction is False` right after the failing call."
+          "description": "`chart_assets/lwc/interaction.controls.test.js` cases (a) and (b): the file builds its own stub `globalThis.document` (`createElement` returning a button fake with `setAttribute`/`getAttribute`/`appendChild`/`addEventListener`/`click`, plus `getElementById`), a stub container and a recording `onControl`; mount once, then mount again into the same container.",
+          "expected_result": "Four buttons with ids `control-zoom-out`, `control-zoom-in`, `control-magnifier`, `control-reset`, appended in `CONTROL_BUTTONS` order, the magnifier alone carrying `aria-pressed=\"false\"`; the second call returns the same four buttons and appends nothing (`container.children.length === 4`). Run on the pre-fix `mountControls` this file appends four each call, so the idempotence half is red before the fix."
         },
         {
-          "test_id": "P29-T1-02",
+          "test_id": "P30-T1-02",
           "linked_acceptance_criterion": [
-            "AC-D96.1"
+            "AC-D101.1"
           ],
-          "type": "unit",
-          "description": "A committed study set; `save` with `type=None` (forces `IntegrityError` between DELETE and INSERT); then an unrelated write + `commit()`.",
-          "expected_result": "`sqlite3.IntegrityError` surfaces; rows byte-identical immediately and after the unrelated commit; `in_transaction is False` right after the failure."
+          "type": "integration",
+          "description": "`chart_assets/lwc/controls.test.js` cases (a)\u2013(c): `globalThis.document` is a per-id element map (`chart` with `clientWidth`/`clientHeight`, `goToLatest`, `controls` recording children, everything else `null`) with `createElement`/`getElementById` and `readyState = \"complete\"`; `LightweightCharts` is a fake tree sized to `init()`; `window.LwInteraction` is the real `require(\"./interaction.js\")`; `window.lwBridge` is a recorder. Load the real page glue, click `control-zoom-in`, then click `control-reset` after an arrow-key pan.",
+          "expected_result": "(a) after load `controls.children.length === 4` with ids `control-zoom-out` \u2026 `control-reset` in mirror order, `#chart`'s `clientWidth`/`clientHeight` equal the document's at a 400 px width, and the container's box stays inside the right price-scale gutter; (b) the zoom-in click calls the recorder exactly once with `{\"control\": \"zoom-in\", \"value\": null}` and narrows the fake visible range exactly once about its midpoint by 0.8, with no second range change in the same turn; (c) the reset click re-frames the series and `page.lwIsFollowing()` is `true`."
         },
         {
-          "test_id": "P29-T1-03",
+          "test_id": "P30-T1-03",
           "linked_acceptance_criterion": [
-            "AC-D96.1"
+            "AC-D101.1"
           ],
           "type": "unit",
-          "description": "First-write-on-connection variant: assert `in_transaction is False` immediately before the failing call, on a connection whose only prior writes were committed fixture seeds; then retry with a valid set.",
-          "expected_result": "No transaction is open before the call or after the failure, the seeded prior set survives, and the retry stores exactly the valid set."
+          "description": "`controls.test.js` case (g) \u2014 the FI-P30-1 case: `timeScale().getVisibleLogicalRange()` returns `null` (a page with no bars); click `control-zoom-in`.",
+          "expected_result": "The fake range is still `null` (no viewport change) and the recorder bridge receives **no** `zoomRefused`, while the press is still reported exactly once with `{\"control\": \"zoom-in\", \"value\": null}` \u2014 the report is unconditional and only the viewport change is guarded by `if (range)`. No data-limit refusal is asserted anywhere."
         },
         {
-          "test_id": "P29-T1-04",
+          "test_id": "P30-T1-04",
           "linked_acceptance_criterion": [
-            "AC-D96.2"
+            "AC-D101.2"
           ],
           "type": "unit",
-          "description": "Parametrized over one valid set and two successive valid sets for the same symbol.",
-          "expected_result": "Row count equals the stored set's length, `load` returns exactly it, and after the second save only the second set is present."
+          "description": "`interaction.controls.test.js` cases (c) off\u2192refused, (d) on\u2192refused, (e) accepted, (f) no synchronous answer: each clicks the stub button with a recording `onControl`; (d) pre-sets `aria-pressed=\"true\"` before the click (AP-P30-3 \u2014 the router cannot be `ZOOMING` and `ALARM_PLACING` at once, so the second starting state is constructed).",
+          "expected_result": "Off\u2192refused (pre-click `\"false\"`, request `true`, result `{refused: true, mode: \"ALARM_PLACING\"}`): the attribute is `\"false\"` \u2014 its pre-click value, never the refused request \u2014 and the recorder bridge saw exactly one `zoomRefused`. On\u2192refused (pre-click `\"true\"`, request `false`, same refusal): the attribute is **not** `\"false\"` (it never adopts the refused request) and exactly one `zoomRefused` fires. Accepted: `{mode: \"ZOOMING\"}` \u2192 `\"true\"`, then `{mode: \"IDLE\"}` \u2192 `\"false\"`, no report. No synchronous answer (`onControl` returns `undefined`): the attribute is unchanged and no `zoomRefused` fires. The invariant asserted in both refusal directions is 'the attribute never equals the state the refused click requested'; the pre-fix handler writes the request before the call, so both refusal cases are red before the fix."
         },
         {
-          "test_id": "P29-T1-05",
+          "test_id": "P30-T1-05",
           "linked_acceptance_criterion": [
-            "AC-D96.3"
+            "AC-D101.2"
           ],
-          "type": "unit",
-          "description": "Two committed studies, then `save(symbol, [])`.",
-          "expected_result": "`load(symbol) == []` and `db.conn.in_transaction is False` (the empty set is committed, not left pending)."
+          "type": "integration",
+          "description": "`controls.test.js` cases (d)/(e): drive `page.lwApplyChannel(\"interaction\", {v: 1, ops: [...]})` through the real dispatcher with `{op: \"router_mode\", mode: \"ZOOMING\"}`, then `{op: \"reset_view\", mode: \"IDLE\"}`, then `{op: \"zoom\", step: 1}`, then a `router_mode` op carrying `refused: true, mode: \"ALARM_PLACING\"`, then replay the first mode op.",
+          "expected_result": "`#control-magnifier`'s `aria-pressed` becomes `\"true\"` for the ZOOMING mode and `\"false\"` for the IDLE `reset_view`; the bare `zoom` op makes `syncControlState` return `false` and changes nothing; the refused `router_mode` op leaves the attribute `\"false\"` \u2014 never the refused state; replaying the mode op changes nothing further."
         },
         {
-          "test_id": "P29-T1-06",
+          "test_id": "P30-T1-06",
           "linked_acceptance_criterion": [
-            "AC-D100.1"
+            "AC-D101.3"
           ],
-          "type": "unit",
-          "description": "`set_trace_callback(records.append)` cleared before the call; parametrized over `{\"visible\": False, \"bogus\": 1}` and `{\"bogus\": 1}` alone; repeated after an unrelated commit; callback removed in `finally`.",
-          "expected_result": "`ValueError` message names `bogus`; `records == []` (no SQL at all); the group row is unchanged; `in_transaction is False`, before and after the unrelated commit."
+          "type": "integration",
+          "description": "`tests/test_d101_control_cluster.py` join cases: a stdin node script defines `globalThis.document` (the same stub shape) **before** requiring `interaction.js`, reads `CONTROL_BUTTONS` and mounts them into a stub container (the `tests/test_lwc_router_mirror.py` `_NODE` + stdin-script pattern); an in-module `missing_ids(...)` helper then compares the mounted ids to `LV.CONTROL_IDS` and `[s.id for s in CONTROL_SPECS]` and each row's `intent`/`toggle`/`signal`; the negative case deletes one mounted button from the stub first.",
+          "expected_result": "Positive: mounted ids == page ids == `tuple(LV.CONTROL_IDS)` == `tuple(s.id for s in CONTROL_SPECS)` == `(\"zoom-out\", \"zoom-in\", \"magnifier\", \"reset\")`, and `intent`/`toggle`/`signal` agree across the three declarations. Negative: with one mounted button removed the same helper returns exactly that id as missing (the check is red, not vacuous) \u2014 and a bare node run without the `document` stub would mount nothing, which is why the stub is defined first."
         },
         {
-          "test_id": "P29-T1-07",
+          "test_id": "P30-T1-07",
           "linked_acceptance_criterion": [
-            "AC-D100.2"
+            "AC-D101.5"
           ],
-          "type": "unit",
-          "description": "Parametrized over `{\"visible\": False}`, `{\"visible\": False, \"locked\": True}`, `{\"color\": \"#123456\"}`, `{\"name\": \"renamed\"}` and `{}`.",
-          "expected_result": "Exactly the named columns change (others read back unchanged); `{}` returns without raising and changes nothing; the trace shows one UPDATE whose bound-parameter count equals its placeholder count."
+          "type": "integration",
+          "description": "`tests/test_d101_control_cluster.py`: construct `LV.LwcChartView()` with no host and, per id, call `view._bridge.controlPressed(json.dumps({\"control\": id, \"value\": value}))`; then the refusal case after `view._router.enter_alarm_placing()`; then the hostile cases (`{\"control\": \"no-such-control\"}` and the non-JSON string `\"not json\"`); then an AST read of `ui/lwc_view.py`.",
+          "expected_result": "Each press appends the expected op to `view._interaction_log` (`{\"op\": \"zoom\", \"step\": -1}`, `{\"op\": \"zoom\", \"step\": 1}` with `refused: false`, a `router_mode` op, `{\"op\": \"reset_view\"}`), `interactionOpsEmitted` fires once, the router mode is `ZOOMING` after the magnifier and `IDLE` after reset; the refusal emits `zoom_refused` exactly once and its op carries `refused: true, mode: \"ALARM_PLACING\"`; neither hostile input raises, adds an op or emits a refusal; the AST shows `ui/lwc_view.py` imports `ui.chart_controls` and `_on_page_control_pressed` is a production caller of `handle_control` inside the module."
         },
         {
-          "test_id": "P29-T1-08",
+          "test_id": "P30-T1-09",
           "linked_acceptance_criterion": [
-            "AC-P29-01-BOOL"
+            "AC-D101.4"
           ],
-          "type": "unit",
-          "description": "`visible=True` then read-back; `name=True` and `color=True` each attempted with the trace callback installed.",
-          "expected_result": "`visible` stores 1 and reads back `True`; each bool-for-text call raises `ValueError`, records no statement, and leaves the row unchanged."
+          "type": "integration",
+          "description": "Run `node --test chart_assets/lwc/chart.test.js` (the shipped page glue incl. its keyboard cases), `node --test chart_assets/lwc/gestures.test.js chart_assets/lwc/follow_offset.test.js`, and `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_chart_mouse_router.py tests/test_lwc_page_wiring.py -m 'not webengine' -q`; assert `git diff --quiet 956f9f8 -- chart_assets/lwc/chart.test.js` exits 0.",
+          "expected_result": "Every suite passes with `chart.test.js` byte-identical to baseline `956f9f8` and `bindKeyboard`'s shipped behaviour untouched: the keyboard pan/zoom cases in `chart.test.js` and the router suite's key-path cases are green without any re-baseline, so the restored buttons are a second path beside the keyboard, not a replacement for it."
+        },
+        {
+          "test_id": "P30-T1-08",
+          "linked_acceptance_criterion": [
+            "AC-P30-01-SCOPE"
+          ],
+          "type": "integration",
+          "description": "Run `git diff --quiet 956f9f8 -- tests/test_lwc_router_mirror.py tests/test_lwc_page_wiring.py tests/test_lwc_bridge.py tests/test_chart_mouse_router.py tests/test_p11_replace.py tests/test_lwc_alarms.py tests/test_lwc_drawing_tool.py tests/test_lwc_e2e_data.py tests/test_d57_chevron.py chart_assets/lwc/chart.test.js`; record the worker's own edit list in the result; grep both new suites for `QWebEngineView`, `grab(` and `screenshot`; run `node --test chart_assets/lwc/`.",
+          "expected_result": "Every named path exits 0 (byte-identical to baseline `956f9f8`); the recorded edits are a subset of the nine allow-listed paths; neither new suite contains a render/screenshot assertion; `node --test chart_assets/lwc/` is green including the untouched `chart.test.js`, `gestures.test.js`, `follow_offset.test.js`, `tz_format.test.js` and `volume_scale.test.js` (P30-01 runs in parallel with P30-T2, so this check names only this task's files \u2014 the whole-phase diff is P30-T4's record)."
         }
       ],
       "expected_artifacts": [
-        "data/study_store.py \u2014 save serializes before any connection use and replaces inside `with db.conn:` (no trailing commit)",
-        "data/drawing_store.py \u2014 update_group rejects unknown keys before a cursor and derives assigns+values from one filtered pair list",
-        "tests/test_d96_d100_store_atomicity.py \u2014 new suite covering AC-D96.1-.3, AC-D100.1/.2 and the bool rule",
-        "the audited result: the three ui/drawing_groups_dialog.py call sites each pass one allowed key (recorded, not edited)"
+        "chart_assets/lwc/chart.html \u2014 `#controls` (role=toolbar) + its CSS; the script list and #chart box unchanged",
+        "chart_assets/lwc/interaction.js \u2014 `mountControls` idempotent per container with the three-branch latch rule; new exported `syncControlState(op)`; `CONTROL_BUTTONS`/`zoomBy`/`reportZoomRefused`/router mirror byte-identical",
+        "chart_assets/lwc/chart.js \u2014 `mountControlCluster()` called once from `init()` after `ensureChevronButton()`; `controlPressed(id, value)` applies the page's `zoom`/`fitAndFollow()` then reports and returns nothing; one guarded `syncControlState(op)` call in the interaction branch; no consumer for `zoom`/`reset_view`",
+        "ui/chart_controls.py \u2014 `ControlSpec` + `CONTROL_SPECS` (the one declaration); `ChartControls` untouched and still unconstructed",
+        "ui/lwc_bridge.py \u2014 `pageControlPressed = pyqtSignal(dict)` + `@pyqtSlot(str) controlPressed`; nothing else moved",
+        "ui/lwc_view.py \u2014 `CONTROL_IDS` derived from `CONTROL_SPECS`; `pageControlPressed` connected; `_on_page_control_pressed`; `handle_control`'s docstring names the production caller",
+        "chart_assets/lwc/interaction.controls.test.js \u2014 new DOM suite (mount, idempotence, both refused starting states, accepted, no-answer, container guard)",
+        "chart_assets/lwc/controls.test.js \u2014 new real-page-glue suite (mount order, one-turn viewport change, reset re-frames, mode-op latch, FI-P30-1 no-range case, fresh-document remount)",
+        "tests/test_d101_control_cluster.py \u2014 the four-way join + negative case, the bridge\u2192handle_control path per id, the TR-9 refusal once, the hostile ids, and the production-reference AST check",
+        "the recorded evidence: the named existing suites unchanged against 956f9f8 and the node suite green"
       ],
       "touches_files": [
-        "data/study_store.py",
-        "data/drawing_store.py",
-        "tests/test_d96_d100_store_atomicity.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "data/study_store.py's current save (DELETE then a comprehension that serializes after the delete)",
-        "data/drawing_store.py's current update_group (assigns filtered, values from every kwarg)",
-        "data/db.py \u2014 the one shared default-isolation connection and the studies/drawing_groups DDL"
-      ],
-      "outputs": [
-        "a save whose failure leaves the stored set byte-identical and no transaction pending",
-        "an update_group whose statement and parameters cannot disagree, rejecting unknown keys before any SQL",
-        "tests/test_d96_d100_store_atomicity.py"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "data/study_store.py",
-            "lines": "90-130",
-            "why": "edit: save's body (serialize-first + `with db.conn:`); read-only: load and sanitize_study_params above it"
-          },
-          {
-            "path": "data/drawing_store.py",
-            "lines": "15-95",
-            "why": "edit: update_group's body; read-only: groups_for_symbol/create_group and every other method"
-          },
-          {
-            "path": "data/db.py",
-            "lines": "80-120",
-            "why": "read-only: the studies/drawing_groups DDL (studies.type NOT NULL supplies the forced error) and the module singleton `db`"
-          },
-          {
-            "path": "tests/conftest.py",
-            "lines": "96-125",
-            "why": "read-only: the shared temp-DB isolation fixture and the tables cleaned after each test"
-          },
-          {
-            "path": "tests/test_drawing_store.py",
-            "lines": "1-60",
-            "why": "read-only: store-test conventions; must stay green unchanged"
-          },
-          {
-            "path": "ui/drawing_groups_dialog.py",
-            "lines": "175-280",
-            "why": "read-only audit: the three update_group call sites each pass one allowed key \u2014 do not edit"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "data/study_store.py:save",
-            "status": "existing"
-          },
-          {
-            "ref": "data/study_store.py:load",
-            "status": "existing"
-          },
-          {
-            "ref": "data/study_store.py:sanitize_study_params",
-            "status": "existing"
-          },
-          {
-            "ref": "data/drawing_store.py:update_group",
-            "status": "existing"
-          },
-          {
-            "ref": "data/drawing_store.py:groups_for_symbol",
-            "status": "existing"
-          },
-          {
-            "ref": "data/db.py:studies",
-            "status": "existing"
-          },
-          {
-            "ref": "data/db.py:drawing_groups",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "data/study_store.py",
-            "signature": "rows = [(symbol, study[\"type\"], 1 if study.get(\"enabled\") else 0, json.dumps(deepcopy(study.get(\"params\", {})))) for study in studies]  # built BEFORE db.conn is touched; then `with db.conn:` runs DELETE + executemany, and there is no trailing commit"
-          },
-          {
-            "status": "new",
-            "module": "data/drawing_store.py",
-            "signature": "raise ValueError(f\"update_group: unknown field(s): {', '.join(unknown)}\")  # raised before db.conn.cursor() exists"
-          },
-          {
-            "status": "new",
-            "module": "data/drawing_store.py",
-            "signature": "raise ValueError(f\"update_group: {key} expects a string, got bool\")  # only for name/color; visible/locked coerce bool via int(value)"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P29",
-        "plan_ref": "docs/plan.md#P29-01",
-        "requirement_ids": [
-          "AC-D96.1",
-          "AC-D96.2",
-          "AC-D96.3",
-          "AC-D100.1",
-          "AC-D100.2",
-          "A241",
-          "A245",
-          "R181",
-          "R185",
-          "Journey 78",
-          "Journey 81"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d96_d100_store_atomicity.py -q",
-        "memory_refs": [
-          "sqlite",
-          "offscreen"
-        ],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P29-T2",
-      "title": "P29-02 \u2014 D97: one crossing rule, previous side inclusive",
-      "description": "Replace `evaluate_alarms`'s two strict comparisons with the phase's one rule: `crossed_above = prev_price <= alarm.price < curr_price` and `crossed_below = prev_price >= alarm.price > curr_price`. The previous-side boundary is INCLUSIVE (a touch arms), the current-side boundary is EXCLUSIVE (sitting on the level never fires), and a touch is derived \u2014 DG133 \u2014 so NO alarm field is added. Every other line of the function (the `prev_price is None or curr_price <= 0` guard, the kind/active/triggered skips, the `cross_either` disjunction, the signature and return type) stays byte-identical, and the docstring gains the rule stated once. In `tests/test_alarm_service.py`, re-baseline exactly ONE named case: `TestBoundaryAndState::test_exactly_on_alert_price_above_counts` (9.5 -> 10.0 currently fires) becomes `test_arrival_on_the_level_is_a_touch_not_a_cross` \u2014 `evaluate_alarms(9.5, 10.0, [alarm@10.0 cross_above]) == []`, then `evaluate_alarms(10.0, 10.01, [fresh same-level alarm]) == [alarm]` \u2014 with `AC-D97.1`/A242 cited in its docstring. `test_equal_prev_price_is_not_a_cross` already encodes the new rule and stays unmodified; add the Journey 79 edge cases in the same file. Do not add an Alarm field, a cache, a clock or a second evaluation path, and do not change `evaluate_volume_burst`, `_resolve_z_threshold`, `TickerSession._on_aggregated_bar`, or any other shipped case.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [],
-      "acceptance_criteria": [
-        {
-          "id": "AC-D97.1",
-          "criterion": "Given an alarm whose level equals the current sample, When subsequent samples are evaluated, Then a sample that stays at the level does not fire, the first sample strictly beyond the level in the alarm's direction fires exactly once, and any further sample beyond does not fire (the `triggered` latch) \u2014 for `cross_above`, `cross_below` and `cross_either`."
-        },
-        {
-          "id": "AC-D97.2",
-          "criterion": "Given a seed tick (`prev_price is None`) at exactly the level, Then no alarm fires on the seed for any of the three directions, and a non-positive current price still returns [] (the AC-D25.3 guard stays green)."
-        },
-        {
-          "id": "AC-D97.3",
-          "criterion": "Given a `cross_above` alarm touched at the level, When the next sample is strictly below the level, Then it does not fire; and the mirror for `cross_below` touched then crossed upward."
-        },
-        {
-          "id": "AC-P29-02-INVARIANTS",
-          "criterion": "Given the shipped pure function, Then its signature, its `prev is None or curr_price <= 0` guard, its inactive/already-triggered skips and its return type are unchanged; a one-tick gap over the level fires (9.0 -> 11.0); a return to the level after firing does not re-fire; and `Alarm` still carries no touch/armed field."
-        }
-      ],
-      "tests": [
-        {
-          "test_id": "P29-T2-01",
-          "linked_acceptance_criterion": [
-            "AC-D97.1"
-          ],
-          "type": "unit",
-          "description": "Parametrized over the three directions with a level of 10.0: tick at the level, then strictly beyond, then beyond again.",
-          "expected_result": "First call returns []; second returns [alarm] exactly once; third returns [] (latched)."
-        },
-        {
-          "test_id": "P29-T2-02",
-          "linked_acceptance_criterion": [
-            "AC-D97.1"
-          ],
-          "type": "unit",
-          "description": "Repeated samples that stay exactly at the level after a seed at the level.",
-          "expected_result": "Zero triggers across the whole sequence."
-        },
-        {
-          "test_id": "P29-T2-03",
-          "linked_acceptance_criterion": [
-            "AC-D97.2"
-          ],
-          "type": "unit",
-          "description": "Seed-only sequence: `evaluate_alarms(None, 10.0, alarms)` then `evaluate_alarms(10.0, 10.0, alarms)` for each direction.",
-          "expected_result": "Both calls return [] and no alarm's `triggered` flag is set."
-        },
-        {
-          "test_id": "P29-T2-04",
-          "linked_acceptance_criterion": [
-            "AC-D97.3"
-          ],
-          "type": "unit",
-          "description": "`cross_above` at 10.0 with 9.5 -> 10.0 (touch) then 10.0 -> 9.4 (downward); mirrored `cross_below` with 10.5 -> 10.0 then 10.0 -> 10.6.",
-          "expected_result": "Neither directional alarm fires on the opposite-direction move."
-        },
-        {
-          "test_id": "P29-T2-05",
-          "linked_acceptance_criterion": [
-            "AC-P29-02-INVARIANTS"
-          ],
-          "type": "unit",
-          "description": "Guard/skip cases (`None` prev, curr<=0, inactive, triggered), the one-tick gap 9.0 -> 11.0, the post-fire return-to-level case, `inspect.signature(evaluate_alarms)`, and the `Alarm` dataclass field set.",
-          "expected_result": "Guards and skips return []; the gap fires once; the post-fire return does not re-fire; the signature string is unchanged; no field name contains `touch` or `armed`."
-        }
-      ],
-      "expected_artifacts": [
-        "services/alarm_service.py \u2014 the two comparisons and the one-rule docstring; nothing else changed",
-        "tests/test_alarm_service.py \u2014 the one named re-baseline plus the Journey 79 edge cases; every other shipped assertion unchanged"
-      ],
-      "touches_files": [
-        "services/alarm_service.py",
-        "tests/test_alarm_service.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "services/alarm_service.py::evaluate_alarms as shipped (`prev < level <= curr` / `prev > level >= curr`)",
-        "DG133 \u2014 a touch is derived from `prev == level` and is never stored"
-      ],
-      "outputs": [
-        "one crossing rule: `prev <= level < curr` / `prev >= level > curr`",
-        "the one named re-baseline plus the added edge cases"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "services/alarm_service.py",
-            "lines": "30-70",
-            "why": "edit: evaluate_alarms's two comparisons and docstring; read-only: evaluate_volume_burst below it"
-          },
-          {
-            "path": "tests/test_alarm_service.py",
-            "lines": "1-100",
-            "why": "edit: the one named re-baseline and the added cases; read-only: every other shipped case"
-          },
-          {
-            "path": "data/models.py",
-            "lines": "1-45",
-            "why": "read-only: the Alarm field set \u2014 no new field is added (DG133)"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "730-780",
-            "why": "read-only: the evaluation site and its `prev is None` seed guard \u2014 unchanged"
-          },
-          {
-            "path": "tests/test_d25_alarm_monitor.py",
-            "lines": "1-50",
-            "why": "read-only: seed/phantom conventions the added cases must not contradict; must stay green unchanged"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "services/alarm_service.py:evaluate_alarms",
-            "status": "existing"
-          },
-          {
-            "ref": "services/alarm_service.py:evaluate_volume_burst",
-            "status": "existing"
-          },
-          {
-            "ref": "services/alarm_service.py:DEFAULT_Z_THRESHOLD",
-            "status": "existing"
-          },
-          {
-            "ref": "data/models.py:Alarm",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "services/alarm_service.py",
-            "signature": "crossed_above = prev_price <= alarm.price < curr_price"
-          },
-          {
-            "status": "new",
-            "module": "services/alarm_service.py",
-            "signature": "crossed_below = prev_price >= alarm.price > curr_price"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P29",
-        "plan_ref": "docs/plan.md#P29-02",
-        "requirement_ids": [
-          "AC-D97.1",
-          "AC-D97.2",
-          "AC-D97.3",
-          "A242",
-          "R182",
-          "DG133",
-          "Journey 79"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_alarm_service.py -q",
-        "memory_refs": [
-          "offscreen"
-        ],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P29-T3",
-      "title": "P29-03 \u2014 D98: one outage baseline, one resume path, and a failed launch is not an outage",
-      "description": "Any outage behaves like the TWS-gone outage for evaluation: the first post-outage tick seeds, the unmonitored interval is reported. Add `AlarmMonitor.begin_outage()` \u2014 it RETURNS IMMEDIATELY when `self._host._sessions` is empty (a failed/pre-handshake `connectionClosed()` on an 'app started before TWS' launch records nothing, and the first `nextValidId` keeps the reconcile-seeded 1m close), otherwise sets `_outage_active` (its ONLY setter) and `_outage_start.setdefault(symbol, time.time())` for every session with live alarms. Rename `_pause_start` -> `_outage_start` (one ledger, one meaning); `pause_all` keeps its flags and its `setdefault` but no longer sets `_outage_active`; `_start_monitoring`'s staged branch targets the renamed dict. `resume_all` remembers `resuming_from_outage = self._outage_active` at entry, builds gaps from `_outage_start`, clears the ledger and both flags, and sets `session.last_chart_price = None` for EVERY session ONLY when resuming from an outage (a first connect therefore keeps D25.2's cache seed). `MainWindow._on_disconnected` calls `self.alarm_monitor.begin_outage()` as the first statement after `self._ibkr_connected = False`, before the replay-serial bump and before classification; `_on_connected` loses `_resuming_from_pause` and its branch and always runs `reconcile()` then `resume_all()`, reporting `_gaps` when non-empty. THE GATE IS THE SESSION PREDICATE, NOT `MainWindow._ibkr_connected`, AND `_go_live` IS NOT EDITED \u2014 `_go_live()` sets only `ib_client._connected`, so a window-flag gate would redden `test_d40_1`-`test_d40_4`, whose `reconcile()` calls all precede their drops. The three stated residuals (a poll-detected drop that recovers on the first attempt, a late `disconnected`, an alarm-CRUD session created before the first handshake) are ACCEPTED, not fixed here. In `tests/test_d40_tws_lifecycle.py`: exactly ONE named re-baseline (`test_d40_4_transient_drop_no_pause_ui`, citing AC-D98.1 and FI-P29-1) and FOUR renames whose assertion content is unchanged (`:199`, `:364`, `:375`, `:402`); the FIFTH read at `:445` is inside the re-baselined case and CHANGES VALUE \u2014 `SYM_A` IS in `_outage_start` at the drop, cleared after the resume. Add the new suite `tests/test_d98_outage_baseline.py`. G6 is owner-run and is NEVER claimed by this wave: no case asserts a live TWS socket drop or a live alarm fire; the new suite's docstring says so and names what it proxies.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P29-T2"
-      ],
-      "acceptance_criteria": [
-        {
-          "id": "AC-D98.1",
-          "criterion": "Given a session with a live alarm at the drop, When the transport drops and later reconnects \u2014 for BOTH classifications (transient, `last_disconnect_class is None`; and TWS_GONE) \u2014 Then the symbol is recorded in `_outage_start` at drop time, `_outage_active` is True, the first post-reconnect tick neither evaluates nor fires (`session.last_chart_price is None`), the status line contains `unmonitored` and the symbol, and the pause UI stays TWS-gone-only (on the transient path: `_tws_paused` False, `is_paused` False, `monitoring_paused` False, red badge)."
-        },
-        {
-          "id": "AC-D98.2",
-          "criterion": "Given the seed tick above, When further ticks arrive on both classifications, Then a tick at or below the level does not fire and the next tick strictly beyond the level fires exactly once \u2014 the phase's final crossing rule, after the seed."
-        },
-        {
-          "id": "AC-P29-03-COLDSTART",
-          "criterion": "Given no session at the drop, When a pre-handshake `connectionClosed()` is followed by a successful `nextValidId(1)`, Then nothing is recorded (`_outage_active` False, `_outage_start == {}`, no `unmonitored` line) and the reconcile-created monitor's `last_chart_price` EQUALS the cached 1m close (no resume-wipe)."
-        },
-        {
-          "id": "AC-P29-03-LEDGER",
-          "criterion": "Given the one ledger, Then two drops without a successful connect keep the EARLIEST start (`setdefault`), a resume clears both `_outage_start` and `_outage_active`, `begin_outage` is the only setter of `_outage_active` (a `pause_all()` alone leaves it False and a following `resume_all()` changes no baseline), and `_pause_start` no longer exists as an attribute or as a source occurrence in `services/alarm_monitor.py`, `ui/main_window.py` or `tests/test_d40_tws_lifecycle.py`."
-        },
-        {
-          "id": "AC-P29-03-COVERAGE",
-          "criterion": "Given a symbol with no live alarm, Then a drop produces no ledger entry and no line; given a session created DURING a recorded outage, Then it is re-seeded at resume; and when NO session existed at the drop, Then there is no outage to resume and a session created afterwards keeps its own seed."
-        },
-        {
-          "id": "AC-P29-03-INERT",
-          "criterion": "Given a second `nextValidId(1)` with no intervening drop, Then every baseline is untouched; given a `begin_outage()` delivered AFTER a resume, Then it arms exactly one re-seed (and one interval line) at the FOLLOWING connect, which `resume_all()` consumes."
-        },
-        {
-          "id": "AC-P29-03-REBASELINE",
-          "criterion": "Given `tests/test_d40_tws_lifecycle.py`, Then the only behavioural change is the one named re-baseline plus the four `_pause_start` -> `_outage_start` renames, and the only value change is `:445` (`SYM_A` present at the drop, cleared after resume); every other assertion (no TWS_GONE classification, no paused badge, `_tws_paused` False, `is_paused` False, `monitoring_paused` False) is unchanged."
-        }
-      ],
-      "tests": [
-        {
-          "test_id": "P29-T3-01",
-          "linked_acceptance_criterion": [
-            "AC-D98.1"
-          ],
-          "type": "unit",
-          "description": "D40-style fake window/client, `threading.Timer` stubbed, `services.alarm_monitor.time.time` monkeypatched, `BarCache` seeded; a session with a live alarm; `_go_live`; `connectionClosed()` with `last_disconnect_class is None`; `nextValidId(1)`.",
-          "expected_result": "Ledger held the symbol at drop time; `last_chart_price is None` after the resume; the status line names the symbol and the interval and contains `unmonitored`; a first bar beyond the level does not fire; no `_paused`, no `monitoring_paused`, red badge."
-        },
-        {
-          "test_id": "P29-T3-02",
-          "linked_acceptance_criterion": [
-            "AC-D98.1"
-          ],
-          "type": "unit",
-          "description": "Same fixture with `DisconnectClass.TWS_GONE`.",
-          "expected_result": "The same ledger/seed/gap-line assertions, plus the paused flags and badge ON during the outage and OFF after the resume."
-        },
-        {
-          "test_id": "P29-T3-03",
-          "linked_acceptance_criterion": [
-            "AC-D98.2"
-          ],
-          "type": "unit",
-          "description": "Parametrized over both classifications: seed tick beyond the level, tick at/below the level, tick beyond the level.",
-          "expected_result": "No fire on the seed or on the at/below tick; exactly one fire on the strictly-beyond tick."
-        },
-        {
-          "test_id": "P29-T3-04",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-LEDGER"
-          ],
-          "type": "unit",
-          "description": "Two drops with no successful connect between them, then one resume; plus a fresh monitor inspected for the old attribute name.",
-          "expected_result": "One ledger entry with the earliest start; after the resume `_outage_start == {}` and `_outage_active` is False; `hasattr(monitor, '_pause_start')` is False and the three named files contain no `_pause_start`."
-        },
-        {
-          "test_id": "P29-T3-05",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-LEDGER"
-          ],
-          "type": "unit",
-          "description": "`pause_all()` alone on a monitor with a session but no recorded drop, then `resume_all()`.",
-          "expected_result": "`_outage_active` stays False after `pause_all`, and `resume_all()` leaves every session's `last_chart_price` unchanged (no re-seed without a recorded outage)."
-        },
-        {
-          "test_id": "P29-T3-06",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-COVERAGE"
-          ],
-          "type": "unit",
-          "description": "A monitored session with no active/untriggered alarm; drop and resume.",
-          "expected_result": "No ledger entry, no gap line, and the session's price is untouched."
-        },
-        {
-          "test_id": "P29-T3-07",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-COVERAGE"
-          ],
-          "type": "unit",
-          "description": "A session created after a recorded drop but before the resume; and separately, a session created after a drop where `_sessions` was empty.",
-          "expected_result": "In the recorded case the new session is re-seeded (`last_chart_price is None`) at resume; in the no-session case `_outage_active` is False and the new session keeps its own seed."
-        },
-        {
-          "test_id": "P29-T3-08",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-COLDSTART"
-          ],
-          "type": "unit",
-          "description": "Seed the 1m cache and an alarm row, leave `_sessions` empty, call `connectionClosed()` (failed pre-handshake attempt), then `nextValidId(1)`.",
-          "expected_result": "`last_chart_price` equals the cached close, `_outage_active is False`, `_outage_start == {}`, and no `unmonitored` line appears."
-        },
-        {
-          "test_id": "P29-T3-09",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-INERT"
-          ],
-          "type": "unit",
-          "description": "A second `nextValidId(1)` after a completed resume; then a `begin_outage()` after that resume followed by another connect.",
-          "expected_result": "The duplicate connect leaves every baseline untouched; the late `begin_outage` produces exactly one re-seed and one interval line at the following connect, then both are cleared."
-        },
-        {
-          "test_id": "P29-T3-10",
-          "linked_acceptance_criterion": [
-            "AC-P29-03-REBASELINE"
-          ],
-          "type": "manual",
-          "description": "Review the diff of `tests/test_d40_tws_lifecycle.py` against the five named line reads.",
-          "expected_result": "Exactly one named re-baseline (with AC-D98.1 and FI-P29-1 cited and the `:445` value change) plus four renames with unchanged assertion content; no other assertion changed. G6 is stated in the suite docstring as owner-run and is not asserted."
-        }
-      ],
-      "expected_artifacts": [
-        "services/alarm_monitor.py \u2014 begin_outage(), _outage_start rename, _outage_active, gated resume_all, pause_all without the flag",
-        "ui/main_window.py \u2014 begin_outage() before classification; one reconcile()->resume_all() path",
-        "tests/test_d40_tws_lifecycle.py \u2014 one named re-baseline (with the :445 value change) and four renames",
-        "tests/test_d98_outage_baseline.py \u2014 new suite (AC-D98.1/.2, cold start, ledger, coverage, inert, duplicate connected)"
-      ],
-      "touches_files": [
-        "services/alarm_monitor.py",
-        "ui/main_window.py",
-        "tests/test_d40_tws_lifecycle.py",
-        "tests/test_d98_outage_baseline.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "the shipped TWS-gone pause/resume (resume_all re-seeds every session; pause_all records _pause_start)",
-        "the transient path in _on_connected (reconcile only, no resume)",
-        "D25.2's 1m-cache seed and the AC-D25.3 first-tick guard"
-      ],
-      "outputs": [
-        "one interval ledger, one setter, one clearer, one resume path",
-        "a cold-start launch that keeps the cached close",
-        "the one named D40 re-baseline and the new D98 suite"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "services/alarm_monitor.py",
-            "lines": [
-              "40-60",
-              "155-295"
-            ],
-            "why": "edit: __init__'s ledger/flag, pause_all's setdefault, resume_all's gate/gaps, _start_monitoring's staged branch; read-only: reconcile, format_gap_report, _session_has_live_alarms"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": [
-              "1876-1930",
-              "2986-3020"
-            ],
-            "why": "edit: _on_connected's single resume path and _on_disconnected's begin_outage() call after `_ibkr_connected = False`; read-only: the classification/badge block and the stranded-wave path"
-          },
-          {
-            "path": "tests/test_d40_tws_lifecycle.py",
-            "lines": [
-              "1-60",
-              "171-205",
-              "351-450"
-            ],
-            "why": "edit: the four renames and the one named re-baseline; read-only: the harness (_make_window/_go_live/_add_alarm/_clear) and every untouched case"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "730-780",
-            "why": "read-only: _on_aggregated_bar and last_chart_price \u2014 the evaluation site whose re-seed is the suppression mechanism"
-          },
-          {
-            "path": "tests/test_d25_alarm_monitor.py",
-            "lines": "1-60",
-            "why": "read-only: seed/phantom conventions the new suite mirrors; must stay green unchanged"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "services/alarm_monitor.py:_session_has_live_alarms",
-            "status": "existing"
-          },
-          {
-            "ref": "services/alarm_monitor.py:reconcile",
-            "status": "existing"
-          },
-          {
-            "ref": "services/alarm_monitor.py:format_gap_report",
-            "status": "existing"
-          },
-          {
-            "ref": "services/alarm_monitor.py:is_paused",
-            "status": "existing"
-          },
-          {
-            "ref": "services/alarm_monitor.py:resume_all",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:last_chart_price",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "services/alarm_monitor.py",
-            "signature": "def begin_outage(self) -> None:  # `if not self._host._sessions: return`; else `self._outage_active = True` and `_outage_start.setdefault(symbol, time.time())` for each session with live alarms"
-          },
-          {
-            "status": "new",
-            "module": "services/alarm_monitor.py",
-            "signature": "self._outage_active: bool = False  # set ONLY by begin_outage(); cleared ONLY by resume_all()"
-          },
-          {
-            "status": "new",
-            "module": "services/alarm_monitor.py",
-            "signature": "resume_all(): resuming_from_outage = self._outage_active; gaps from _outage_start; clear ledger + both flags; `session.last_chart_price = None` for EVERY session only when resuming_from_outage"
-          },
-          {
-            "status": "new",
-            "module": "ui/main_window.py",
-            "signature": "self.alarm_monitor.begin_outage()  # first statement after `self._ibkr_connected = False`, before the replay-serial bump and before classification"
-          },
-          {
-            "status": "new",
-            "module": "ui/main_window.py",
-            "signature": "self.alarm_monitor.reconcile()\n_gaps = self.alarm_monitor.resume_all()  # one path; report via format_gap_report when _gaps"
-          },
-          {
-            "status": "new",
-            "module": "services/alarm_monitor.py",
-            "signature": "LEGACY - DELETED IN P29: `AlarmMonitor._pause_start` (renamed `_outage_start`). It must not exist as an attribute and must not occur in services/alarm_monitor.py, ui/main_window.py or tests/test_d40_tws_lifecycle.py (AC-P29-03-LEDGER)."
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P29",
-        "plan_ref": "docs/plan.md#P29-03",
-        "requirement_ids": [
-          "AC-D98.1",
-          "AC-D98.2",
-          "A243",
-          "R183",
-          "Journey 35",
-          "G6"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d98_outage_baseline.py tests/test_d40_tws_lifecycle.py -q",
-        "memory_refs": [
-          "offscreen",
-          "pytest"
-        ],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P29-T4",
-      "title": "P29-04 \u2014 D99: one delivery path per page-ready transition",
-      "description": "A page-ready transition delivers from `_op_log` and from nothing else: the staging buffers are DISCARDED, not drained. `set_ready(self, ready: bool)` becomes a flag setter \u2014 its `_queued` drain block is deleted and its docstring says a readiness TRANSITION is `handle_page_ready`'s job and this method emits nothing. `handle_page_ready` clears `_queued`, `_outbox` and `_live_buf`, calls `set_ready(True)`, then runs the existing `if self._op_log:` block verbatim (one envelope `{v: 1, ops: list(_op_log)}`, `_emit`, counters, `replayFinished`) and `self._replay_channels()`; the `pending = self.flush()` line and the `envelopes` list go, and it returns the replay envelope or `None` when the log is empty. State the contract once in the module docstring: the log is the single full-state source; a transition delivers each accepted op at most once; a queued op is subsumed by the log, never emitted beside it. Update the `pageReady()` table row from '(drain + replay)' to '(replay)' and its docstring to 'the page's QWebChannel half is subscribed; replay the full log now', and change `ui/lwc_host.py`'s one comment from 'drain + replay' to 'replay' \u2014 the `loadFinished` ordering guard and its `set_ready(False)` are untouched. Re-baseline exactly ONE named case in `tests/test_lwc_bridge.py` (`TestBatchShape::test_queue_until_ready_holds_pre_ready_ops`: replace `b.set_ready(True); env = b.flush()` with `env = b.handle_page_ready()` and assert the same two ops arrive once) and add the new suite `tests/test_d99_page_ready_delivery.py`. Do not change `ENVELOPE_VERSION`, the op shapes, `_check_op_shape`, `flush`'s coalescing/replace/directive rules, the counter names, `send_ops`'s log-before-queue order, the channel path, or `handle_render_terminated`; never clear or truncate `_op_log`; add no second envelope per transition, no chunking, no new signal, and no call from `loadFinished`. **Exit condition \u2014 the webengine exclusion:** the command above runs with `-m 'not webengine'` because `tests/test_lwc_bridge.py` also holds three `@pytest.mark.webengine` host cases (`test_host_loads_ndt_chart_offline`, `test_render_terminated_recovery_wired`, `test_interceptor_wired_blocks_non_ndt`) that construct a `QWebEnginePage`; on this macOS box that construction aborts with SIGABRT because the harness builds `QApplication([])` \u2014 a pre-existing environment limitation, not a D99 regression (evidence: the same abort reproduces with both changed files restored to `HEAD`, and a minimal probe constructs the page fine under `QApplication(sys.argv)`). The pipeline's standard invocation excludes the marker-gated cases; this task's D99 gate is the new suite plus every non-gated bridge case, all green. The gated cases stay the owner's manual-checklist counterparts (DG88/AP-P6-4) \u2014 do not add a skip, rewrite the harness, or touch them in this task. The same marker exclusion covers the exit condition's nine companion suites: `tests/test_lwc_bridge_handshake.py` also carries two gated handshake cases (`test_page_bridge_handshake_reaches_window`, `test_view_cycles_keep_page_loads_alive`), so run those nine with `-m 'not webengine'` too \u2014 the suites themselves stay unchanged.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [],
-      "acceptance_criteria": [
-        {
-          "id": "AC-D99.1",
-          "criterion": "Given N ops accepted while the page is not ready, When the page signals ready once, Then the envelopes emitted in that transition contain each queued op exactly once (multiset over (op, series, ts); duplicate count 0) and the reconstruction equals the expected series."
-        },
-        {
-          "id": "AC-D99.2",
-          "criterion": "Given a subsequent render-process recovery (`handle_render_terminated()` then a page-ready transition), Then one envelope carries the full log once, no envelope contains an op twice, the reconstruction equals the expected series, and a second recovery produces the same \u2014 the log is never cleared."
-        },
-        {
-          "id": "AC-P29-04-SETREADY",
-          "criterion": "Given `_queued` non-empty and the page not ready, When `set_ready(True)` is called, Then emits NOTHING (no envelope, no signal, no counter emission), and the queued ops are delivered exactly once by the next `handle_page_ready()`; `handle_page_ready` returns `None` and increments `replays` once when the log is empty, and one envelope when it is not."
-        },
-        {
-          "id": "AC-P29-04-CHANNEL",
-          "criterion": "Given the channel path and a live op staged while ready but not yet flushed, When a transition runs, Then the channel queue is dropped and each channel op is replayed once (`_channel_queue` empty), the staged live op crosses exactly once via the log, and a mixed transition yields one bar envelope with each bar op once plus one channel envelope with the channel op once."
-        }
-      ],
-      "tests": [
-        {
-          "test_id": "P29-T4-01",
-          "linked_acceptance_criterion": [
-            "AC-D99.1"
-          ],
-          "type": "unit",
-          "description": "Fresh bridge with `opsEmitted`/`channelOpsJson` recorders; send 5 ops while not ready (two replaces + three update_bars); `handle_page_ready()`; reconstruct with `apply_ops_to_bars`.",
-          "expected_result": "Each queued op's identity appears exactly once across the transition's envelopes; duplicate count 0; reconstruction equals the expected series; `counters()['queued'] == 5`."
-        },
-        {
-          "test_id": "P29-T4-02",
-          "linked_acceptance_criterion": [
-            "AC-P29-04-SETREADY"
-          ],
-          "type": "unit",
-          "description": "`set_ready(True)` with two queued ops and a connected recorder; then `handle_page_ready()`.",
-          "expected_result": "The `set_ready` call emits nothing at all; the transition then delivers both ops once."
-        },
-        {
-          "test_id": "P29-T4-03",
-          "linked_acceptance_criterion": [
-            "AC-P29-04-SETREADY"
-          ],
-          "type": "unit",
-          "description": "A bridge with an empty op log and a bridge with a logged op but zero queued ops, each transitioned.",
-          "expected_result": "Empty log: return value is None and `replays` increments exactly once. Non-empty log: exactly one envelope with the whole log once."
-        },
-        {
-          "test_id": "P29-T4-04",
-          "linked_acceptance_criterion": [
-            "AC-D99.2"
-          ],
-          "type": "unit",
-          "description": "Send ops ready, then `handle_render_terminated()` then `handle_page_ready()`; repeat the recovery a second time.",
-          "expected_result": "One envelope carrying the full log once per transition; per-envelope duplicate count 0; reconstruction equals the expected series both times."
-        },
-        {
-          "test_id": "P29-T4-05",
-          "linked_acceptance_criterion": [
-            "AC-P29-04-CHANNEL"
-          ],
-          "type": "unit",
-          "description": "An `update_bar` staged while ready but not flushed, then a recovery transition; and separately a channel op sent while not ready.",
-          "expected_result": "The staged op appears exactly once (via the log, not a flush); the channel op is replayed exactly once and `_channel_queue` is empty."
-        },
-        {
-          "test_id": "P29-T4-06",
-          "linked_acceptance_criterion": [
-            "AC-P29-04-CHANNEL"
-          ],
-          "type": "unit",
-          "description": "Mixed transition: queued bar ops plus a queued channel op.",
-          "expected_result": "One bar envelope with each bar op once; one channel envelope with the channel op once; `counters()['queued']` still counts what was queued."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_bridge.py \u2014 set_ready is a flag setter; handle_page_ready clears the staging buffers and emits the log once; the module/pageReady docstrings state the contract",
-        "ui/lwc_host.py \u2014 one comment word ('drain + replay' -> 'replay'); no ordering change",
-        "tests/test_lwc_bridge.py \u2014 the one named re-baseline",
-        "tests/test_d99_page_ready_delivery.py \u2014 new suite"
-      ],
-      "touches_files": [
+        "chart_assets/lwc/chart.html",
+        "chart_assets/lwc/interaction.js",
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/interaction.controls.test.js",
+        "chart_assets/lwc/controls.test.js",
+        "ui/chart_controls.py",
         "ui/lwc_bridge.py",
-        "ui/lwc_host.py",
-        "tests/test_lwc_bridge.py",
-        "tests/test_d99_page_ready_delivery.py"
+        "ui/lwc_view.py",
+        "tests/test_d101_control_cluster.py"
       ],
       "doc_required": false,
       "inputs": [
-        "the shipped set_ready drain and handle_page_ready's flush-then-replay",
-        "the channel path's shipped rule (drop the queue, replay the log) \u2014 the model to copy"
+        "chart_assets/lwc/interaction.js's existing `CONTROL_BUTTONS`, `zoomBy`, `reportZoomRefused` (the page factory and the router-mirror vocabulary)",
+        "ui/chart_controls.ChartControls' four signals (`zoom_in`, `zoom_out`, `magnify_toggled`, `reset`) as the parity names",
+        "ui/lwc_view.handle_control's frozen signature and its three return shapes",
+        "the Q-20 page\u2192Python slot family in ui/lwc_bridge.py (`@pyqtSlot(str)` \u2192 `_payload` \u2192 `page*` signal)",
+        "the page's own `zoom(range, factor)` and `fitAndFollow()` \u2014 the keyboard path's functions"
       ],
       "outputs": [
-        "one delivery source per page-ready transition (_op_log)",
-        "the one named re-baseline and the new D99 suite"
+        "a live `#controls` toolbar mounted exactly once per page load",
+        "`ui/chart_controls.CONTROL_SPECS` as the one declaration, with `ui/lwc_view.CONTROL_IDS` derived from it",
+        "`LwBridge.controlPressed` \u2192 `pageControlPressed` \u2192 `LwcChartView._on_page_control_pressed`",
+        "`LwInteraction.syncControlState(op)` driving the latch from the mode op",
+        "two new node suites and one new pytest suite (six suites total with P30-02..04), no existing suite edited"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
+          {
+            "path": "chart_assets/lwc/interaction.js",
+            "lines": "175-350",
+            "why": "edit: CONTROL_BUTTONS (179-190) and `mountControls` (313-345) plus its export line; read-only: `zoomBy` and `reportZoomRefused` above"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": [
+              "605-660",
+              "770-890"
+            ],
+            "why": "edit: the `interaction` branch of `applyChannel` (615-650) for the one `syncControlState` call, and `init()` (778-880) for `mountControlCluster`; read-only: the `reset_view` bookkeeping at 633 and the `ensureChevronButton`/`bindChannel` order"
+          },
+          {
+            "path": "chart_assets/lwc/chart.html",
+            "lines": "8-62",
+            "why": "edit: add `#controls` beside `#goToLatest` (33-48) and its CSS; read-only: the vendored script list (10-23) and `#chart` (55)"
+          },
+          {
+            "path": "ui/chart_controls.py",
+            "lines": "1-50",
+            "why": "edit: add `ControlSpec` + `CONTROL_SPECS` above the class; read-only: `ChartControls`' four signals and stylesheet (do not construct or edit the widget)"
+          },
           {
             "path": "ui/lwc_bridge.py",
             "lines": [
-              "20-70",
-              "360-435",
-              "460-530",
-              "580-740"
+              "360-400",
+              "610-680"
             ],
-            "why": "edit: module-docstring bullets and pageReady row, set_ready, handle_page_ready, pageReady docstring; read-only: send_ops, _stage, flush, _emit and _replay_channels semantics"
+            "why": "edit: one `pageControlPressed` signal + `@pyqtSlot(str) controlPressed` beside the Q-20 family; read-only: `_payload`, `_channel_logs` init and `zoomRefused`"
           },
           {
-            "path": "ui/lwc_host.py",
+            "path": "ui/lwc_view.py",
             "lines": [
-              "20-30",
-              "340-365"
+              "590-610",
+              "2005-2030",
+              "2855-2910",
+              "3090-3110"
             ],
-            "why": "edit: one comment word; read-only: the loadFinished ordering guard, set_ready(False) and the pageReady contract"
+            "why": "edit: `CONTROL_IDS` (599), the page-slot connections (2010-2025) and `handle_control`'s docstring (2866-2908); read-only: `_on_page_zoom_refused` (3094) and every other slot"
           },
           {
-            "path": "tests/test_lwc_bridge.py",
-            "lines": [
-              "1-40",
-              "134-200"
-            ],
-            "why": "edit: the one named re-baseline; read-only: every other case (envelope shape, coalescing)"
+            "path": "tests/test_lwc_router_mirror.py",
+            "lines": "380-460",
+            "why": "read-only: the `_NODE` + stdin-script pattern and the existing id/signal join the four-way join extends \u2014 this file must stay byte-identical"
           },
           {
-            "path": "tests/test_lwc_page_wiring.py",
-            "lines": "1-50",
-            "why": "read-only: page-side readiness/wiring conventions; must stay green unchanged"
-          },
-          {
-            "path": "tests/test_d69_d70_bridge_contract.py",
-            "lines": "1-40",
-            "why": "read-only: the envelope contract pins; must stay green unchanged"
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-70",
+            "why": "read-only: the shipped page-glue harness with its one shared fake element \u2014 do not edit it (AR-P30-7); the new `controls.test.js` builds its own per-id stub"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/lwc_bridge.py:ENVELOPE_VERSION",
+            "ref": "ui/lwc_view.py:handle_control",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_bridge.py:COALESCE_MS",
+            "ref": "ui/lwc_view.py:_publish_interaction_op",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_bridge.py:CHANNELS",
+            "ref": "ui/lwc_bridge.py:send_channel",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_bridge.py:send_ops",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:flush",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:_emit",
+            "ref": "ui/lwc_bridge.py:_payload",
             "status": "existing"
           },
           {
@@ -850,189 +241,691 @@
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_bridge.py:counters",
+            "ref": "ui/chart_mouse_router.py:enter_zoom",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_host.py:loadFinished",
+            "ref": "ui/chart_mouse_router.py:enter_alarm_placing",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/interaction.js:CONTROL_BUTTONS",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/interaction.js:function zoomBy",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/interaction.js:function reportZoomRefused",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:function zoom(",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:function fitAndFollow()",
             "status": "existing"
           },
           {
             "status": "new",
-            "module": "ui/lwc_bridge.py",
-            "signature": "def set_ready(self, ready: bool) -> None:  # sets self._ready only; emits nothing; no _queued drain"
+            "module": "ui/chart_controls.py",
+            "signature": "class ControlSpec(NamedTuple):\n    \"\"\"One in-page control: its DOM id, ChartControls' signal, the page's intent.\"\"\"\n    id: str\n    signal: str\n    intent: str\n    toggle: bool\n\nCONTROL_SPECS = (\n    ControlSpec(\"zoom-out\", \"zoom_out\", \"zoom_out\", False),\n    ControlSpec(\"zoom-in\", \"zoom_in\", \"zoom_in\", False),\n    ControlSpec(\"magnifier\", \"magnify_toggled\", \"magnify_toggle\", True),\n    ControlSpec(\"reset\", \"reset\", \"reset\", False),\n)  # the ONE declaration; module docstring gains the sentence naming it the single source"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_view.py",
+            "signature": "from ui.chart_controls import CONTROL_SPECS\nCONTROL_IDS = tuple(spec.id for spec in CONTROL_SPECS)  # same four ids, same order; the hand-kept literal is DELETED"
           },
           {
             "status": "new",
             "module": "ui/lwc_bridge.py",
-            "signature": "def handle_page_ready(self):  # clear _queued/_outbox/_live_buf; set_ready(True); if _op_log: emit {\"v\": 1, \"ops\": list(_op_log)} once (emitted/replays counters + replayFinished); then _replay_channels(); return that envelope, else None; never calls flush()"
+            "signature": "pageControlPressed = pyqtSignal(dict)\n\n@pyqtSlot(str)\ndef controlPressed(self, payload: str = \"\") -> None:\n    self.pageControlPressed.emit(self._payload(payload))  # nothing is returned to the page"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_view.py",
+            "signature": "def _on_page_control_pressed(self, payload: dict) -> None:\n    data = payload if isinstance(payload, dict) else {}\n    control = str(data.get(\"control\") or \"\")\n    if control not in CONTROL_IDS:\n        return               # a stale page must never raise across the bridge\n    result = self.handle_control(control, data.get(\"value\"))\n    if result.get(\"refused\"):\n        self.zoom_refused.emit()   # exactly once; the page cannot see the answer"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/chart.js",
+            "signature": "function controlPressed(controlId, value) {\n  if (chart) {\n    if (controlId === \"zoom-in\" || controlId === \"zoom-out\") {\n      var range = chart.timeScale().getVisibleLogicalRange();\n      if (range) zoom(range, controlId === \"zoom-in\" ? 0.8 : 1.25);\n    } else if (controlId === \"reset\") {\n      fitAndFollow();\n    }\n  }\n  var target = pageBridgeTarget();   // lazy window.lwBridge lookup (the reportKey pattern)\n  if (target && typeof target.controlPressed === \"function\") {\n    target.controlPressed(JSON.stringify({ control: String(controlId), value: value }));\n  }\n  return undefined;                  // the production shape the latch rule depends on\n}\n\nfunction mountControlCluster() {\n  var container = document.getElementById(\"controls\");\n  var li = moduleHandle(\"LwInteraction\");\n  if (!container || !li || typeof li.mountControls !== \"function\") return [];\n  return li.mountControls(container, controlPressed);\n}"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/interaction.js",
+            "signature": "// click handler: no optimistic write. Three branches on the result:\n//   refused (TR-9)          -> restore the pre-click value: btn.setAttribute(\"aria-pressed\", value ? \"false\" : \"true\")\n//   synchronous result.mode -> btn.setAttribute(\"aria-pressed\", result.mode === \"ZOOMING\" ? \"true\" : \"false\")\n//   no synchronous answer   -> leave the attribute; the router_mode op drives it via syncControlState\n// plus `if (container.__lwControls) return container.__lwControls;` / `container.__lwControls = made;`\n// guard extension: if (!container || typeof container.appendChild !== \"function\" || typeof document === \"undefined\") return [];"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/interaction.js",
+            "signature": "function syncControlState(op) {\n  if (!op || (op.op !== \"router_mode\" && op.op !== \"reset_view\") || typeof op.mode !== \"string\") return false;\n  // when document exists: getElementById(\"control-magnifier\").setAttribute(\"aria-pressed\", op.mode === \"ZOOMING\" ? \"true\" : \"false\")\n  // return true; false when nothing is mounted. A `zoom` op carries no mode and changes nothing.\n}"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/chart.js",
+            "signature": "// in applyChannel's `interaction` branch, after the mode/tool bookkeeping and BEFORE gestures.applyRouterOp(op):\nvar li2 = moduleHandle(\"LwInteraction\");\nif (li2 && typeof li2.syncControlState === \"function\") li2.syncControlState(op);\n// NO consumer is added for `zoom` / `reset_view`: the viewport change happens at the click, and\n// _replay_channels replays the whole interaction log on every page-ready transition \u2014 a replayed\n// viewport STEP would re-apply. A log replays state, never increments (P29/DG134, AR-P30-1)."
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P29",
-        "plan_ref": "docs/plan.md#P29-04",
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#P30-01",
         "requirement_ids": [
-          "AC-D99.1",
-          "AC-D99.2",
-          "A244",
-          "R184",
-          "DG134",
-          "Journey 80"
+          "AC-D101.1",
+          "AC-D101.2",
+          "AC-D101.3",
+          "AC-D101.4",
+          "AC-D101.5",
+          "Journey 82",
+          "A246",
+          "A247",
+          "A250",
+          "R186",
+          "R191",
+          "DG128"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d99_page_ready_delivery.py tests/test_lwc_bridge.py -q -m 'not webengine'",
+        "test_command": "node --test chart_assets/lwc/ && QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d101_control_cluster.py tests/test_lwc_router_mirror.py tests/test_lwc_page_wiring.py tests/test_lwc_bridge.py tests/test_chart_mouse_router.py tests/test_p11_replace.py tests/test_lwc_alarms.py tests/test_lwc_drawing_tool.py tests/test_lwc_e2e_data.py tests/test_d57_chevron.py -m 'not webengine' -q",
         "memory_refs": [
           "offscreen"
         ],
         "needs_graphify": false,
         "size": "M"
-      }
+      },
+      "generation": 2
     },
     {
-      "id": "P29-T5",
-      "title": "P29-05 \u2014 records, read-only map assertions, and the phase fence",
-      "description": "No production file and no map edit. Add `tests/test_p29_fence.py` \u2014 one assertion per named artefact the phase relies on, every value read off the live modules or the live requirements record (never copied from prose, never a file/line count or a phase commit hash). The fence asserts the requirements record's markers and ranges, the values P29 must not move (read off source), the four new suites' existence, and \u2014 read-only \u2014 that `docs/codebase-map.md` carries the P29 note (what moved, the three named re-baselines, the four new suites), keeps every existing annotation forward (including the P28 note), and has no `(root)/` row in its generated skeleton. `docs/codebase-map.md` is Plan-owned and refreshed by Plan under `map_repair`; this task never writes it and its exit condition does not depend on the map changing in this task. Record the delta scope as a build artefact in the result: `git diff --name-only 3b92ce6` must be a subset of the phase allowlist; anything else is a scope breach to escalate, never to justify. Record that G6 is owner-run and not claimed by any suite (P29-T3's exit condition names it). Do not edit `docs/requirements/**`, do not write `docs/codebase-map.md`, assert a later phase's behaviour, or re-baseline any case.",
+      "id": "P30-T2",
+      "title": "P30-02 \u2014 D102 + D103: a popup dismissed by its owner, a selection restored by identity",
+      "description": "Collapsing the watchlist dismisses its floating search-results popup, and a drawing-group checkbox toggle no longer wipes the drawing selection. `_apply_collapsed_visual` calls `clear_search_results()` on collapse (so every collapse path is covered: the header toggle, the collapsed bar, `toggle_collapsed`, `set_collapsed`), `show_search_results` clears and returns while collapsed so an in-flight result cannot resurrect the popup, and `DrawingGroupsDialog.reload` captures the selected drawing ids before rebuilding and re-selects the surviving ids by `UserRole` id \u2014 never by row index. The new suite proves the popup case can fail before it proves it passes (AR-P30-11) and asserts the restored selection is the set of surviving ids.",
       "agent": "build_worker",
       "task_type": "build",
-      "dependencies": [
-        "P29-T1",
-        "P29-T2",
-        "P29-T3",
-        "P29-T4"
-      ],
+      "dependencies": [],
       "acceptance_criteria": [
         {
-          "id": "AC-D100.3",
-          "criterion": "Given `docs/requirements/requirements.md`, Then the Existing Repository marker sentence is present, the D41-D95 record is present per id in A heading (the record is mixed), P29's own `#### D96`-`#### D100` entries and Journeys 78-81 are present, `AC-D1.1`-`AC-D95.3` plus `AC-D96.1`-`AC-D100.3` are present, A1-A240 plus A241-A245 and R1-R180 plus R181-R185 are present, and the Current Tech Stack section is present."
+          "id": "AC-D102.1",
+          "criterion": "Given visible search results, When the watchlist collapses, Then the popup is hidden and its items are cleared. (Measurable: `isVisible()` false + list count zero.)"
         },
         {
-          "id": "AC-P29-05-PINS",
-          "criterion": "Given the live modules, Then `ENVELOPE_VERSION == 1`, the bridge's `CHANNELS` tuple and its three op-kind frozensets (update_bar; set_bars/set_volume/clear; set_visible_range/set_partial) are unchanged, `COALESCE_MS == 33`, the `studies` and `drawing_groups` column sets read from `PRAGMA table_info` equal today's, `format_gap_report`'s signature and its `\"unmonitored\"` shape for a fixed pair of epochs hold, `Alarm`'s field set has no touch/armed field, `evaluate_alarms`'s signature is unchanged, and `DrawingStore.update_group` accepts exactly the four names (each applies; a fifth raises `ValueError`)."
+          "id": "AC-D102.2",
+          "criterion": "Given a query in flight, When the panel collapses and the results arrive afterwards, Then the popup does not become visible. (Measurable: collapse \u2192 deliver results \u2192 visibility assertion.)"
         },
         {
-          "id": "AC-P29-05-MAP",
-          "criterion": "Given `docs/codebase-map.md` read read-only at test time, Then the fence asserts a P29 note states what moved, the three named re-baselines and the four new suites; every existing annotation (including the P28 note) is still present; the generated skeleton carries no `(root)/` row; and the four new suites exist on disk. The fence only reads the map \u2014 refreshing it is Plan's, not this task's, edit site."
+          "id": "AC-D103.1",
+          "criterion": "Given two selected drawings, When a group's `visible` (or `locked`) checkbox is toggled, Then the same drawing ids remain selected and the subsequent action receives them. (Measurable: selected-id list before/after + the action's received ids.)"
         },
         {
-          "id": "AC-P29-05-SCOPE",
-          "criterion": "Given the build result, Then the recorded `git diff --name-only 3b92ce6` is a subset of the phase allowlist (the seven production files, the three re-baselined suites, the four new suites, and `docs/`), with any extra path raised as a scope breach."
+          "id": "AC-D103.2",
+          "criterion": "Given a reload that reorders or shrinks the list, Then the restored selection contains exactly the surviving ids and nothing else. (Measurable: a fixture where a drawing is removed between selection and restore.)"
         },
         {
-          "id": "AC-P29-05-G6",
-          "criterion": "Given the phase record, Then G6 is recorded as owner-run and not claimed: no suite asserts a live TWS socket drop, a live alarm fire or a post-reconnect price from TWS, and P29-T3's exit condition names G6."
+          "id": "AC-P30-02-SCOPE",
+          "criterion": "Given the working tree after this task, Then the only paths created or modified are `ui/watchlist_panel.py`, `ui/drawing_groups_dialog.py` and `tests/test_d102_d103_surface_state.py`; `tests/test_d39_burst_search.py`, `tests/test_watchlist_collapsed_bar_d44.py`, `tests/test_dock_widths_collapsed_d44.py`, `tests/test_p9_group_dialog.py`, `tests/test_p9_group_payload.py`, `tests/test_p9_active_group.py`, `tests/test_p10_groups_dialog_lock.py` and `tests/test_drawing_store.py` are byte-identical to baseline `956f9f8` and green; no cancellation, debounce, service, settings key, extra widget or persistence change is made."
         }
       ],
       "tests": [
         {
-          "test_id": "P29-T5-01",
+          "test_id": "P30-T2-01",
           "linked_acceptance_criterion": [
-            "AC-D100.3"
+            "AC-D102.1"
           ],
           "type": "unit",
-          "description": "Read requirements.md from disk with regex helpers: marker sentence; D41-D95 per id in any heading; D96-D100 sub-headings; Journey 78-81; AC ranges; A and R ranges; Current Tech Stack.",
-          "expected_result": "Every asserted artefact is present; the test pins no hash and no count."
+          "description": "`tests/test_d102_d103_surface_state.py::TestWatchlistPopupDismissal` case (a), parametrized over the three collapse entry points (`set_collapsed(True)`, `_on_header_toggled(False)`, `toggle_collapsed()`): a `WatchlistPanel` built offscreen, `show_search_results([_desc(...), ...])`, then the collapse.",
+          "expected_result": "For each entry point the popup is hidden (`panel._search_popup.isHidden() is True`, and `isVisible() is False` where the offscreen platform reports visibility for a `Qt.Popup`) and `panel._search_list.count() == 0`. The case is first run against the un-fixed handler with the survivor recorded in the result (AR-P30-11); if the platform reports the popup as not-visible even when shown, the assertion falls back to `isHidden()` plus the list count, which distinguishes the two states regardless."
         },
         {
-          "test_id": "P29-T5-02",
+          "test_id": "P30-T2-02",
           "linked_acceptance_criterion": [
-            "AC-P29-05-PINS"
+            "AC-D102.1"
           ],
           "type": "unit",
-          "description": "Read the live constants, `PRAGMA table_info` via the shared DB, `inspect.signature`, the `Alarm` dataclass fields, and call `update_group` with each of the four allowed names and one unknown name.",
-          "expected_result": "All pins equal today's values; the four allowed calls apply, the fifth raises `ValueError`; `format_gap_report` for a fixed epoch pair yields the `\"SYM unmonitored HH:MM-HH:MM\"` shape."
+          "description": "Case (b): collapse (with results visible), then expand again.",
+          "expected_result": "After re-expansion the popup is still hidden and its list still empty \u2014 expanding does not resurrect a dismissed result."
         },
         {
-          "test_id": "P29-T5-03",
+          "test_id": "P30-T2-03",
           "linked_acceptance_criterion": [
-            "AC-P29-05-MAP"
+            "AC-D102.2"
           ],
           "type": "unit",
-          "description": "Read docs/codebase-map.md and check the note, the carried-forward annotations, the absence of a `(root)/` row, and the existence of the four new suite files.",
-          "expected_result": "P29 note present with the three re-baselines and four suite names; P28 note still present; no `(root)/` line; all four suites exist."
+          "description": "Case (c): a query is in flight (a pending result delivery is modelled by calling `show_search_results([...])` after the collapse), then a *new* query while expanded calls `show_search_results([...])` again.",
+          "expected_result": "The post-collapse delivery leaves the popup hidden and the list empty (no resurrection); the later query while expanded shows the popup and populates the list \u2014 the guard is a display decision, not a permanent mute, and the service/debounce are never touched."
         },
         {
-          "test_id": "P29-T5-04",
+          "test_id": "P30-T2-04",
           "linked_acceptance_criterion": [
-            "AC-P29-05-SCOPE"
+            "AC-D103.1"
           ],
-          "type": "manual",
-          "description": "Run `git diff --name-only 3b92ce6` and compare with the allowlist.",
-          "expected_result": "The listing is a subset of the allowlist and is recorded in the task result; any extra path is reported as a scope breach."
+          "type": "integration",
+          "description": "`TestDrawingSelectionRestore` case (e), on the shared temp DB from `conftest.py`: one group and three drawings, two selected in `drawings_list`; toggle the group's `visible` checkbox through `_on_group_item_changed(visible_item)`; then invoke the Assign action with `DrawingStore.assign_groups` monkeypatched to record its arguments.",
+          "expected_result": "`_selected_drawing_ids()` before and after the toggle are identical ids in the same order, and the recorded `assign_groups` call receives exactly those two ids. On the un-fixed `reload()` the same sequence yields an empty selection, so the case is red before the fix."
         },
         {
-          "test_id": "P29-T5-05",
+          "test_id": "P30-T2-05",
           "linked_acceptance_criterion": [
-            "AC-P29-05-G6"
+            "AC-D103.1"
           ],
-          "type": "manual",
-          "description": "Inspect the three new suites and the re-baselined cases for any live-socket or live-alarm claim.",
-          "expected_result": "No live assertion exists; the record states G6 is owner-run and unclaimed."
+          "type": "unit",
+          "description": "Case (f)/(i): the same toggle driven through the `locked` column, and a separate run that selects group row 0 before a toggle.",
+          "expected_result": "The `locked` toggle preserves the drawing ids exactly as `visible` does; selecting a group row before the toggle leaves the drawings selection unchanged \u2014 the groups table's own row selection is a different table and is deliberately not restored."
+        },
+        {
+          "test_id": "P30-T2-06",
+          "linked_acceptance_criterion": [
+            "AC-D103.2"
+          ],
+          "type": "integration",
+          "description": "Cases (g)/(h): (g) two drawings selected, one of them deleted from the store between selection and `reload()`, then reload; (h) a fixture where `drawings_for_symbol` returns the rows in the opposite order, then reload.",
+          "expected_result": "(g) the restored selection is exactly the surviving id and nothing else (the vanished id is skipped, not re-selected by position); (h) the restored ids are the same *set* as before the reorder \u2014 identity, not index \u2014 and `drawings_list` order follows the fixture without changing the selection set."
+        },
+        {
+          "test_id": "P30-T2-07",
+          "linked_acceptance_criterion": [
+            "AC-P30-02-SCOPE"
+          ],
+          "type": "integration",
+          "description": "Run `git diff --quiet 956f9f8 -- tests/test_d39_burst_search.py tests/test_watchlist_collapsed_bar_d44.py tests/test_dock_widths_collapsed_d44.py tests/test_p9_group_dialog.py tests/test_p9_group_payload.py tests/test_p9_active_group.py tests/test_p10_groups_dialog_lock.py tests/test_drawing_store.py`, and the same eight suites green.",
+          "expected_result": "Every named path exits 0 (byte-identical to baseline `956f9f8`) and all eight suites pass unchanged; the task's edits are exactly the two production files plus the new suite (this task runs in parallel with P30-T1, so it asserts only its own footprint; the whole-phase diff is P30-T4's record)."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p29_fence.py \u2014 the records fence, the live-module pins, and the read-only map assertions",
-        "the recorded delta listing for 3b92ce6 and the G6 record in the task result"
+        "ui/watchlist_panel.py \u2014 `_apply_collapsed_visual` clears the search results when collapsing; `show_search_results` clears and returns while collapsed; both docstrings state the rule; every other search method untouched",
+        "ui/drawing_groups_dialog.py \u2014 `reload()` captures the selected drawing ids before the rebuild and re-selects the surviving ids by `UserRole` id; `_on_group_item_changed`, `_commit` and every action unchanged",
+        "tests/test_d102_d103_surface_state.py \u2014 two independent classes (popup dismissal with its prove-it-can-fail record; selection restore by identity incl. shrink/reorder/group-row independence)",
+        "the recorded pre-fix survivor line for the popup case (AR-P30-11)"
       ],
       "touches_files": [
-        "tests/test_p29_fence.py"
+        "ui/watchlist_panel.py",
+        "ui/drawing_groups_dialog.py",
+        "tests/test_d102_d103_surface_state.py"
       ],
       "doc_required": false,
       "inputs": [
-        "the four new suites and the three named re-baselines the other waves produce",
-        "docs/requirements/requirements.md read at runtime (never edited)",
-        "docs/codebase-map.md read read-only: its P28 note, its P29 note and the generated skeleton markers"
+        "`WatchlistPanel._collapsed`, `_search_popup` (a top-level `Qt.Popup`), `_search_list`, `clear_search_results`, every collapse entry point",
+        "`DrawingGroupsDialog.reload`'s rebuild, `_selected_drawing_ids`, and the `UserRole` drawing id each item carries",
+        "`data.drawing_store.update_group`'s P29 accepted set \u2014 unchanged and not re-validated here"
       ],
       "outputs": [
-        "the phase fence suite (records, live-module pins, read-only map assertions)",
-        "the recorded delta scope and the G6 record in the task result"
+        "a popup that disappears with the panel that owns it, on every collapse path",
+        "a drawing selection that survives `reload()` by id, including a shrink or a reorder",
+        "a new suite that proves both, with no service, debounce or persistence change"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "docs/codebase-map.md",
-            "why": "read-only assertions only \u2014 never edit: Plan owns this map (refreshed under `map_repair`); the fence reads the P29 note, the carried-forward P28 note, and the generated-skeleton markers (ranges are an approximate hint only \u2014 locate by heading/marker, since Plan is refreshing it)",
+            "path": "ui/watchlist_panel.py",
             "lines": [
-              "1-40",
-              "612-665"
-            ]
-          },
-          {
-            "path": "tests/test_p28_fence.py",
-            "why": "read-only: the fence shape (marker sentence, mixed-record id presence, live-module pins, no hash/count) this suite follows",
-            "lines": "1-90"
-          },
-          {
-            "path": "tests/test_p27_fence.py",
-            "why": "read-only: the mixed-record rule for D-id presence in any heading",
-            "lines": "1-60"
-          },
-          {
-            "path": "data/db.py",
-            "lines": "80-125",
-            "why": "read-only: the studies/drawing_groups DDL the PRAGMA pin compares against"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": [
-              "90-120"
+              "460-500",
+              "540-640",
+              "680-740"
             ],
-            "why": "read-only: ENVELOPE_VERSION, COALESCE_MS, CHANNELS and the op-kind frozensets the fence pins"
+            "why": "edit: `_apply_collapsed_visual` (590-610) and `show_search_results` (698-726); read-only: the popup/list creation (475-492), `set_collapsed` (628), `clear_search_results` (728) and the header/collapsed-bar paths"
           },
           {
-            "path": "data/models.py",
-            "lines": "1-45",
-            "why": "read-only: the Alarm field set (no touch/armed field)"
+            "path": "ui/drawing_groups_dialog.py",
+            "lines": "85-175",
+            "why": "edit: `reload` (95-160) captures the selection and re-selects by id; read-only: `_selected_drawing_ids` (162) and the list construction"
+          },
+          {
+            "path": "ui/drawing_groups_dialog.py",
+            "lines": "255-290",
+            "why": "read-only: `_on_group_item_changed` (267) \u2014 it applies the field then calls `reload()`; do not change it"
+          },
+          {
+            "path": "tests/test_d39_burst_search.py",
+            "lines": "1-80",
+            "why": "read-only: the `_desc(symbol)` helpers and the offscreen panel fixture shape the new suite follows; this file must stay green unchanged"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "96-140",
+            "why": "read-only: the shared temp-DB isolation and the tables cleaned after each test"
+          },
+          {
+            "path": "tests/test_p9_group_dialog.py",
+            "lines": "1-90",
+            "why": "read-only: group/drawing fixtures and the `DrawingStore` monkeypatch convention"
+          },
+          {
+            "path": "data/drawing_store.py",
+            "lines": "55-100",
+            "why": "read-only: `update_group`'s accepted set (P29) and `groups_for_symbol` \u2014 called, never edited"
           }
         ],
         "contracts": [
           {
-            "ref": "data/db.py:studies",
+            "ref": "ui/watchlist_panel.py:set_collapsed",
             "status": "existing"
           },
           {
-            "ref": "data/db.py:drawing_groups",
+            "ref": "ui/watchlist_panel.py:toggle_collapsed",
             "status": "existing"
           },
+          {
+            "ref": "ui/watchlist_panel.py:is_collapsed",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/watchlist_panel.py:clear_search_results",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/watchlist_panel.py:show_search_results",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/watchlist_panel.py:set_search_enabled",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/drawing_groups_dialog.py:reload",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/drawing_groups_dialog.py:_selected_drawing_ids",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/drawing_groups_dialog.py:_selected_group_ids",
+            "status": "existing"
+          },
+          {
+            "ref": "data/drawing_store.py:update_group",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/watchlist_panel.py",
+            "signature": "# in _apply_collapsed_visual, after the four setVisible calls:\nif collapsed:\n    self.clear_search_results()\n\n# first statement of show_search_results:\nif self._collapsed:\n    self.clear_search_results()\n    return\n# (the display decision is this widget's, not the search service's \u2014 A248)"
+          },
+          {
+            "status": "new",
+            "module": "ui/drawing_groups_dialog.py",
+            "signature": "selected = set(self._selected_drawing_ids())   # BEFORE the groups table rebuild\n...\nself.drawings_list.clear()\nfor drawing in drawings:\n    item = ...\n    item.setData(Qt.ItemDataRole.UserRole, drawing.id)\n    self.drawings_list.addItem(item)\n    if drawing.id in selected:\n        item.setSelected(True)   # by id, never by row; a vanished id is simply absent"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#P30-02",
+        "requirement_ids": [
+          "AC-D102.1",
+          "AC-D102.2",
+          "AC-D103.1",
+          "AC-D103.2",
+          "Journey 83",
+          "Journey 84",
+          "A248",
+          "A249",
+          "R188",
+          "R189"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d102_d103_surface_state.py tests/test_d39_burst_search.py tests/test_watchlist_collapsed_bar_d44.py tests/test_dock_widths_collapsed_d44.py tests/test_p9_group_dialog.py tests/test_p9_group_payload.py tests/test_p9_active_group.py tests/test_p10_groups_dialog_lock.py tests/test_drawing_store.py -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P30-T3",
+      "title": "P30-03 \u2014 D104: words that match the shipped engine, and a release that matches its words",
+      "description": "Make the docstrings describe the shipped engine and make `release_resources` clear what its docstring promises. Seven wording sites are 'words wrong, code right' \u2014 `ui/main_window._eastern_offset` and `build_main_chart_view`, `ui/popout_window`'s module docstring, `BAR_BYTES`, `popout_view` and `view_memory_estimate`, plus `services/chart_model.heikin_ashi`'s 'keeps its identical local copy until P6-13' \u2014 and each is rewritten (or, for `services/chart_model.py:273`, replaced by a past-tense sentence) with no code change; the dead re-host branch stays. `LwcChartView.release_resources` is the reverse \u2014 **the docstring is the contract** \u2014 so it clears `bridge._channel_logs` per channel and `bridge._channel_queue`, keeps its promise list and names the `memory_bytes` residual (AR-P30-6); `memory_bytes` itself is untouched. The new sweep asserts the twenty-hit / twelve-file enumeration two-classed by (path, distinctive fragment), a positive assertion for every retired claim, and the release bucket by bucket.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P30-T1"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-D104.1",
+          "criterion": "Given the codebase, Then no module states that pyqtgraph is present, default or selectable; historical descriptions are marked as history. (Measurable: a grep over production modules for the retired claims with a reviewed allow-list for marked-historical text.)"
+        },
+        {
+          "id": "AC-D104.2",
+          "criterion": "Given `release_resources`, Then its docstring lists exactly the state it clears, and every listed item is asserted cleared after a call. (Measurable: one assertion per listed attribute/bucket, plus the channel-log decision recorded.)"
+        },
+        {
+          "id": "AC-P30-03-SCOPE",
+          "criterion": "Given the working tree after this task, Then the only paths created or modified are `ui/main_window.py` (docstrings/comments only), `ui/popout_window.py` (docstrings/comments only), `services/chart_model.py` (one docstring sentence), `ui/lwc_view.py` (`release_resources` body + docstring) and `tests/test_d104_stale_claims.py`; `tests/test_lwc_popouts.py`, `tests/test_d24_popouts.py`, `tests/test_d85_d91_popout_ownership.py`, `tests/test_lwc_drawings.py`, `tests/test_lwc_alarms.py`, `tests/test_lwc_time_parity.py` and `tests/test_d28_2_load_chart_button.py` are byte-identical to baseline `956f9f8` and green; no pyqtgraph code, import or dead-branch deletion is introduced or restored, and no function, signature or import in `services/chart_model.py` changes."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P30-T3-01",
+          "linked_acceptance_criterion": [
+            "AC-D104.1"
+          ],
+          "type": "integration",
+          "description": "`tests/test_d104_stale_claims.py` case (a): walk every module under `ui/`, `services/`, `data/` and `ibkr/` with an AST-free line scan, collect each line matching `pyqtgraph` case-insensitively, key each hit by `(relative path, distinctive fragment)` and compare with the allow-list; then the positive assertions.",
+          "expected_result": "Twenty hits in twelve files on the delivered tree: every hit is in one of the two allow-listed classes (8 negative assertions + 4 marked-history rows), and exactly twelve allow-listed hits remain (a count assertion). Positive: no line in `ui/main_window.py` or `ui/popout_window.py` matches `pyqtgraph` at all (the seven hits disappear); no line anywhere matches `keeps its identical local copy until P6-13`; none matches `stays present and default` or `keeps pyqtgraph`. A hit outside the allow-list, or a surviving retired claim, is a failure \u2014 never a runner-up."
+        },
+        {
+          "test_id": "P30-T3-02",
+          "linked_acceptance_criterion": [
+            "AC-D104.1"
+          ],
+          "type": "unit",
+          "description": "Case (c): read `ui/chart_view.py` and assert the removal record is unchanged in substance.",
+          "expected_result": "The `P6-13` / `Phase 11 removed the pyqtgraph engine` sentence and the `gate_P6_T13.md` reference are both present, and `create_chart_view`'s LWC-only body is untouched \u2014 the rewrite did not sanitise history."
+        },
+        {
+          "test_id": "P30-T3-03",
+          "linked_acceptance_criterion": [
+            "AC-D104.2"
+          ],
+          "type": "integration",
+          "description": "Case (b): construct `LwcChartView()` with no host, push a few ops through `send_channel` on each of the five channels (`studies`, `interaction`, `alarms`, `drawings`, `overlays`) so their logs are non-empty, call `release_resources()`, then call it a second time.",
+          "expected_result": "Item by item against the docstring's list: `_bars`, `_plotted`, `_logical`, `_study_overlays`, `_study_log`, `_study_envelopes`, `_interaction_log`, `_interaction_envelopes`, `_alarm_log`, `_alarm_envelopes`, `_drawing_items`, `_drawing_log`, `_drawing_envelopes`, `_overlay_log`, `_overlay_envelopes` are all empty, the bridge's `_op_log`/`_queued`/`_outbox`/`_live_buf` are empty, `all(not bucket for bucket in bridge._channel_logs.values())` is true and `bridge._channel_queue == []`; the second call changes nothing; `view.memory_bytes()[\"total_bytes\"] == 0`. Before the fix the channel-log assertion is red (the logs keep their ops)."
+        },
+        {
+          "test_id": "P30-T3-04",
+          "linked_acceptance_criterion": [
+            "AC-P30-03-SCOPE"
+          ],
+          "type": "integration",
+          "description": "Run `git diff --quiet 956f9f8 -- tests/test_lwc_popouts.py tests/test_d24_popouts.py tests/test_d85_d91_popout_ownership.py tests/test_lwc_drawings.py tests/test_lwc_alarms.py tests/test_lwc_time_parity.py tests/test_d28_2_load_chart_button.py`, and those seven suites green.",
+          "expected_result": "Every named path exits 0 (byte-identical to baseline `956f9f8`) and all seven suites pass unchanged, including `ui/lwc_view.py`'s `_uses_pyqtgraph` scans; the task's edits are exactly the five allow-listed paths."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py \u2014 `_eastern_offset` and `build_main_chart_view` docstrings corrected; no code, no dead-branch deletion",
+        "ui/popout_window.py \u2014 module docstring, `BAR_BYTES`, `popout_view` and `view_memory_estimate` corrected; the D24 cap/ledger paragraphs kept verbatim",
+        "services/chart_model.py \u2014 one docstring sentence in `heikin_ashi` rewritten; nothing else touched",
+        "ui/lwc_view.py \u2014 `release_resources` clears every channel log bucket and the not-ready queue, keeps its promise list and names the `memory_bytes` residual; `memory_bytes` untouched",
+        "tests/test_d104_stale_claims.py \u2014 the two-class allow-list sweep with its positive assertions, the release bucket assertions, and the history-intact check"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/popout_window.py",
+        "services/chart_model.py",
+        "ui/lwc_view.py",
+        "tests/test_d104_stale_claims.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the shipped LWC-only factory (`ui/chart_view.create_chart_view`) and the P6-13 removal record \u2014 the authority the words are compared against",
+        "`LwBridge._channel_logs` / `_channel_queue` and `send_channel`'s logging contract",
+        "the release docstring's existing promise list and `memory_bytes`'s bucket set (unchanged)"
+      ],
+      "outputs": [
+        "no production module claims a second engine; the one stale claim outside `ui/` is past tense",
+        "a `release_resources` whose body matches its docstring, with the `memory_bytes` residual recorded rather than fixed",
+        "a new sweep suite that reddens on a returning claim or an allow-listed line that quietly disappears"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": [
+              "10-20",
+              "295-315"
+            ],
+            "why": "edit: `_eastern_offset`'s docstring (15) and `build_main_chart_view`'s docstring (300-310); the code stays"
+          },
+          {
+            "path": "ui/popout_window.py",
+            "lines": "1-100",
+            "why": "edit: module docstring (9-15), `BAR_BYTES` (64), `popout_view`'s docstring (70-80), `view_memory_estimate`'s docstring (96); keep the session-surface list and the D24 cap/ledger paragraphs"
+          },
+          {
+            "path": "services/chart_model.py",
+            "lines": "265-280",
+            "why": "edit: the one docstring sentence at 273 ('keeps its identical local copy until P6-13'); read-only: `heikin_ashi`'s body and the module's Qt-free boundary"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "3480-3565",
+            "why": "edit: `release_resources` (3521) body + docstring; read-only: `memory_bytes` (3485) \u2014 its bucket set is NOT changed (AR-P30-6)"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": [
+              "390-400",
+              "500-565",
+              "715-735"
+            ],
+            "why": "read-only: `_channel_logs`/`_channel_queue` init, `send_channel`'s logging and `_replay_channels` \u2014 the structures the release now clears"
+          },
+          {
+            "path": "ui/chart_view.py",
+            "lines": [
+              "1-20",
+              "115-130"
+            ],
+            "why": "read-only: the P6-13 removal record and `create_chart_view` \u2014 asserted unchanged, never edited"
+          },
+          {
+            "path": "tests/test_lwc_popouts.py",
+            "lines": "1-70",
+            "why": "read-only: the memory_bytes ledger assertions that pin its shape \u2014 must stay green unchanged"
+          },
+          {
+            "path": "tests/test_lwc_time_parity.py",
+            "lines": "1-40",
+            "why": "read-only: its existing `_uses_pyqtgraph` scan \u2014 must stay green unchanged"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/chart_view.py:create_chart_view",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:memory_bytes",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:send_channel",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:_replay_channels",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_view.py",
+            "signature": "# release_resources, after the four existing bridge buckets:\nchannel_logs = getattr(bridge, \"_channel_logs\", None)\nif isinstance(channel_logs, dict):\n    for bucket in channel_logs.values():\n        bucket.clear()\nchannel_queue = getattr(bridge, \"_channel_queue\", None)\nif isinstance(channel_queue, list):\n    channel_queue.clear()\n# docstring keeps its promise list and adds: \"`memory_bytes` still accounts the bar log only; the channel\n# logs are reported empty after this call, not before it (AR-P30-6).\""
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_view.py",
+            "signature": "release_resources docstring names, in this order: the private series copy, the study arrays, every per-channel replay log (the bar log and the staging buffers, and the five channel logs with their not-ready queue) and the offline host \u2014 and every named item is asserted empty by P30-T3-03"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "DELETED (legacy verbatim, must not appear): \"Return pyqtgraph utcOffset for Eastern Time\" -> replaced by: \"Return the chart's `utcOffset` for Eastern Time (positive = behind UTC).\"\nDELETED: /anything other than .* keeps pyqtgraph \\(the default\\)/ (and the \"Phase-1a seam stub\" sentence in `build_main_chart_view`) -> replaced by: the LWC-only factory statement, the pyqtgraph removal named as history, and the re-host kept as a no-op"
+          },
+          {
+            "status": "new",
+            "module": "ui/popout_window.py",
+            "signature": "DELETED (legacy verbatim, must not appear): \"pyqtgraph stays present and default\" | \"pyqtgraph, which stays present and default\" | \"the pyqtgraph panel keeps a plain list of bars\" | \"the pyqtgraph panel has no per-view transport\".\nReplaced by, in order: the seam resolves the LWC view; BAR_BYTES = \"bytes budgeted per stored bar when a view reports no account itself\"; view_memory_estimate = \"the LWC driver's `memory_bytes` is asked; a view with no account of its own is accounted from its bars list.\""
+          },
+          {
+            "status": "new",
+            "module": "services/chart_model.py",
+            "signature": "DELETED (legacy verbatim, must not appear): \"the pyqtgraph item keeps its identical local copy until P6-13\"\nreplaced by: \"The single value source going forward (LWC phases use this); the retired renderer's local copy went with it.\"  # one sentence; no function, signature or import touched"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d104_stale_claims.py",
+            "signature": "ALLOW_LIST \u2014 12 rows keyed by (path, distinctive fragment), never by line number:\n ('ui/dock_layout.py', 'imports no PyQt6 / pyqtgraph / any Qt')\n ('ui/lwc_view.py', 'never drags the pyqtgraph seam in at import time')\n ('services/time_collapse_service.py', 'No PyQt6/pyqtgraph/Qt import appears anywhere in this module')\n ('services/market_calendar.py', same sentence)\n ('services/backfill_service.py', same sentence)\n ('services/option_ladder.py', same sentence)\n ('services/option_spread_engine.py', same sentence)\n ('services/chart_model.py', 'No PyQt6 / pyqtgraph / Qt import may ever appear in this module')\n ('ui/chart_view.py', 'P6-13 / Phase 11 removed the pyqtgraph engine')\n ('ui/chart_view.py', 'returning to pyqtgraph is a ``git revert`` of the removal')\n ('ui/drawing_tools.py', 'The names survive the pyqtgraph removal')\n ('services/chart_model.py', 'Moved here from ``ui/candlestick_item`` when the pyqtgraph engine was')\n# 20 hits / 12 files: 8 eliminated (main_window 15/305/308, popout 10/64/75/96, chart_model 273) + 12 allow-listed"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#P30-03",
+        "requirement_ids": [
+          "AC-D104.1",
+          "AC-D104.2",
+          "Journey 85",
+          "R190",
+          "AR-P30-6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d104_stale_claims.py tests/test_lwc_popouts.py tests/test_d24_popouts.py tests/test_d85_d91_popout_ownership.py tests/test_lwc_drawings.py tests/test_lwc_alarms.py tests/test_lwc_time_parity.py tests/test_d28_2_load_chart_button.py -m 'not webengine' -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P30-T4",
+      "title": "P30-04 \u2014 the fence: the record, the pins, the map and G7",
+      "description": "Fence the phase with one assertion per named artefact a later phase could quietly move. The new suite pins the requirements record (the existing-repository sentence, `D41`\u2013`D100` present per id, P30's own `D101`\u2013`D104`, Journeys 82\u201385, the `AC-D1.1`\u2013`AC-D104.3` ranges, `A1`\u2013`A250`, `R1`\u2013`R191`, the Current Tech Stack, and Q118's answer), reads the live modules for the values P30 must not move, and asserts `docs/codebase-map.md`'s P30 note **read-only** (the map is Plan-owned \u2014 a Build Worker is denied write access, and the note is already written). The phase delta listing (`git diff --name-only 956f9f8`) and the G7 non-claim are **recorded in the task result**, not pinned in pytest \u2014 a git diff inside a suite reddens every later phase (the P29 fence precedent).",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P30-T1",
+        "P30-T2",
+        "P30-T3"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-D104.3",
+          "criterion": "Given `requirements.md`, Then `### D41`\u2013`### D100`, `AC-D1.1`\u2013`AC-D100.3`, A1\u2013A245, R1\u2013R185, the Existing Repository marker sentence and the Current Tech Stack are unchanged and present. (Measurable: marker grep + section presence.)"
+        },
+        {
+          "id": "AC-P30-04-PINS",
+          "criterion": "Given the live modules, Then the values P30 must not move are read off source, not prose: `ENVELOPE_VERSION == 1`; `CHANNELS` is the five channel names; `LV.CONTROL_IDS == (\"zoom-out\", \"zoom-in\", \"magnifier\", \"reset\")` and `tuple(s.id for s in CONTROL_SPECS) == LV.CONTROL_IDS`; the four `ChartControls` signal names are present; `chart.html` contains `id=\"controls\"` and loads exactly the same script list as before; `ui/lwc_view.py` imports `ui.chart_controls`; `LwBridge` declares `controlPressed` as a `pyqtSlot` and `pageControlPressed`; `handle_control`'s signature and its three return shapes are unchanged; `create_chart_view`'s signature is unchanged; `WatchlistPanel.show_search_results`/`clear_search_results`/`set_collapsed` and `DrawingGroupsDialog.reload` signatures are unchanged; `DrawingStore.update_group`'s accepted set is exactly the four names. No file/line count and no phase commit hash is pinned."
+        },
+        {
+          "id": "AC-P30-04-RECORD",
+          "criterion": "Given the final tree, Then the task result records `git diff --name-only 956f9f8` (the run's actual phase baseline; the plan's `dcfdd60`/`3b92ce6` are P29's build/base commits and are superseded here) and that listing is a subset of the phase allowlist \u2014 the two new `chart_assets/lwc/` suites, the four new `tests/` suites, the nine production files and `docs/`; anything outside it is a scope breach recorded for escalation, never justified."
+        },
+        {
+          "id": "AC-P30-04-MAP",
+          "criterion": "Given `docs/codebase-map.md` read-only, Then its P30 note is present and names all six new suites (`test_d101_control_cluster.py`, `test_d102_d103_surface_state.py`, `test_d104_stale_claims.py`, `test_p30_fence.py`, `interaction.controls.test.js`, `controls.test.js`), states that no existing suite is edited and the shared `chart.test.js` harness is untouched, and carries the 'G7 is owner-run and not claimed' sentence \u2014 and the task edits no map line."
+        },
+        {
+          "id": "AC-P30-04-G7",
+          "criterion": "Given the phase's evidence, Then G7 is recorded as owner-run and not claimed: no suite added by P30 asserts a painted page, a real `QWebEngineView` render, a click inside Chromium or a live-window screenshot, and the task result states the G7 boundary explicitly."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P30-T4-01",
+          "linked_acceptance_criterion": [
+            "AC-D104.3"
+          ],
+          "type": "integration",
+          "description": "`tests/test_p30_fence.py` requirements fence: read `docs/requirements/requirements.md` and assert the existing-repository sentence, each id `D41`\u2013`D100` present in *a* heading, P30's own `#### D101`\u2013`#### D104`, `Journey 82`\u2013`Journey 85`, `AC-D1.1`\u2013`AC-D100.3` plus `AC-D101.1`\u2013`AC-D104.3`, `A1`\u2013`A245` plus `A246`\u2013`A250`, `R1`\u2013`R185` plus `R186`\u2013`R191`, and the `Current Tech Stack` section; then read `docs/requirements/open_questions.md` and the P30 header for Q118's answer sentence.",
+          "expected_result": "Every named artefact is present (per-id presence in a heading, not a literal section count) and Q118's answer `\"Restore them (Recommended)\"` is still in both files; a missing id or section fails with the id named. No file count, line count or commit hash is asserted."
+        },
+        {
+          "test_id": "P30-T4-02",
+          "linked_acceptance_criterion": [
+            "AC-P30-04-PINS"
+          ],
+          "type": "integration",
+          "description": "The live-module pins: import `ui.lwc_bridge`, `ui.lwc_view`, `ui.chart_controls`, `ui.chart_view`, `ui.watchlist_panel`, `ui.drawing_groups_dialog`, `data.drawing_store`; read `chart_assets/lwc/chart.html`; call `handle_control` for one non-toggle and one toggle id and inspect `update_group` through a probe that applies the four accepted names and a fifth.",
+          "expected_result": "`ENVELOPE_VERSION == 1`; `CHANNELS` is exactly the five names; `LV.CONTROL_IDS == (\"zoom-out\", \"zoom-in\", \"magnifier\", \"reset\")` and `tuple(s.id for s in CONTROL_SPECS) == LV.CONTROL_IDS`; the four `ChartControls` signals exist; `chart.html` contains `id=\"controls\"` and the same script list (`lightweight-charts\u2026`, `envelope.js`, `interaction.js`, `alarms.js`, `primitives.js`, `overlays.js`, `studies.js`, `gestures.js`, the qrc webchannel shim \u2014 no remote host); `ui.lwc_view` imports `ui.chart_controls`; `LwBridge.controlPressed` is a `pyqtSlot` and `pageControlPressed` exists; `handle_control`'s signature is `(self, control_id, value=None)` and its three return shapes are `zoom` / `router_mode` / `reset_view`; `create_chart_view`'s signature is `(tz_offset=0.0, editable=True)`; the watchlist/dialog signatures match; `update_group` applies exactly `name`/`color`/`visible`/`locked` and a fifth name raises `ValueError` with the row untouched."
+        },
+        {
+          "test_id": "P30-T4-03",
+          "linked_acceptance_criterion": [
+            "AC-P30-04-MAP"
+          ],
+          "type": "unit",
+          "description": "Read `docs/codebase-map.md` and locate its P30 note.",
+          "expected_result": "The note is present and contains the six new suite filenames it names, the statement that no existing suite is edited and the shared `chart.test.js` harness is untouched, and the sentence `G7 is owner-run and not claimed`. The test never writes the map and never asserts a baseline commit or a file count."
+        },
+        {
+          "test_id": "P30-T4-04",
+          "linked_acceptance_criterion": [
+            "AC-P30-04-RECORD"
+          ],
+          "type": "manual",
+          "description": "Run `git diff --name-only 956f9f8` (include untracked additions with `git status --porcelain`), compare the listing with the phase allowlist, and record both in `docs/build/results/P30-T4.json`.",
+          "expected_result": "The recorded listing is a subset of: `chart_assets/lwc/chart.html`, `chart_assets/lwc/interaction.js`, `chart_assets/lwc/chart.js`, `chart_assets/lwc/interaction.controls.test.js`, `chart_assets/lwc/controls.test.js`, `ui/chart_controls.py`, `ui/lwc_bridge.py`, `ui/lwc_view.py`, `ui/watchlist_panel.py`, `ui/drawing_groups_dialog.py`, `ui/main_window.py`, `ui/popout_window.py`, `services/chart_model.py`, `tests/test_d101_control_cluster.py`, `tests/test_d102_d103_surface_state.py`, `tests/test_d104_stale_claims.py`, `tests/test_p30_fence.py`, `docs/` (including `docs/build/`). The baseline is recorded as `956f9f8` and any path outside the allowlist is recorded as a breach, not silently dropped."
+        },
+        {
+          "test_id": "P30-T4-05",
+          "linked_acceptance_criterion": [
+            "AC-P30-04-G7"
+          ],
+          "type": "manual",
+          "description": "Grep every P30 suite (the four `tests/` files and the two `chart_assets/lwc/` node suites) for `QWebEngineView`, `grab(`, `screenshot`, `rasteri` and `painted page`, and record the result with the G7 sentence in `docs/build/results/P30-T4.json`.",
+          "expected_result": "No P30 suite contains a render, raster or screenshot assertion; the result records 'G7 is owner-run and not claimed \u2014 no suite asserts a painted page, a real QWebEngineView render, a click inside Chromium or a live-window screenshot', and the phase's exit condition does not name G7 as a suite gate."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p30_fence.py \u2014 the requirements fence, the live-module pins and the read-only map assertions",
+        "the recorded phase delta listing against 956f9f8 and the G7 record in `docs/build/results/P30-T4.json`",
+        "no production file and no `docs/codebase-map.md` edit"
+      ],
+      "touches_files": [
+        "tests/test_p30_fence.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the phase's final tree (all three other waves landed)",
+        "`docs/codebase-map.md`'s P30 note (written by Plan) \u2014 asserted read-only",
+        "Q118's answered entry in `docs/requirements/open_questions.md` and the P30 requirements header"
+      ],
+      "outputs": [
+        "a fence suite that reddens if a requirement record, a frozen value or the map note is quietly moved",
+        "the recorded phase delta listing and the G7 non-claim in the task result"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p29_fence.py",
+            "lines": "1-140",
+            "why": "read-only: the fence conventions \u2014 per-id presence in *a* heading, live-module pins, and the build-artefact delta record instead of a git assertion"
+          },
+          {
+            "path": "docs/codebase-map.md",
+            "lines": "660-712",
+            "why": "read-only: the P30 note the fence asserts (Plan-owned; a Build Worker is denied write access \u2014 do not edit a single line)"
+          },
+          {
+            "path": "docs/requirements/open_questions.md",
+            "lines": "1975-2000",
+            "why": "read-only: Q118's answered entry and the verbatim answer sentence"
+          },
+          {
+            "path": "ui/chart_controls.py",
+            "lines": "1-55",
+            "why": "read-only: `CONTROL_SPECS` and `ChartControls`' four signal names the pins read"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": [
+              "90-115",
+              "360-400",
+              "650-680"
+            ],
+            "why": "read-only: `ENVELOPE_VERSION`, `CHANNELS`, `pageControlPressed` and the `controlPressed` slot"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": [
+              "595-605",
+              "2005-2030",
+              "2855-2875"
+            ],
+            "why": "read-only: `CONTROL_IDS`, the page-slot connections and `handle_control`'s signature"
+          },
+          {
+            "path": "chart_assets/lwc/chart.html",
+            "lines": "1-62",
+            "why": "read-only: the script list and the `#controls` container the pins read"
+          },
+          {
+            "path": "data/drawing_store.py",
+            "lines": "55-100",
+            "why": "read-only: `update_group`'s accepted set the pin drives"
+          }
+        ],
+        "contracts": [
           {
             "ref": "ui/lwc_bridge.py:ENVELOPE_VERSION",
             "status": "existing"
@@ -1042,214 +935,58 @@
             "status": "existing"
           },
           {
-            "ref": "services/alarm_service.py:evaluate_alarms",
+            "ref": "ui/lwc_view.py:CONTROL_IDS",
             "status": "existing"
           },
           {
-            "ref": "services/alarm_monitor.py:format_gap_report",
+            "ref": "ui/lwc_view.py:handle_control",
             "status": "existing"
           },
           {
-            "ref": "data/models.py:Alarm",
+            "ref": "ui/chart_view.py:create_chart_view",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/watchlist_panel.py:show_search_results",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/watchlist_panel.py:set_collapsed",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/watchlist_panel.py:clear_search_results",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/drawing_groups_dialog.py:reload",
             "status": "existing"
           },
           {
             "ref": "data/drawing_store.py:update_group",
             "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P29",
-        "plan_ref": "docs/plan.md#P29-05",
-        "requirement_ids": [
-          "AC-D100.3"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p29_fence.py -q",
-        "memory_refs": [
-          "offscreen",
-          "pytest"
-        ],
-        "needs_graphify": false,
-        "size": "S"
-      },
-      "generation": 1
-    },
-    {
-      "id": "P29-T6",
-      "title": "P29-06 - hermetic connect guard: the offscreen suite must not need TWS to be closed",
-      "description": "Make the offscreen suite hermetic against a running TWS, with no change to production code. `tests/conftest.py` gains one session-scoped autouse fixture that replaces `ibapi.connection.Connection.connect` with a function that raises `ConnectionRefusedError` before any socket exists, so `EClient.connect`'s own `except socket.error` path runs unchanged (wrapper error 502, then `connectionClosed()`, client reset to DISCONNECTED) on every connect attempt in the session - the exact environment every green run has today with TWS stopped - and no ibapi reader thread can start. A new self-check module `tests/test_p29_hermetic_connect_guard.py` proves the guard is installed for a plain test and that a test's own `monkeypatch.setattr` on `EClient.connect` or `IBApiClient.connect` still wins and is restored afterwards. Prove it both ways: with TWS listening on 127.0.0.1:7496 the full suite must finish on its own well inside 600 s, and the four connect-asserting suites must pass unmodified. Do not weaken, delete or skip any existing assertion, and do not touch a production file.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P29-T1",
-        "P29-T2",
-        "P29-T3",
-        "P29-T4",
-        "P29-T5"
-      ],
-      "acceptance_criteria": [
-        {
-          "id": "AC-P29-06-GUARD",
-          "criterion": "Given the shared test session (one session-scoped autouse fixture in `tests/conftest.py`), When any test - including one that constructs a real `MainWindow` - attempts an IBKR connect, Then the attempt is refused before a socket exists: `ibapi.connection.Connection.connect` raises `ConnectionRefusedError` (an `OSError`, i.e. `socket.error`) on entry, `EClient.connect`'s own `except socket.error` path then emits `error(502, \"Couldn't connect to TWS\")` to the wrapper followed by `connectionClosed()`, the client ends `DISCONNECTED` with `conn is None`, no ibapi reader thread is created and no `CONNECTED` state is ever reached - for every attempt in the session, whether or not TWS is listening."
-        },
-        {
-          "id": "AC-P29-06-PRECEDENCE",
-          "criterion": "Given a test that patches `ibapi.client.EClient.connect` or `ibkr.client.IBApiClient.connect` itself with `monkeypatch.setattr`, When that test runs, Then its patch is the effective implementation for its duration (the guard raises nothing, the test's recorder receives the call, no error 502 is emitted), and when the test ends the guard is still installed for the tests that follow."
-        },
-        {
-          "id": "AC-P29-06-CONNECT-SUITES",
-          "criterion": "Given `tests/test_d27_reconnect.py`, `tests/test_d87_d93_client_lifecycle.py`, `tests/test_d98_outage_baseline.py` and `tests/test_ibkr_handshake_gate.py` on disk unchanged, When they run with the guard installed, Then every case passes (pytest exit 0) and none of the four files is modified."
-        },
-        {
-          "id": "AC-P29-06-TWS-UP",
-          "criterion": "Given TWS listening on 127.0.0.1:7496 (`lsof -nP -iTCP:7496` shows a LISTEN line), When the full offscreen suite runs, Then it exits 0 with every test passing in a wall-clock time well inside the 600 s verify budget (the same tree ran ~218 s with TWS closed), and the interpreter terminates on its own after the last test - no hang in `threading._shutdown` waiting on an ibapi reader thread."
-        },
-        {
-          "id": "AC-P29-06-SCOPE",
-          "criterion": "Given the working tree after the task, Then the only changed or added paths are `tests/conftest.py` and the new `tests/test_p29_hermetic_connect_guard.py`: no production file, no other test file, `pytest.ini` unchanged, nothing under `docs/requirements/`, `docs/plan.md`, `docs/architecture.md` or `docs/codebase-map.md` modified, and no case skipped or deselected to obtain a green run."
-        }
-      ],
-      "tests": [
-        {
-          "test_id": "P29-T6-01",
-          "linked_acceptance_criterion": [
-            "AC-P29-06-GUARD"
-          ],
-          "type": "unit",
-          "description": "`test_guard_refuses_before_a_socket_exists` in `tests/test_p29_hermetic_connect_guard.py`: with no monkeypatch of its own, drive a real `EClient` whose wrapper records `error` and `connectionClosed`, calling `.connect(\"127.0.0.1\", 7496, 1)`.",
-          "expected_result": "`Connection.connect` raises on entry so `socket.socket()` never runs; the wrapper records exactly one error whose code is 502 and exactly one `connectionClosed()`; `client.isConnected() is False`, `client.conn is None`, `client.connState == EClient.DISCONNECTED`; `threading.active_count()` after the call equals the count before it. The asserted state is the refused-connect outcome, identical whether or not TWS is listening."
-        },
-        {
-          "test_id": "P29-T6-02",
-          "linked_acceptance_criterion": [
-            "AC-P29-06-PRECEDENCE"
-          ],
-          "type": "unit",
-          "description": "`test_a_test_own_patch_wins_and_the_guard_returns`, parametrized over the two patch sites the shipped suites use (`EClient.connect` as in `test_d87_d93_client_lifecycle.py`, `IBApiClient.connect` as in `test_d98_outage_baseline.py::_make_window`): inside `pytest.MonkeyPatch.context()` install a recorder and call it, then leave the context and connect again through a fresh real `EClient`.",
-          "expected_result": "Inside the context the recorder receives `(\"127.0.0.1\", 7496, n)` and the recording wrapper sees no error and no `connectionClosed`; after the context, `Connection.connect` still carries the guard marker and the fresh `EClient(...).connect(...)` is refused (one error 502, `isConnected() is False`)."
-        },
-        {
-          "test_id": "P29-T6-03",
-          "linked_acceptance_criterion": [
-            "AC-P29-06-CONNECT-SUITES"
-          ],
-          "type": "integration",
-          "description": "Run the four connect-asserting suites unchanged: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_reconnect.py tests/test_d87_d93_client_lifecycle.py tests/test_d98_outage_baseline.py tests/test_ibkr_handshake_gate.py -q`.",
-          "expected_result": "pytest exit 0 with every case green, and `git diff --name-only 3b92ce6 -- <those four paths>` prints nothing."
-        },
-        {
-          "test_id": "P29-T6-04",
-          "linked_acceptance_criterion": [
-            "AC-P29-06-TWS-UP"
-          ],
-          "type": "manual",
-          "description": "Two-way proof on a host where TWS is running: first record `lsof -nP -iTCP:7496` (a LISTEN line), then run the whole suite bounded so a regression kills the run instead of the worker: `QT_QPA_PLATFORM=offscreen perl -e 'alarm 540; exec @ARGV' .venv/bin/python -m pytest -q`. Record the elapsed wall clock, the exit code, the pytest summary line and the `lsof` line in the result.",
-          "expected_result": "Exit 0 with the full suite green and a wall clock well under 540 s (baseline ~218 s with TWS closed); the process exits on its own after the last test. A signal kill (exit 142), a timeout, or a traceback naming `threading._shutdown` fails this case. Recorded context: the same run without the guard reaches 100% and then hangs, which is the defect this task fixes."
-        },
-        {
-          "test_id": "P29-T6-05",
-          "linked_acceptance_criterion": [
-            "AC-P29-06-SCOPE"
-          ],
-          "type": "manual",
-          "description": "Audit the delta: `git status --porcelain` and `git diff --name-only 3b92ce6`; confirm no case was skipped or deselected (`grep -n \"skip\" tests/test_p29_hermetic_connect_guard.py` shows only the module's own comments; the four connect suites' `git diff` is empty; `pytest.ini` unchanged).",
-          "expected_result": "The only changed or added paths are `tests/conftest.py` and `tests/test_p29_hermetic_connect_guard.py`; no production file, no other test file, no file under the canonical planning set."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/conftest.py - one session-scoped autouse guard fixture with its saved original beside `_isolate_test_db` and `_reset_pacing_state`; every existing fixture and env default unchanged",
-        "tests/test_p29_hermetic_connect_guard.py - the guard self-check and the precedence check",
-        "the result's two-way proof record: `lsof` line, wall clock, exit code, pytest summary line"
-      ],
-      "touches_files": [
-        "tests/conftest.py",
-        "tests/test_p29_hermetic_connect_guard.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "`ibapi` 9.81.1.post1: `EClient.connect` creates `Connection`, calls `conn.connect()`, and on a `socket.error` reaching its own `except` emits `wrapper.error(-1, ..., 502, ...)` then `disconnect()`; `EClient.disconnect` emits `wrapper.connectionClosed()` when `self.conn is not None` and calls `reset()`; `Connection.disconnect` guards `socket is None`",
-        "`ibkr/client.py::IBApiClient.connect` sets CONNECTING, remembers the params, calls `super().connect(...)` then `start_polling()` - the wrapper bookkeeping the guard must leave intact",
-        "`ui/main_window.py:1042` - the one real connect call, made inside `MainWindow.__init__`, followed by a daemon reader thread",
-        "TWS listening on 127.0.0.1:7496 at task-scope time (`lsof -nP -iTCP:7496` -> JavaApplication `*:7496 (LISTEN)`)"
-      ],
-      "outputs": [
-        "one session-scoped autouse guard in `tests/conftest.py` - no narrower scope, so a test cannot construct a window before it is installed",
-        "`tests/test_p29_hermetic_connect_guard.py` with the guard and precedence checks",
-        "a recorded two-way proof: full suite green with TWS up, and the four connect suites green unmodified"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "tests/conftest.py",
-            "lines": "1-134",
-            "why": "edit: the 134-line harness - env preamble (`QT_QPA_PLATFORM`, per-process `DB_PATH`), `qapp`, and the two existing autouse fixtures the new session-scoped guard joins"
           },
           {
-            "path": "ibkr/client.py",
-            "lines": "72-95",
-            "why": "read-only: `IBApiClient.connect` - state, remembered params and `start_polling()` must keep running; the guard intercepts only the socket layer reached through `super().connect`"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1038-1048",
-            "why": "read-only: the single `ib_client.connect(...)` in `MainWindow.__init__` and the daemon reader thread - the call that must never reach TWS"
-          },
-          {
-            "path": "tests/test_d87_d93_client_lifecycle.py",
-            "lines": "55-100",
-            "why": "read-only: the `monkeypatch.setattr(EClient, \"connect\", fake_connect)` recorder pattern the guard must not disturb"
-          },
-          {
-            "path": "tests/test_d98_outage_baseline.py",
-            "lines": "124-152",
-            "why": "read-only: `_make_window` patches `IBApiClient.connect` then constructs `MainWindow` - the wrapper-level precedence case"
-          },
-          {
-            "path": "tests/test_d92_honest_description.py",
-            "lines": "42-60",
-            "why": "read-only: the construct-then-assert window test that hangs alone with TWS up today; it must pass unchanged"
-          },
-          {
-            "path": "tests/test_d27_reconnect.py",
-            "lines": "50-95",
-            "why": "read-only: the recorder and `_boom` connect patches that assert the failure and backoff path"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ibkr/client.py:connect",
+            "ref": "ui/chart_controls.py:class ChartControls",
             "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "tests/conftest.py",
-            "signature": "@pytest.fixture(scope=\"session\", autouse=True)\ndef _hermetic_ibkr_connect() -> Iterator[None]:"
-          },
-          {
-            "status": "new",
-            "module": "tests/conftest.py",
-            "signature": "def _refused_connection_connect(self) -> None:\n    raise ConnectionRefusedError(\"hermetic test guard: no TWS socket\")\n\n_refused_connection_connect._hermetic_guard = True"
-          },
-          {
-            "status": "new",
-            "module": "tests/conftest.py",
-            "signature": "_real = ibapi.connection.Connection.connect\nibapi.connection.Connection.connect = _refused_connection_connect\ntry:\n    yield\nfinally:\n    ibapi.connection.Connection.connect = _real"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P29",
-        "plan_ref": "docs/plan.md#Phase P29",
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#P30-04",
         "requirement_ids": [
-          "AC-D96.1",
-          "AC-D97.1",
-          "AC-D98.1",
-          "AC-D99.1",
-          "AC-D100.3"
+          "AC-D104.3",
+          "AC-D101.1",
+          "AC-D101.5",
+          "AC-D102.1",
+          "AC-D103.1",
+          "Journey 82",
+          "Journey 83",
+          "Journey 84",
+          "Journey 85"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p29_hermetic_connect_guard.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p30_fence.py -q",
         "memory_refs": [
-          "offscreen",
-          "ibapi"
+          "offscreen"
         ],
         "needs_graphify": false,
         "size": "S"
