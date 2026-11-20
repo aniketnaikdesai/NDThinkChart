@@ -8433,6 +8433,12 @@ Two waves change what the user sees: `P28-04` (closing the app actually closes i
   that reach the changed `update_group` (`test_p9_group_dialog`, `test_p9_group_payload`,
   `test_p9_active_group`, `test_p10_groups_dialog_lock`), so the audit's evidence is a gate, not a sentence.
   Rewritten: P29-01's exit condition and AR-P29-7.
+- **RG-P29-1 (owner, 2026-11-20) — recorded partial supersession, no design change.** `AC-D40.4`'s
+  gap-accounting and `prev_price`-untouched clauses are now marked superseded in part by `AC-D98.1` in
+  `requirements.md` (Journey 35 step 3 likewise); FI-P29-1 records the ruling and states that the
+  `AC-D40.*` Non-Goals bullet (`requirements.md:7420`) is requirements-owned and was **not** amended, so
+  nothing beyond the ruling is reopened. No wave, AC, deliverable, exit condition, frozen interface,
+  assumption or flagged-issue decision changed; the section stays `READY_FOR_TASK_MANAGER`.
 
 ### Traceability (requirement → architecture → wave)
 
@@ -8874,18 +8880,22 @@ nothing with either (one bridge, envelope assertions) and opens beside them.
 
 ### Flagged Issues
 
-- **FI-P29-1 — `AC-D40.4` and `AC-D98.1` contradict each other; P29 follows the later, phase-governing
-  criterion and asks for the supersession to be recorded (blocking for the record, not for the build).**
+- **FI-P29-1 — `AC-D40.4` and `AC-D98.1` contradicted each other; resolved 2026-11-20 by the recorded
+  partial supersession `RG-P29-1`, with P29 following the later, phase-governing criterion.**
   `AC-D40.4` (`requirements.md:3817-3818`) says a non-TWS-gone disconnect keeps "no gap accounting — and
   reconnect leaves `prev_price` untouched"; `AC-D98.1` (`:7494`) requires the first post-outage tick to
   seed with no evaluation **and** the gap to be reported "over both disconnect classifications". Both
   cannot hold. P29 implements `AC-D98.1` (the phase's own criterion, and D98's stated recommended default,
   A243) and keeps `AC-D40.4`'s other two clauses (no paused badge, no pause flags) verbatim — so the
-  supersession is two clauses, not the whole criterion. This needs a recorded update (Requirements
-  Analyst/Validator) because P29's Non-Goals say `AC-D40.*` is not reopened while `AC-D98.1` necessarily
-  revises part of it, and because the shipped case encoding the old clauses is re-baselined in P29-03.
-  **Suggested direction:** mark `AC-D40.4` as superseded in part by `AC-D98.1` (with the surviving
-  badge/flag clauses named), in the same place the D40 record already carries its verification notes.
+  supersession is two clauses, not the whole criterion. **Answered 2026-11-20 (RG-P29-1):** the
+  requirements record marks `AC-D40.4`'s gap-accounting and `prev_price`-untouched clauses superseded
+  in part by `AC-D98.1` (`requirements.md:3821-3823`, its no-paused-badge / no-pause-flags clauses
+  standing verbatim), and Journey 35 step 3 likewise (`:1138-1139`). The Phase P29 Non-Goals bullet is
+  requirements-owned (`requirements.md:7420`) and **was not amended**: the supersession is recorded at
+  those two places, and P29's scope is unchanged by it. The shipped case encoding the superseded
+  clauses is re-baselined in P29-03.
+  **Suggested direction: applied 2026-11-20** — `AC-D40.4` is marked superseded in part by `AC-D98.1`,
+  with the surviving badge/flag clauses named, in the D40 record.
 - **FI-P29-2 — `AC-D98.3` is conditional and is not exercised (non-blocking).** The criterion only bites
   "given the owner prefers cross-gap evaluation"; the owner has not said so, and the phase's default is
   suppression (A243). P29 therefore builds no cross-gap rule and asserts no override wording. If the owner

@@ -3,8 +3,8 @@
 ``AC-P28-02-S1``/``S2``/``S3`` said "each changed suite differs only by its seam
 assignment — no assertion changed" as prose. This suite is that sentence as a
 test, over the whole 21-file seam set: the eighteen suites P28-T3/T4/T5/T7
-seamed plus the three P28-T12 seams. For every member, ``git diff ef04c5a --
-<file>`` must add exactly one line and it must be the harness seam
+seamed plus the three P28-T12 seams. For every member, ``git diff ef04c5a
+<phase-tip> -- <file>`` must add exactly one line and it must be the harness seam
 (``win._transport_ready = lambda: True``, optionally with a trailing comment,
 or the ``_transport_ready=lambda: True`` stub keyword on a ``SimpleNamespace``
 double) and remove nothing — otherwise a future "seam edit" could smuggle an
@@ -17,16 +17,22 @@ line must still be exactly one seam, and its removals must be one contiguous
 block of the base file starting at that ``def`` — so the exemption cannot hide
 a removal anywhere else in the file.
 
-The case is **phase-bounded**, following the P24 fence precedent (S-P24-5):
-a git diff pinned inside pytest reddens every later phase, so once a commit
-outside the ``P28`` family exists in ``ef04c5a..HEAD`` the 21 members skip with
-a named reason. A later phase's edits to these suites are its own.
+The case is **phase-bounded**, following the P24 fence precedent (S-P24-5): a
+git diff pinned inside pytest reddens every later phase. The bound is a fixed
+historical range, not ``ef04c5a..HEAD``: the endpoint is the newest commit in
+``ef04c5a..HEAD`` whose subject starts with ``P28``, resolved from ``git log``
+and never from ``HEAD``. So a commit outside the P28 family can neither close
+the range (no skip) nor widen it (the endpoint does not move) — a later phase's
+edits to these suites are its own, and a tree with no P28 commit fails loudly
+with a named ``AssertionError`` instead of silently skipping.
 
 Self-checks keep the detector honest, so "it passes" cannot mean "it cannot
 fail": a synthetic ``- assert a`` / ``+ assert b`` patch is flagged as a
 removal-plus-addition, a docstring-only addition is flagged (it is an added
-line, not a seam), and the in-phase predicate is exercised both ways with a
-later-phase subject.
+line, not a seam), a patch adding a *second* seam line is still flagged (the
+rule is exactly one, not at least one), and the anchor resolver is exercised
+both ways — a later-phase (``P29``) subject at the head of the list resolves to
+the same P28 hash, and a list with no P28 subject resolves to ``None``.
 """
 
 from __future__ import annotations
@@ -40,7 +46,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: The phase base (the P27 close-out). No phase commit hash and no file/line
-#: count is pinned: the comparison is always base -> current tree.
+#: count is pinned: the comparison is always this base -> the phase's own tip.
 PHASE_BASE = "ef04c5a"
 
 #: The one seam shape the phase shipped: the window instance attribute (with or
@@ -83,15 +89,9 @@ DECLARED_REMOVALS: dict[str, str] = {
     ),
 }
 
-#: The P28 commit family. A commit subject outside it closes the phase diff.
+#: The P28 commit family. A commit subject outside it does not close the phase
+#: range: the endpoint is simply the newest commit that *is* in the family.
 PHASE_SUBJECT_PREFIX = "P28"
-
-#: The named skip reason: the P28 diff is closed and a later phase owns the file.
-PHASE_CLOSED_REASON = (
-    "phase-bounded skip: ef04c5a..HEAD contains a commit outside the P28 family, "
-    "so the P28 phase diff is closed and a later phase's edits to the audited "
-    "seam suites are that phase's own (S-P24-5 precedent)"
-)
 
 
 def _git(*args: str) -> str:
@@ -109,28 +109,60 @@ def _git(*args: str) -> str:
     return proc.stdout
 
 
-def _phase_subjects() -> list[str]:
-    """Commit subjects in ``PHASE_BASE..HEAD`` (the phase diff's subjects)."""
-    out = _git("log", "--format=%s", f"{PHASE_BASE}..HEAD").splitlines()
-    return [line for line in out if line.strip()]
+def _phase_tip(commits: list[tuple[str, str]]) -> str | None:
+    """The newest P28 commit's hash, from newest-first ``(hash, subject)`` pairs.
+
+    Pure, so the bound is testable without git: the phase's endpoint is the
+    newest commit whose subject starts with ``PHASE_SUBJECT_PREFIX``, and a
+    later phase's commit above it is simply skipped over — it cannot move the
+    endpoint. ``None`` when the range holds no P28 commit at all.
+    """
+    for sha, subject in commits:
+        if subject.startswith(PHASE_SUBJECT_PREFIX):
+            return sha
+    return None
 
 
-def _in_phase(subjects: list[str]) -> bool:
-    """False when any commit subject in ``ef04c5a..HEAD`` is not a P28 commit."""
-    return all(subject.startswith(PHASE_SUBJECT_PREFIX) for subject in subjects)
+def _phase_range_end() -> str:
+    """The hash of the newest P28 commit in ``PHASE_BASE..HEAD``.
+
+    Fails loudly — never ``pytest.skip`` — because a missing endpoint means the
+    range cannot be audited, and "quiet" must not be indistinguishable from
+    "clean". The range is fixed and historical, so a later phase's commits
+    above the P28 tip neither close nor widen it (S-P24-5 distinguished: a
+    ``base..HEAD`` diff reddens later phases; ``base..phase-tip`` cannot).
+    """
+    out = _git("log", "--format=%H%x00%s", f"{PHASE_BASE}..HEAD")
+    commits: list[tuple[str, str]] = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        sha, _, subject = line.partition("\0")
+        commits.append((sha, subject))
+    anchor = _phase_tip(commits)
+    if anchor is None:
+        raise AssertionError(
+            f"no {PHASE_SUBJECT_PREFIX} commit in {PHASE_BASE}..HEAD: the phase "
+            f"diff has no endpoint, so the audited seam set cannot be checked "
+            f"(never skip — a missing anchor must fail loudly)"
+        )
+    return anchor
 
 
 def _phase_diff(relpath: str) -> tuple[list[str], list[str]]:
-    """(added, removed) content lines of ``relpath`` against ``PHASE_BASE``.
+    """(added, removed) content lines of ``relpath`` against the phase range.
 
-    The ``+++``/``---`` headers are excluded by only reading hunk bodies, so a
-    content line that happens to begin with ``++``/``--`` is not mistaken for a
-    marker.
+    The range is ``PHASE_BASE.._phase_range_end()`` — a fixed historical range,
+    so the audit reads the phase's committed content and ignores the dirty
+    working tree. The ``+++``/``---`` headers are excluded by only reading hunk
+    bodies, so a content line that happens to begin with ``++``/``--`` is not
+    mistaken for a marker.
     """
+    anchor = _phase_range_end()
     added: list[str] = []
     removed: list[str] = []
     in_hunk = False
-    for raw in _git("diff", "-U0", PHASE_BASE, "--", relpath).splitlines():
+    for raw in _git("diff", "-U0", PHASE_BASE, anchor, "--", relpath).splitlines():
         if raw.startswith("@@"):
             in_hunk = True
             continue
@@ -167,20 +199,10 @@ def _violations(added: list[str], removed: list[str]) -> list[str]:
     return problems
 
 
-@pytest.fixture(scope="module")
-def in_phase() -> bool:
-    """Skip the whole parametrized set once the P28 commit family is closed."""
-    subjects = _phase_subjects()
-    if not _in_phase(subjects):
-        later = [s for s in subjects if not s.startswith(PHASE_SUBJECT_PREFIX)]
-        pytest.skip(f"{PHASE_CLOSED_REASON} (first: {later[0]!r})")
-    return True
-
-
 @pytest.mark.parametrize(
     "relpath", AUDITED_SEAMS, ids=[Path(path).stem for path in AUDITED_SEAMS]
 )
-def test_p28_audited_seam_diff_shape(relpath: str, in_phase: bool) -> None:
+def test_p28_audited_seam_diff_shape(relpath: str) -> None:
     """Each audited suite differs from ``ef04c5a`` by its one seam line only."""
     added, removed = _phase_diff(relpath)
     declared = DECLARED_REMOVALS.get(relpath)
@@ -231,18 +253,27 @@ def test_p28_seam_detector_flags_a_docstring_or_noop_addition() -> None:
     assert _violations(["            _transport_ready=lambda: True,"], []) == []
 
 
-def test_p28_seam_in_phase_predicate_excludes_a_later_phase_subject() -> None:
-    """The phase bound is a real predicate, not an unconditional skip."""
-    assert _in_phase(
-        [
-            "P28 build: readiness gate + deferred attach (D84-D95)",
-            "P28: plan approved after two revision rounds",
-        ]
-    )
-    assert not _in_phase(
-        [
-            "P28 build: readiness gate + deferred attach (D84-D95)",
-            "P29 build: startup polish (D96-D99)",
-        ]
-    )
-    assert not _in_phase(["Q-81 quick fix"])
+def test_p28_seam_detector_flags_a_second_added_seam_line() -> None:
+    """The rule is *exactly one* added seam line, not *at least one*."""
+    seam = "    win._transport_ready = lambda: True"
+    problems = _violations([seam, seam], [])
+    assert problems, "a second added seam line must be flagged"
+    assert any("exactly 1 added line" in item for item in problems), problems
+    # A second seam beside a unrelated addition is no better.
+    problems = _violations([seam, "    # another note"], [])
+    assert any("exactly 1 added line" in item for item in problems), problems
+
+
+def test_p28_seam_anchor_ignores_a_later_phase_commit() -> None:
+    """The anchor is the newest P28 commit, both ways — never HEAD, never skip."""
+    p28_newest = ("b7914c3", "P28 rework: AST usage scan for the dead replay")
+    p28_older = ("1404877", "P28 build: readiness gate + deferred attach")
+    later = ("e7ac594", "P29: plan approved (persisted writes atomic)")
+
+    assert _phase_tip([p28_newest, p28_older]) == "b7914c3"
+    # A later-phase subject at the head does not move the endpoint...
+    assert _phase_tip([later, p28_newest, p28_older]) == "b7914c3"
+    # ... and a list with no P28 subject resolves to None, so the caller
+    # raises instead of skipping.
+    assert _phase_tip([later]) is None
+    assert _phase_tip([]) is None

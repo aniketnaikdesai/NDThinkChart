@@ -925,7 +925,7 @@ next.
 **Escalation:** ESCALATED_TO_REQUIREMENTS — **addressed 2026-11-19** (`AC-D77.1`, D77, Journey 71;
 `AC-D77.1` reworded only — no new criterion).
 
-## RG-P29-1 — `AC-D40.4` and Journey 35 step 3 contradict `AC-D98.1` on a transient drop (gap accounting + `prev_price`)
+## RG-P29-1 — `AC-D40.4` and Journey 35 step 3 contradict `AC-D98.1` on a transient drop (gap accounting + `prev_price`) — **addressed 2026-11-20**
 
 **Requirement/Journey:** three sentences in `requirements.md`, quoted verbatim:
 
@@ -965,6 +965,14 @@ fast reconnect, no paused state", stays). Also amend P29's Non-Goals sentence (`
 recorded partial supersession instead of saying `AC-D40.*` is not reopened. No new criterion is needed; the
 build does not change either way (P29 builds `AC-D98.1`'s default and does not activate `AC-D98.3`).
 
-**Status:** open
+**Status:** **addressed — 2026-11-20** (owner chose the recorded partial supersession).
+
+**Resolution (2026-11-20).** The owner adopted the suggested direction in full. In `requirements.md`:
+
+- `AC-D40.4` now carries a one-line **PARTIAL SUPERSESSION 2026-11-20 — RG-P29-1** note: its **no gap accounting** and **`prev_price`-untouched** clauses are superseded in part by `AC-D98.1` (any outage path, transient included: the first post-reconnect tick seeds only and the gap is reported). Its surviving clauses — **no paused badge, no pause flags** — stand **verbatim**.
+- **Journey 35 step 3** carries the same note against "no gap accounting"; its surviving half — no pause UI, fast reconnect, no paused state — stands.
+- No criterion was rewritten wholesale and **no new criterion** was added. `AC-D98.1` is unchanged; P29's build is unchanged.
+
+**Left for Plan (flagged, not edited by the analyst).** P29's **Non-Goals** sentence (`requirements.md` `:7420` after this revision; `:7412` at escalation time) and its copy in `docs/plan.md` still says "No reopening of … `AC-D40.*`". The supersession is now recorded, so Plan/Validator should amend that sentence to name the recorded partial supersession of `AC-D40.4` — as this entry suggested — or it keeps contradicting the criterion it governs. Separately, and for the orchestrator rather than the record: `tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui` still encodes the superseded clauses (`_pause_start == {}`, `last_chart_price == before`, no "unmonitored" line) — a build/review consequence of the supersession, not an analyst edit.
 
 **Escalation:** ESCALATED_TO_REQUIREMENTS

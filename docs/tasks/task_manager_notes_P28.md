@@ -476,3 +476,87 @@ edited line, reddens), and the **population** is a recorded, provenance-carrying
 carry: an inventory AC must name the *set* (enumerated in the AC, asserted by a test), and any
 "nothing else changed" clause beside it needs a test or must be labelled a review-time check — never
 left as prose in an AC.
+
+## P28 review rework — ESC-137 (2026-11-20, owner-approved)
+
+**Trigger.** The P28 review ended `REVIEW_COMPLETE` with exactly one open entry: **ESC-137**
+(nice-to-have, routed `TASK_MANAGER`). `tests/test_p28_seam_diff_shape.py`'s `_in_phase()` guard
+skipped as soon as ANY commit subject in `ef04c5a..HEAD` did not start with `P28`; `e7ac594`
+(a **P29** commit, the `git add -A` sweep) already tripped it, so the case reported **21 skipped /
+3 passed** and had never exercised the phase's final content — while `P28-T12-02` recorded `pass`.
+ESC-137 was routed to me because the skip clause is written into a task AC, not product code.
+
+**Graph change: one new task `P28-T13` (size S) plus the corrected skip clause in `P28-T12`.**
+Nothing else changed: T1–T11 are `done` and untouched, T12 stays `done` (its AC ids, test ids,
+footprint, dependencies and status are unchanged), and no other task gained an edge. Verified by a
+semantic diff of the graph against a pre-edit copy (`/tmp/task-graph.pre-esc137.json`): the only
+differences are `P28-T12.description`, `P28-T12.acceptance_criteria` (AC-P28-02-S5) and
+`P28-T12.tests` (P28-T12-02's `expected_result`), plus the appended `P28-T13`.
+
+**The mechanism (decided, not mediated by the worker).** The range **endpoint** moves from `HEAD`
+to *the newest commit in `ef04c5a..HEAD` whose subject starts with `P28`* —
+`AC-P28-02-S7`. Concretely: a pure `_phase_tip(commits)` over `git log --format=%H%x00%s`
+output, `_phase_range_end()` raising `AssertionError` when no P28 commit exists, and
+`_phase_diff()` running `git diff -U0 ef04c5a <anchor> -- <path>`. Consequences, each of which is
+an AC:
+
+- **It always executes.** There is no skip path left in the file; the "phase closed" state can no
+  longer silence it. A tree where a foreign commit sits above the last P28 commit (today:
+  `e7ac594`) audits exactly the same range as a tree without it.
+- **It still cannot redden P29+.** The range is a **fixed historical range** —
+  `ef04c5a..<phase commit>` — so a later phase's edits to the 21 audited suites are outside it, and
+  the audit reads committed content (the dirty working tree is ignored). This is the distinction
+  from the S-P24-5 precedent in `tests/test_p28_fence.py`, which rejects a diff pinned
+  `base..HEAD` (that range *moves* with every later commit); this one pins the endpoint to a phase
+  commit, which is why the fence's own "a diff cannot be a test" note does not cover it.
+- **The shape rule is untouched.** 21 members, `SEAM_RE`, `DECLARED_REMOVALS` and `_violations` are
+  kept verbatim; the anchor change is the only behavioural delta, so `AC-P28-02-S8` still pins the
+  reviewer's measured shape (20 × `+1/-0`; `tests/test_p7_w4_streaming.py` `+1/-20`, one contiguous
+  base-file block headed by the retired case's `def`). I re-measured that with
+  `git diff --numstat ef04c5a -- <each member>` before writing the AC — the AC states the measured
+  numbers, not a hope.
+- **The self-checks prove the bound, not just the shape** (`AC-P28-02-S9`): a synthetic P29 subject
+  at the head of the commit list must resolve to the same P28 hash; a second added seam line must
+  still be flagged (so "exactly one added line" cannot quietly become "at least one"); and a
+  no-P28-commit list must raise the named error, never skip. The last one matters most: it is the
+  self-check that would have caught the original defect, because it asserts that the *unchecked*
+  state is loud.
+
+**Why the dynamic anchor and not a pinned tip hash.** Both were on the reviewer's list. The
+dynamic anchor is a pure predicate, so the decision above is itself testable (the title of the
+self-check names the failure it prevents), and it survives a rebase/amend of the phase tip; a
+literal `PHASE_TIP = "b7914c3"` would go stale on any history rewrite and would need a human edit at
+exactly the moment nobody is looking. The residual is stated rather than hidden: a later commit
+**deliberately labelled `P28 …`** joins the range and could redden the case. That is a commit-subject
+mislabel, and a red then is the honest signal — no non-P28 commit can widen or close the range.
+
+**Not done, deliberately.** The test is not deleted and not converted to a build-artefact record
+(the owner rejected both when approving ESC-137); the shape rule is not loosened; none of the 21
+audited suites, `tests/test_p28_fence.py` or any production file is in `P28-T13`'s footprint.
+
+**Dependencies.** `P28-T13` depends on `P28-T12` — the suite it re-anchors is T12's artifact, and
+the AC text it supersedes is T12's. T12 is `done`, so the edge costs no wave: T13 is the only
+`not_started` task and is immediately dispatchable.
+
+**Check.** `check_tasks.py`: **OK — 13 tasks validated, `execution_graph.json` written**, 0 errors.
+Warnings are the pre-existing pure-output-file notices (T13's own suite is in its `read_files`, so
+it adds none). `meta.status` = `READY_FOR_BUILD`.
+
+**Lesson — a phase-bounded guard must be anchored to the phase's OWN last commit, never to a base
+range that any later commit can widen.** A `base..HEAD` guard has exactly two ends and both are
+moving targets: the starts-with-`P28` predicate over that range is an *all-or-nothing* test whose
+false branch had only one available action — go quiet. And "quiet" was indistinguishable from
+"clean", so the case reported success for a check it never ran. The correct shape is a *fixed
+historical range* whose endpoint is the phase's last commit: validity does not depend on what lands
+afterwards, so the guard never needs a retreat state, and "passes" can only mean "ran and passed".
+
+**Second-order cause (record it, because it is the pipeline's bug, not the test's).** An
+orchestrator `git add -A` swept three of the audited files into a **P29** commit; that foreign
+subject entered `ef04c5a..HEAD`, the guard went quiet, and the *same commit set* that the guard was
+supposed to inspect is what disabled it. Two rules follow. (1) Commit only the paths the step owns
+while workers are mid-flight — recorded in `docs/memory.md` (2026-11-20 entry) and the direct fix
+for the pipeline. (2) A verification result must never record `pass` for a case that did not run:
+`P28-T12-02` recorded `pass` while the file reported 21 skipped, and the reviewer had to reproduce
+the check by hand to know the content was sound. Any task whose `test_command` output contains a
+skip needs its result to state the executed count, not the verdict name — and a task whose entire
+deliverable is a guard should carry one self-check that asserts the *unchecked* state is loud.

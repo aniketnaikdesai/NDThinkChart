@@ -2248,7 +2248,7 @@
     {
       "id": "P28-T12",
       "title": "P28-02c - the seam inventory's last three suites and the diff-shape gate (ESC-134, ESC-136)",
-      "description": "Post-review seam repair (ESC-134) and the diff-shape gate that makes the seam groups' guarantee checkable (ESC-136); NO production code. 1. Three seam lines, one per suite, each in `_make_window` immediately after `win = MainWindow()`: `win._transport_ready = lambda: True` in `tests/test_p13_hold_probe.py` (`:48`), `tests/test_d41_removal.py` (`:256`) and `tests/test_p7_w2_prime.py` (`:38`) - the shipped shape and position of `tests/test_p13_hold_fix.py:67` and of the phase's other eighteen seamed suites. Nothing else in those files: no assertion, expected value, case name, fixture, monkeypatch target or import moves. 2. Why a seam and not a product fix: the reviewer proved the three reds are the readiness gate, not the product - the seam injected into the three UNMODIFIED files makes all 10 cases pass, and `_fail_open_prime -> _clear_prime_state -> _on_session_prime_complete` clears six prime markers and never `_rt_req_id` (so `tests/test_d41_removal.py`'s 'the RT bar line stopped issuing' and `tests/test_p7_w2_prime.py`'s `rt_req_id == 4242` are the prime path, not a defect). AC-D84.1 (P28-T2's case (b), which exercises the REAL predicate) is what keeps every override a harness stub rather than a hole. 3. New suite `tests/test_p28_seam_diff_shape.py`: one parametrized case over the 21-file audited seam set (named in AC-P28-02-S5) asserting, per file, that `git diff ef04c5a -- <file>` adds exactly the one seam line and removes nothing - the single exemption is `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case. This is the enforcement the seam ACs (AC-P28-02-S1/S2/S3) stated as prose and never checked: 'each changed file differs only by its seam assignment(s) - no assertion changed' is now a test, over all three seam groups plus this one. The case is PHASE-BOUNDED: it skips with a named reason once a commit outside the P28 family exists in `ef04c5a..HEAD`, because the fence's own precedent (S-P24-5, `tests/test_p28_fence.py`'s docstring) is that a git diff pinned against the base reddens every later phase; inside P28 it enforces, after P28 the phase diff is closed. 4. Inventory record (manual, AC-P28-02-S6): the measured population from the reviewer's instrumented run - 42 suites reach `MainWindow._attach_live_feed`; 21 need the seam (the 18 present at review plus these 3); 18 further suites get at least one refusal but assert nothing about the live RT line, so they can never redden on this gate; 1 refusal is by design (`tests/test_d84_d88_readiness.py` case (b)). Record it in the build result; do not seam an inert suite and do not add a runtime-instrumentation harness. Do not: edit any assertion, fixture, case name or monkeypatch target in the 21 suites; edit `tests/test_p28_fence.py`; edit production code (`ui/main_window.py` and `ui/ticker_session.py` are NOT in this task's footprint - there is no product defect here); widen P28-T2 or P28-T6; re-open decided P28 behaviour; pin a phase commit hash or a file/line count in the test (only the base `ef04c5a`); add a dependency (stdlib `subprocess`/`re` around `git` only). Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
+      "description": "Post-review seam repair (ESC-134) and the diff-shape gate that makes the seam groups' guarantee checkable (ESC-136); NO production code. 1. Three seam lines, one per suite, each in `_make_window` immediately after `win = MainWindow()`: `win._transport_ready = lambda: True` in `tests/test_p13_hold_probe.py` (`:48`), `tests/test_d41_removal.py` (`:256`) and `tests/test_p7_w2_prime.py` (`:38`) - the shipped shape and position of `tests/test_p13_hold_fix.py:67` and of the phase's other eighteen seamed suites. Nothing else in those files: no assertion, expected value, case name, fixture, monkeypatch target or import moves. 2. Why a seam and not a product fix: the reviewer proved the three reds are the readiness gate, not the product - the seam injected into the three UNMODIFIED files makes all 10 cases pass, and `_fail_open_prime -> _clear_prime_state -> _on_session_prime_complete` clears six prime markers and never `_rt_req_id` (so `tests/test_d41_removal.py`'s 'the RT bar line stopped issuing' and `tests/test_p7_w2_prime.py`'s `rt_req_id == 4242` are the prime path, not a defect). AC-D84.1 (P28-T2's case (b), which exercises the REAL predicate) is what keeps every override a harness stub rather than a hole. 3. New suite `tests/test_p28_seam_diff_shape.py`: one parametrized case over the 21-file audited seam set (named in AC-P28-02-S5) asserting, per file, that `git diff ef04c5a -- <file>` adds exactly the one seam line and removes nothing - the single exemption is `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case. This is the enforcement the seam ACs (AC-P28-02-S1/S2/S3) stated as prose and never checked: 'each changed file differs only by its seam assignment(s) - no assertion changed' is now a test, over all three seam groups plus this one. The case first shipped PHASE-BOUNDED by a skip once a commit outside the P28 family existed in `ef04c5a..HEAD`; ESC-137 showed that bound was disabled by the very commit that swept the audited files in (`e7ac594`, a P29 subject), and P28-T13 re-anchors the range endpoint at the phase's own last P28-subject commit (`AC-P28-02-S7`), so the case always executes and still cannot redden a later phase. 4. Inventory record (manual, AC-P28-02-S6): the measured population from the reviewer's instrumented run - 42 suites reach `MainWindow._attach_live_feed`; 21 need the seam (the 18 present at review plus these 3); 18 further suites get at least one refusal but assert nothing about the live RT line, so they can never redden on this gate; 1 refusal is by design (`tests/test_d84_d88_readiness.py` case (b)). Record it in the build result; do not seam an inert suite and do not add a runtime-instrumentation harness. Do not: edit any assertion, fixture, case name or monkeypatch target in the 21 suites; edit `tests/test_p28_fence.py`; edit production code (`ui/main_window.py` and `ui/ticker_session.py` are NOT in this task's footprint - there is no product defect here); widen P28-T2 or P28-T6; re-open decided P28 behaviour; pin a phase commit hash or a file/line count in the test (only the base `ef04c5a`); add a dependency (stdlib `subprocess`/`re` around `git` only). Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [],
@@ -2259,7 +2259,7 @@
         },
         {
           "id": "AC-P28-02-S5",
-          "criterion": "Given the 21-file audited seam set (the 18 suites P28-T3/T4/T5/T7 already seam: `tests/test_p7_w4_deferral.py`, `tests/test_p7_w4_streaming.py`, `tests/test_d24_alarm_full_chain.py`, `tests/test_d24_popouts.py`, `tests/test_d24_smoke_gate.py`, `tests/test_d27_aggregator_priming.py`, `tests/test_d27_phantom_alarms.py`, `tests/test_d27_reconnect.py`, `tests/test_d27_stream_health.py`, `tests/test_d28_2_sessions.py`, `tests/test_d28_4_gate.py`, `tests/test_d28_pacing.py`, `tests/test_d28_tick_burst_baseline.py`, `tests/test_d68_hold_balance.py`, `tests/test_p13_hold_fix.py`, `tests/test_p13_restore.py`, `tests/test_phase3_fixpass.py`, `tests/test_p13_attach.py`, `tests/test_p13_hold_probe.py`, `tests/test_d41_removal.py`, `tests/test_p7_w2_prime.py`), When the diff-shape case runs `git diff ef04c5a -- <file>` for each member, Then every file has exactly ONE added line and it is the seam assignment (`win._transport_ready = lambda: True`, optionally with a trailing comment, or the `_transport_ready=lambda: True` stub keyword) and ZERO removed lines - with the single declared exemption `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case (headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription`) and whose added line is still exactly one seam; the case also flags a synthetic `- assert a` / `+ assert b` patch and passes a docstring/no-op patch, so the detector discriminates; and once a commit outside the P28 family exists in `ef04c5a..HEAD` the case SKIPS with that named reason (the P28 phase diff is closed; a later phase's edits to those files are its own), so it can never redden P29+."
+          "criterion": "Given the 21-file audited seam set (the 18 suites P28-T3/T4/T5/T7 already seam: `tests/test_p7_w4_deferral.py`, `tests/test_p7_w4_streaming.py`, `tests/test_d24_alarm_full_chain.py`, `tests/test_d24_popouts.py`, `tests/test_d24_smoke_gate.py`, `tests/test_d27_aggregator_priming.py`, `tests/test_d27_phantom_alarms.py`, `tests/test_d27_reconnect.py`, `tests/test_d27_stream_health.py`, `tests/test_d28_2_sessions.py`, `tests/test_d28_4_gate.py`, `tests/test_d28_pacing.py`, `tests/test_d28_tick_burst_baseline.py`, `tests/test_d68_hold_balance.py`, `tests/test_p13_hold_fix.py`, `tests/test_p13_restore.py`, `tests/test_phase3_fixpass.py`, `tests/test_p13_attach.py`, `tests/test_p13_hold_probe.py`, `tests/test_d41_removal.py`, `tests/test_p7_w2_prime.py`), When the diff-shape case runs `git diff ef04c5a -- <file>` for each member, Then every file has exactly ONE added line and it is the seam assignment (`win._transport_ready = lambda: True`, optionally with a trailing comment, or the `_transport_ready=lambda: True` stub keyword) and ZERO removed lines - with the single declared exemption `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case (headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription`) and whose added line is still exactly one seam; the case also flags a synthetic `- assert a` / `+ assert b` patch and passes a docstring/no-op patch, so the detector discriminates; and the case's range endpoint is the phase's own last P28-subject commit, so it always executes and cannot redden P29+ - the anchored form is `AC-P28-02-S7` (P28-T13, ESC-137, owner-approved 2026-11-20), which supersedes the skip-based bound this task first shipped."
         },
         {
           "id": "AC-P28-02-S6",
@@ -2283,7 +2283,7 @@
           ],
           "type": "unit",
           "description": "The diff-shape case over all 21 members, plus its two-self checks: a synthetic `- assert a` / `+ assert b` patch must be flagged, a docstring-only addition must be flagged too (it is an added line), and the in-phase predicate must return False for a later-phase commit subject.",
-          "expected_result": "Each member: exactly one added seam line and zero removed lines, except `tests/test_p7_w4_streaming.py` whose removed lines are the 20 lines of the retired `replay_all` case and whose added line is the one seam; the synthetic assertion edit is flagged as a removal-plus-addition; a non-P28 commit subject in `ef04c5a..HEAD` makes the case skip with the named reason rather than fail."
+          "expected_result": "Each member: exactly one added seam line and zero removed lines, except `tests/test_p7_w4_streaming.py` whose removed lines are the 20 lines of the retired `replay_all` case and whose added line is the one seam; the synthetic assertion edit is flagged as a removal-plus-addition; the case executes over the anchored phase range and a non-P28 commit subject cannot close or widen it (`AC-P28-02-S7`, P28-T13)."
         },
         {
           "test_id": "P28-T12-03",
@@ -2392,6 +2392,147 @@
         "memory_refs": [
           "offscreen"
         ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P28-T13",
+      "title": "P28-02d - re-anchor the diff-shape gate at the phase's own last commit (ESC-137)",
+      "description": "Re-anchor the P28 diff-shape gate so it always executes (ESC-137, owner-approved 2026-11-20); NO production code and NO edit to any of the 21 audited suites. 1. In `tests/test_p28_seam_diff_shape.py`, delete `_phase_subjects`, `_in_phase`, `PHASE_CLOSED_REASON` and the `in_phase` skip fixture. Add a pure `_phase_tip(commits: list[tuple[str, str]]) -> str | None` taking `git log` order (newest first) and returning the hash of the NEWEST commit whose subject starts with `PHASE_SUBJECT_PREFIX`, and `_phase_range_end() -> str` that resolves it over `git log --format=%H%x00%s ef04c5a..HEAD` and raises `AssertionError` naming the range when no P28 commit exists (fail loudly, never skip). 2. `_phase_diff(relpath)` diffs `ef04c5a` against that anchor - a fixed historical range base -> the phase's own last commit - so the audit reads the phase's committed content, ignores the dirty working tree, and can be neither closed nor widened by an unrelated commit. `_base_lines(relpath)` stays `git show ef04c5a:<relpath>`; the hunk parser and the `+++`/`---` exclusion are unchanged. 3. Every shape assertion is kept byte-for-byte: 20 members differ by exactly one added seam line and zero removed; `tests/test_p7_w4_streaming.py` differs by exactly one added seam line and exactly 20 removed lines, one contiguous block of the base file headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription`. `AUDITED_SEAMS` stays the 21 paths, `DECLARED_REMOVALS` stays the single exemption, and `SEAM_RE`/`_violations` are not relaxed (exactly one added line, it must match the seam, zero removals). 4. Self-checks: keep the two detector checks, add one that a SECOND added seam line is still flagged (the rule is `exactly one`, not `at least one`); replace the `_in_phase` check with `test_p28_seam_anchor_ignores_a_later_phase_commit` (a list whose newest entry is a P29 subject resolves to the same P28 hash as the list without it; an all-P28 list resolves to its newest entry) and add `test_p28_seam_anchor_fails_loudly_without_a_phase_commit` (a list with no P28 subject -> `None`, and the range resolution raises the named `AssertionError`, never `pytest.skip`). 5. Docstring: keep the audited-set and declared-exemption description, and replace the `phase-bounded skip` paragraph with the anchored-range statement - the endpoint is the phase's own last P28-subject commit, so the guarantee executes against the phase's final content and a later phase (or an unrelated commit such as `e7ac594`) can neither close nor widen it; cite `tests/test_p28_fence.py`'s S-P24-5 note and say why this file differs (the endpoint is a phase commit, not HEAD). Do not: delete the test or convert it to a documented build artefact (the owner rejected both); loosen the shape rule; edit any of the 21 audited suites; edit `tests/test_p28_fence.py`; edit production code; hardcode a phase commit hash in the module (the anchor is resolved from git log); add a dependency (stdlib `subprocess`/`re` around `git` only); or record a skipped case as a pass. Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency; no migration; no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P28-T12"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P28-02-S7",
+          "criterion": "Given `tests/test_p28_seam_diff_shape.py` on any tree descended from `ef04c5a` - including a tree where later-phase commits (e.g. `e7ac594`, `b7914c3`) sit above the last P28 build commit - When the diff-shape case runs, Then its range endpoint is the NEWEST commit in `ef04c5a..HEAD` whose subject starts with `P28`, resolved by the pure `_phase_tip` from `git log` output (never HEAD, never a hardcoded hash), and the case EXECUTES: zero skipped, zero xfailed, all 21 parametrized members pass; a commit outside the P28 family neither closes the range (no skip) nor widens it (the endpoint does not move), and when the range holds no P28 commit the resolution fails loudly with an `AssertionError` naming the range instead of skipping."
+        },
+        {
+          "id": "AC-P28-02-S8",
+          "criterion": "Given the anchored range `ef04c5a..<newest P28 commit>` (`b7914c3` on the current tree), When the case runs, Then all 21 audited members satisfy the shape the reviewer measured by hand: 20 of them differ by exactly `+1/-0` and the added line matches `SEAM_RE`; `tests/test_p7_w4_streaming.py` differs by exactly `+1/-20` - the one added seam line, and the 20 removed lines are one contiguous block of the base file headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription` - and the run reports 0 assertion problems with 0 skipped."
+        },
+        {
+          "id": "AC-P28-02-S9",
+          "criterion": "Given the file's own self-check cases, When the suite runs, Then the detector still flags a synthetic `- assert a` / `+ assert b` patch, a docstring-only addition and a no-op, AND flags a patch that adds a SECOND seam line (so the rule has not been relaxed from exactly-one to at-least-one), while still accepting the three shipped seam shapes; and the anchor self-checks prove the bound both ways - a synthetic later-phase (P29) subject at the head of the commit list resolves to the same P28 hash as the list without it, and a list with no P28 subject resolves to `None` / raises the named `AssertionError` instead of skipping - so `it passes` can no longer mean `it never ran`."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P28-T13-01",
+          "linked_acceptance_criterion": [
+            "AC-P28-02-S7"
+          ],
+          "type": "integration",
+          "description": "Run the whole file offscreen on the current tree and read the summary and the 21 parametrized ids.",
+          "expected_result": "`0 skipped` and `0 failed`: the output carries no skip reason, every one of the 21 audited member ids appears among the passed cases, and the run is not `-k`-filtered, so the phase's own final content was actually checked."
+        },
+        {
+          "test_id": "P28-T13-02",
+          "linked_acceptance_criterion": [
+            "AC-P28-02-S8"
+          ],
+          "type": "unit",
+          "description": "Assert the per-member shape from the file's own parametrized case, and independently reproduce the reviewer's measurement: `git diff --numstat ef04c5a <anchor> -- <each of the 21 members>` plus `git show`/`git show ef04c5a:` contiguity for the exempt file.",
+          "expected_result": "20 members read `1  0` and `tests/test_p7_w4_streaming.py` reads `1  20`; the 20 removed lines are one contiguous block of the base file whose first line starts `def test_p7_t07_t11_manager_replay_rebounds_every_subscription(`; the parametrized case is green."
+        },
+        {
+          "test_id": "P28-T13-03",
+          "linked_acceptance_criterion": [
+            "AC-P28-02-S9"
+          ],
+          "type": "unit",
+          "description": "Run the self-check cases (`-k \"detector or anchor\"`) and call `_phase_tip` directly with an all-P28 list, a list whose newest entry is `\"P29: ...\"`, and a list with no P28 subject.",
+          "expected_result": "Every selected self-check passes; `_phase_tip` returns the newest P28 hash in both P28-only cases, the same hash when a P29 subject heads the list, and `None` for a list with no P28 subject; the second-added-seam-line check fails the patch (the rule is still exactly one added line)."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p28_seam_diff_shape.py - anchored range endpoint (newest P28-subject commit), no skip path, updated docstring; the 21-member shape assertions, `SEAM_RE`, `AUDITED_SEAMS`, `DECLARED_REMOVALS` and `_violations` unchanged"
+      ],
+      "touches_files": [
+        "tests/test_p28_seam_diff_shape.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ESC-137: the skip bound is tripped by `e7ac594` (a P29 commit that swept three of the audited files in), so the case has never run against the phase's final content",
+        "the reviewer's hand measurement of the same logic: 20 members +1/-0, `tests/test_p7_w4_streaming.py` +1/-20 contiguous and headed by the retired case's def (0 violations)",
+        "tests/test_p28_fence.py's docstring - the S-P24-5 precedent this anchored form must be distinguished from"
+      ],
+      "outputs": [
+        "a diff-shape case whose range is base -> the phase's own last P28-subject commit, so it always runs and can never redden a later phase",
+        "self-checks that prove the anchor both ways and prove the shape rule was not relaxed"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p28_seam_diff_shape.py",
+            "lines": "40-95",
+            "why": "edit: `PHASE_BASE`, `SEAM_RE`, `AUDITED_SEAMS`, `DECLARED_REMOVALS`, `PHASE_SUBJECT_PREFIX` stay; `PHASE_CLOSED_REASON` is deleted and the docstring's skip paragraph is replaced"
+          },
+          {
+            "path": "tests/test_p28_seam_diff_shape.py",
+            "lines": "96-185",
+            "why": "edit: `_phase_subjects`/`_in_phase` are replaced by `_phase_tip`/`_phase_range_end`; `_phase_diff`'s endpoint becomes the anchor; the `in_phase` fixture is deleted and the parametrized case takes the anchor - its assertions do not change"
+          },
+          {
+            "path": "tests/test_p28_seam_diff_shape.py",
+            "lines": "186-248",
+            "why": "edit: the self-check cases - keep the two detector checks, add the second-added-seam-line check, replace the `_in_phase` check with the two anchor checks"
+          },
+          {
+            "path": "tests/test_p28_fence.py",
+            "lines": "20-34",
+            "why": "read-only: the S-P24-5 precedent the new docstring must cite and distinguish (a base..HEAD diff reddens later phases; a base..phase-tip range cannot) - do not edit this file"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_p28_seam_diff_shape.py:SEAM_RE",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p28_seam_diff_shape.py:AUDITED_SEAMS",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p28_seam_diff_shape.py:DECLARED_REMOVALS",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p28_seam_diff_shape.py:_violations",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "def _phase_tip(commits: list[tuple[str, str]]) -> str | None:  # newest-first (hash, subject) pairs -> hash of the newest subject starting with PHASE_SUBJECT_PREFIX; None when none"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "def _phase_range_end() -> str:  # `git log --format=%H%x00%s ef04c5a..HEAD` -> _phase_tip(...); raises AssertionError(\"no P28 commit in ef04c5a..HEAD ...\") when None - never pytest.skip"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "def _phase_diff(relpath: str) -> tuple[list[str], list[str]]:  # `git diff -U0 ef04c5a <anchor> -- <relpath>`, anchor = _phase_range_end(); hunk parsing unchanged"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P28",
+        "plan_ref": "docs/plan.md#P28-02",
+        "requirement_ids": [
+          "AC-D84.1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p28_seam_diff_shape.py -q",
+        "memory_refs": [
+          "git add",
+          "offscreen"
+        ],
+        "graph_excerpt": "git log --format='%h %s' ef04c5a..HEAD (newest first) => b7914c3 P28 rework: ... (ESC-133/134/135/136) | e7ac594 P29: plan approved (persisted writes atomic, ...) | 1404877 P28 build: readiness gate + deferred attach, ... | e88f96b P28: plan approved after two revision rounds ...  => anchored tip on this tree = b7914c3 (newest P28 subject); measured at that range: 20 members +1/-0, tests/test_p7_w4_streaming.py +1/-20, headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription`.",
         "needs_graphify": false,
         "size": "S"
       }

@@ -144,3 +144,117 @@ So the seam set is **21 suites, 18 present, 3 missing** — the "seventeen + `te
 Until 1 and 2 are fixed the phase is **not** gate-ready: the suite is red with two genuine coverage regressions, so this pass's marker records that the review happened, not that the phase may advance.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Rework verification pass — ESC-133 / ESC-134 / ESC-135 / ESC-136 (commit `b7914c3`)
+
+**Pass type:** phase-final rework verification → **full pass** (mandatory on a phase-final pass; also barred from light — `precheck.json` carries four `fail_fast` flags and `ui/main_window.py` is shared by P28-T2 and P28-T6).
+**Scope:** the three tasks whose results are newer than the last marker — **P28-T12, P28-T2, P28-T6** (`precheck.json.scope`) — i.e. exactly the rework.
+**Tree:** `b7914c3` (*P28 rework: AST usage scan for the dead replay, readiness guard on RT errors, seam completion + shape gate*) on `e7ac594` (P29 plan approval) on the build `1404877` on `e88f96b`; phase base `ef04c5a`. Working tree clean.
+**Inputs:** `precheck.json`; `test_verification.json` (**verdict `pass`, exit 0, 216.92 s — generated 00:39:07, i.e. after the rework commit at 00:35:27 and after `build_log.md` at 00:35:20**, so it covers this rework); `build_log.md` waves 443–444; the three archived results; `task-graph.json` P28-T2/T3/T4/T5/T6/T12 including the rewritten `AC-D88.1`, the new `AC-P28-03-4` and the new `AC-P28-02-S4/S5/S6`; `escalations.json` (131 entries, 4 open).
+**Result: all four fixes hold on the live tree — four entries flipped to `addressed`.** One new finding, **ESC-137** (`consistency`, `nice-to-have`, → TASK_MANAGER): the new diff-shape test's phase bound is already false on the final tree, so the guarantee it encodes has never executed against the phase's final content. Two log-only observations and one invalid precheck artefact below.
+
+## 1. `precheck.json`'s `PRE-023`–`PRE-026` are artefacts, not defects — and were not filed
+
+The four `unchanged_claimed_file` / `fail_fast` flags on P28-T12 are false, exactly as the orchestrator stated. `precheck.json` was generated at **00:35:20**, i.e. after `e7ac594` (**00:32:32**) had already committed T12's working tree via `git add -A`, so the script saw the files as "not modified, staged, deleted, or untracked" — they were *clean because committed*, not unchanged because never edited. Verified directly instead of trusting the precheck:
+
+| file | committed in | diff vs `ef04c5a` |
+|---|---|---|
+| `tests/test_p13_hold_probe.py` | `e7ac594` | `+1/-0` |
+| `tests/test_d41_removal.py` | `e7ac594` | `+1/-0` |
+| `tests/test_p7_w2_prime.py` | `e7ac594` | `+1/-0` |
+| `tests/test_p28_seam_diff_shape.py` | `e7ac594` | new file, `+248` |
+
+All four are in `docs/build/results/_archive/wave443_P28-T12.json`'s `files_changed`, which matches git exactly (`e7ac594` also carries the 6-line `test_d84_d88_readiness.py` docstring edit that `b7914c3` completes). No `PRE-*` entry exists in `escalations.json`, so entry point C had nothing to close there.
+
+## 2. ESC-133 — holds (the scan is AST-usage based, both sides discriminate)
+
+`tests/test_d84_d88_readiness.py::test_p28_t2_05_dead_replay_absent_everywhere` now walks an AST over `ui/`, `ibkr/`, `tests/`; the raw-text needles are gone. I ran the shipped helpers directly (executing `_replay_all_usage_in_source` / `_replay_all_usage`, and the full live-tree walk):
+
+| input | expected | observed |
+|---|---|---|
+| `mgr.replay_all()` | hit | `line 1: attribute mgr.replay_all` |
+| `rt_manager.replay_all()` | hit | `line 1: attribute rt_manager.replay_all` |
+| `self.rt_manager.replay_all(1)` | hit | hit |
+| `RealtimeBarsManager.replay_all(x)` | hit | hit |
+| `rt = RealtimeBarsManager(c); rt.replay_all()` | hit | hit (constructor-bound receiver) |
+| `class RealtimeBarsManager: def replay_all` | hit | `definition: replay_all` |
+| fence module docstring ``…RealtimeBarsManager.replay_all…`` | clean | clean |
+| `assert not hasattr(RealtimeBarsManager, "replay_all")` | clean | clean |
+| `self.sub_manager.replay_all(...)` (the legitimate `SubscriptionManager` replay) | clean | clean |
+| `def replay_all` on a non-realtime class; comments; string list | clean | clean |
+| **live tree, all three subtrees** | `[]` | `[]` |
+
+The self-check exercises both sides (`_USAGE_SNIPPETS["hit"]` must be truthy; `clean_doc`/`clean_hasattr` must be `[]`). It only names `mgr` on the hit side, but `rt_manager`/`RealtimeBarsManager`/`mgr` all live in the same `_RT_RECEIVER_NAMES` frozenset, and I exercised each directly (table). The fence is untouched by the rework (`git diff 1404877 b7914c3 -- tests/test_p28_fence.py` is empty) and its own `not hasattr` case still passes. `AC-D88.1` was rewritten to the code-only rule in the same round, removing the AC-vs-fence contradiction that produced the original escalation.
+
+## 3. ESC-135 — holds (nothing is spent while the transport is not ready)
+
+Source (`ui/main_window.py`): `_on_rt_stream_error` returns **before** `mark_failed`, before the badge and before any status line when `not self._transport_ready()` (`:2870-2877`); `_retry_rt_subscribe`'s not-ready branch calls the new `_rearm_rt_recheck()` → `_rt_retry_timer.start(_RT_RECHECK_MS)` = 5000 ms with **no** `next_retry_delay_s()` call (`:2919-2932`); the no-symbol branch still calls `_schedule_rt_retry()` (`:2934-2937`); the `IBKRNotReady` belt now re-arms the same recheck instead of spending (`:2974-2981`) — a change beyond the letter of the escalation but the same invariant, and it cannot loop forever because `require_api_ready` and `_transport_ready` read the same two terms (`api_ready`/`_connected`), so "not ready to the sender" implies "not ready to the guard".
+
+Evidence:
+- New `test_P28_T6_10_disconnected_error_storm_never_reaches_terminal` drives the real ingress: after `_on_disconnected()` at `MAX_RETRY_ATTEMPTS - 1`, six late errors interleaved with six retry callbacks leave `retry_attempt` unchanged, `state == FAILED` (never `EXHAUSTED`), `retry_budget_spent` False, zero subscribes/cancels, `timer.starts[-6:] == [5000]*6`, and no "stream stopped" / "retrying" status line. It passes.
+- My own probe (reconnect after four spent attempts): `retry_attempt` resets to 0 on the replay; the first post-reconnect error arms `[5000]` — **the first rung** — while a fire with the transport dropped spends nothing and re-arms 5000, and the same callback with the transport ready issues exactly one subscribe.
+- `ibkr/stream_health.py` is byte-identical between `1404877` and `b7914c3` (`git diff --stat` empty): `next_retry_delay_s` untouched, `test_P28_T6_09` still pins `5.0, 10.0, 20.0, 40.0, 60.0, 60.0`. `tests/test_d89_d90_stream_budget.py` 10 passed.
+- The behaviour is also now written as an AC (`AC-P28-03-4`), not only as a code comment.
+
+## 4. ESC-134 — holds (three one-line seams, red without them)
+
+`git diff ef04c5a -- <file>` is `+1/-0` for each of the three files, and the single added line is `win._transport_ready = lambda: True` immediately after `win = MainWindow()` in `_make_window`; nothing else in any of the three differs from the phase base. All 10 cases pass.
+
+**The pass is for the right reason, not because the gate was bypassed.** I re-ran the three files with the instance seam suppressed (a test-only plugin outside the repo swallowing the `_transport_ready` assignment, so the real predicate decides) and reproduced the three original symptoms exactly:
+
+```
+FAILED tests/test_p13_hold_probe.py::test_p13_hold_lifecycle_probe   - assert first["holders"] == 1  ->  0 == 1
+FAILED tests/test_d41_removal.py::test_removed_requests_are_never_issued
+       - assert issued["rt"] or fake.rt_bars, "the RT bar line stopped issuing"  ->  ([] or [])
+FAILED tests/test_p7_w2_prime.py::test_t12_skipped_prime_warns_counts_and_fails_open
+       - assert sess.rt_req_id == 4242  ->  None == 4242
+```
+
+With the seam present all three are green. So a real RT line is issued, `session._rt_holders` reaches 1 through the real attach, and `rt_req_id` is the fake's `4242` — the assertions' own subjects.
+
+Task-side: `P28-T12` exists with `touches_files` = the three files + the new shape suite, and `AC-P28-02-S4/S5/S6` carry the repair, the shape rule and the measured inventory (`42` suites reach the attach; `21` need the seam; `18` are inert refusals; `1` is by design). ESC-134 asked for the invariant rather than a file list; the rule is now stated in **S6** ("no member of the 21 is left unseamed and no inert suite is seamed") with the counts as evidence, while S1–S3 keep their enumerations. Substantively met.
+
+## 5. ESC-136 — the guarantee now has an enforcing test, and the shape holds (hand-verified)
+
+`tests/test_p28_seam_diff_shape.py` is the enforcement: 21 parametrized members, the seam regex, the declared `test_p7_w4_streaming` exemption with its contiguity check, three self-checks that prove the detector discriminates (synthetic `- assert a` / `+ assert b` flagged; docstring-only addition flagged; a later-phase subject rejected by the predicate). Its 3 non-parametrized cases pass.
+
+Because the case is skipped on this tree (§6), I verified the shape **by hand**, by executing the suite's own `_phase_diff` / `_violations` / exemption logic over all 21 members (bypassing only the skip predicate):
+
+| result | members |
+|---|---|
+| `+1/-0`, the one added line the seam | 20 of 21 |
+| `+1/-20`, removals one contiguous base block headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription` | `tests/test_p7_w4_streaming.py` |
+
+`VIOLATIONS: none`. `git diff --stat ef04c5a -- <file>` independently agrees, and the 20 removed lines are exactly the retired dead-replay case (whose `mgr.replay_all()` call would now redden ESC-133's scan if it had stayed — the two fixes are coherent). No assertion, fixture, case name or monkeypatch line changed in any member. `AC-P28-02-S5` now names this test instead of stating the guarantee as prose, which is what ESC-136 asked for.
+
+## 6. New finding — ESC-137: the shape case's phase bound is already false, so it never ran for this phase
+
+`_in_phase` returns False as soon as *any* commit subject in `ef04c5a..HEAD` does not start with `P28`. On the final tree that is already true (`e7ac594` "P29: plan approved…"), so `pytest -q tests/test_p28_seam_diff_shape.py` reports **21 skipped, 3 passed**, with the skip reason naming `e7ac594`. The commit that trips the bound is the same `git add -A` sweep that committed the four files the test audits — i.e. the guarantee was disabled by the event it exists to catch, and the phase's own final content was never checked by it. (The sweep itself is already recorded as a Known Gotcha in `docs/memory.md`, so it is not a new process finding.)
+
+Two aggravating details: the case's own pack told the worker to read `tests/test_p28_fence.py` as "the phase-diff-is-a-build-artefact precedent the new case must respect (S-P24-5)" — and that precedent's conclusion is that a git diff pinned inside pytest **cannot be a test at all** (T11's delta scope is a build artefact in the result instead; `AC-P28-02-S5`'s "inside P28 it enforces" is what departs from it). And `P28-T12`'s result records `P28-T12-02: pass` for a case that now skips; the claim is substantively true (my hand run is the same check), but it was not reproducible on the committed tree.
+
+This is routed to TASK_MANAGER (`ESC-137`, `nice-to-have`): the AC, not the code, owns the skip clause. Cheapest resolution is to anchor the range at the newest commit whose subject starts with the phase prefix (or pin the tip hash at phase close) so the case always runs and still cannot redden a later phase.
+
+## 7. Standing invariants, scope, and log-only observations
+
+**Mock-endpoint scan (blocking duty):** zero hits. The rework's only production file is `ui/main_window.py`; all added non-test lines were grepped for `mock|fake|stub|simulat` crossed with endpoint/client/service/server/api/harness — none. No production module imports a test fake.
+
+**Nothing outside the four findings moved.** `b7914c3` touches exactly five paths: `ui/main_window.py` (ESC-135), `tests/test_d84_d88_readiness.py` (ESC-133), `tests/test_d89_d90_stream_budget.py` (ESC-135's case), `docs/tasks/task-graph.json` (three task `status` fields → `done`), and `docs/memory.md` (the `git add -A` Known Gotcha). The seam + shape work arrived in `e7ac594`'s sweep and is accounted for in §1/§5.
+
+**Docs:** no user-facing behaviour changed (the 5 s recheck is internal; no CLI/API/config surface), and every `doc_candidates` entry in `precheck.json` is `touched: false` — no doc gap. The mock/precheck `doc_required_unmet` flag from the previous pass does not recur.
+
+**Observations, no action:** (i) `AC-D88.1`'s enumeration ("no `ast.Attribute` whose `attr` is `replay_all` … no `FunctionDef` with that name") is broader than the shipped scan, which narrows attributes and definitions to realtime-manager receivers — the AC's own named examples and its stated intent all hold, but a literal implementation of the enumeration would redden on the legitimate `SubscriptionManager.replay_all`; worth a wording pass whenever that AC is next touched. (ii) The `_RT_RECHECK_MS` comment cites `S-P28-12`, which describes the budget/terminal rule only; the recheck rule lives in `AC-P28-03-4` (there is no architecture-doc entry for it) — the code's docstrings do state the rule in full, so this is a citation-precision nit. (iii) `precheck.json` reports compact counts only (`3/3`, `8/8`, `10/10`); my re-runs are green (`test_d84_d88_readiness.py` 16 passed, `test_d89_d90_stream_budget.py` 10 passed, the three seam suites 10 passed, `test_p28_fence.py` + `test_d27_stream_health.py` green).
+
+## 8. Escalation close-out
+
+| id | route | verdict this pass |
+|---|---|---|
+| ESC-133 | BUILD | **addressed** — AST usage scan verified on both sides; fence untouched; `AC-D88.1` rewritten |
+| ESC-134 | TASK_MANAGER | **addressed** — three one-line seams verified, red without them; `P28-T12` + `AC-P28-02-S4/S5/S6` (inventory rule) |
+| ESC-135 | BUILD | **addressed** — guard + 5 s recheck; no attempt spent while disconnected, first rung after reconnect, progression untouched |
+| ESC-136 | TASK_MANAGER | **addressed** — the guarantee now names an enforcing test; shape hand-verified over all 21 members (0 violations) |
+| ESC-137 | TASK_MANAGER | **open (new)** — the phase bound is already false; the case skipped for the whole final tree |
+
+Status: REVIEW_COMPLETE

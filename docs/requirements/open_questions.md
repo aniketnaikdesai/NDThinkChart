@@ -1509,11 +1509,12 @@
 
 # Open Questions — 2026-11-03 (Batch 28 / D53 — persistent backfill indicator; Q78-Q80 NON-BLOCKING)
 
-> Finding 2 of `NDThinkChart_TWS_probe_findings_20261103.txt` + owner directive "fix everything approved". The scope is fully derivable from the probe evidence (D53.1-D53.4 final; A142-A144 defaults logged; Journey 46; `AC-D53.1`-`AC-D53.4`). The three items below are **non-blocking confirmations** — build proceeds on the stated defaults whether or not they are answered; an answer refines D53 in place. **No blocking question remains** and D53 carries `Status: READY_FOR_PLAN`. Finding 1 needs NO code change (watchdog/shortfall behaved correctly) — watchdog tuning and TWS-side causes are out of scope and are not asked here. **D1-D52 are NOT reopened.**
+> Finding 2 of `NDThinkChart_TWS_probe_findings_20261103.txt` + owner directive "fix everything approved". The scope is fully derivable from the probe evidence (D53.1-D53.4 final; A142-A144 defaults logged; Journey 46; `AC-D53.1`-`AC-D53.4`). The three items below are **non-blocking confirmations** — build proceeds on the stated defaults whether or not they are answered; an answer refines D53 in place. **No blocking question remains** and D53 carries `Status: READY_FOR_PLAN`. Finding 1 needs NO code change (watchdog/shortfall behaved correctly) — watchdog tuning and TWS-side causes are out of scope and are not asked here. **D1-D52 are NOT reopened.** **[AMENDED 2026-11-20: Q78–Q80 ANSWERED by the owner — no blocking item; see each entry.]**
 
 ## Q78 — D53.1: where should the persistent indicator live?
 
-- **Status:** open (non-blocking).
+- **Status:** **ANSWERED 2026-11-20** — owner chose **(a) a permanent status-bar widget**.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** option **(a)** — "a permanent status-bar widget" (the option's own wording above). No criterion change was needed: `AC-D53.1` never pinned a surface and D53.1's "separate from the transient status bar" already admits it. The shipped P14 build is exactly that surface (`ui/main_window.py:760-762` — a `QLabel("Backfill: idle")` added with `status_bar.addPermanentWidget`), so the answer **confirms what shipped** rather than changing it. A142 is now confirmed.
 - **Question:** should the persistent backfill indicator live as (a) a permanent status-bar widget (recommended default — closest to the overwritten message it replaces), (b) a toolbar/badge affordance, or (c) an owner-named surface?
 - **Recommended default (A142):** (a) — a dedicated, non-transient status-bar element; Plan picks the exact widget. Rationale: it replaces the transient message in the user's existing glance path and no new dock/panel is introduced for a minimal batch.
 - **What a different answer would change:** D53.1's surface clause and the `AC-D53.1` widget-identity assertion only — persistence content, lifecycle and guard are untouched.
@@ -1522,7 +1523,8 @@
 
 ## Q79 — D53.1: is the minimum content set (in-flight count, queue count, elapsed, reqIds) the right set?
 
-- **Status:** open (non-blocking).
+- **Status:** **ANSWERED 2026-11-20** — owner chose **the probe-named set as the at-least set**.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** **yes** — the probe-named set (in-flight count, queue count, elapsed, reqIds) is the **at-least** set; no fields added or removed. No criterion change: `AC-D53.1` already asserts exactly those four, and the shipped label renders `"N in flight, M queued, X.Xs, reqIds=[…]"`.
 - **Question:** is the probe-named set (active request count, queue count, elapsed time, current reqIds) sufficient as the at-least set, or should fields be added (e.g. per-request bar counts, current symbol/timeframe/mode) or removed?
 - **Recommended default:** the probe-named set as the at-least set (A142/R106). Rationale: those are exactly the fields the probe observer had to reconstruct by hand at +60 s (queue=0, in-flight={2,5}, generation=1, 0 bars) — they are the minimum that would have made the stall legible.
 - **What a different answer would change:** `AC-D53.1`'s content assertions gain/lose fields; nothing else moves.
@@ -1531,7 +1533,8 @@
 
 ## Q80 — D53.3: is gating the "Cache current" claim class (with existing status-bar phrasing for the replacement) acceptable?
 
-- **Status:** open (non-blocking).
+- **Status:** **ANSWERED 2026-11-20** — owner chose **yes to both**.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** (a) guard the whole **"Cache current" claim class**, not one literal string; (b) the **replacement copy is a Plan detail** — no user-confirmed string. No criterion change: `AC-D53.3` already reads "no 'Cache current' (or equivalent) claim", and the shipped guard is the planner-state gate (`_is_cache_current`).
 - **Question:** confirm that (a) the guard covers "Cache current" plus any equivalent freshness claim (not one literal string), and (b) the replacement copy follows existing status-bar phrasing as a Plan detail rather than a user-confirmed string.
 - **Recommended default (A144):** yes to both. Rationale: the probe never observed the literal string, so pinning one string would under-guard; copy without a confirmed reference is a Plan detail per the `AC-G.1` pattern.
 - **What a different answer would change:** `AC-D53.3`'s claim wording (literal-string vs claim-class) and whether copy needs a confirmed reference.
@@ -1540,11 +1543,12 @@
 
 # Open Questions — P15 (Batch 29 / D54 — 10-second target on load chart; Q81–Q83 NON-BLOCKING — defaults carried per A148)
 
-> Owner directive (verbatim 2026-11-04): *"max waiting can be 10 seconds once user clicks load chart."* Owner clarification 2026-11-04 (verbatim): *"i would ideally like to have the chart load in 10 seconds or less.."* — analyst default **A148** (`requirements.md` Phase P15): "ideally" reads as a performance **TARGET**, not a hard cap (optimize the common path to ≤10 s; Q81–Q83 expiry semantics apply only when the target is missed — graceful degradation). The 600 s figure is the probe harness's self-terminate ceiling, not app behaviour; the app's own wave watchdog is 120 s today. Standalone probes show legitimate single-request TWS latencies of 25–76 s for deep history (35D/45D/60D windows). **D1–P14 are NOT reopened.** Finding 1 / TWS-side silence causes are out of scope. Q81–Q83 are **non-blocking confirmations** — build proceeds on the stated defaults; P15 carries `Status: READY_FOR_PLAN`.
+> Owner directive (verbatim 2026-11-04): *"max waiting can be 10 seconds once user clicks load chart."* Owner clarification 2026-11-04 (verbatim): *"i would ideally like to have the chart load in 10 seconds or less.."* — analyst default **A148** (`requirements.md` Phase P15): "ideally" reads as a performance **TARGET**, not a hard cap (optimize the common path to ≤10 s; Q81–Q83 expiry semantics apply only when the target is missed — graceful degradation). The 600 s figure is the probe harness's self-terminate ceiling, not app behaviour; the app's own wave watchdog is 120 s today. Standalone probes show legitimate single-request TWS latencies of 25–76 s for deep history (35D/45D/60D windows). **D1–P14 are NOT reopened.** Finding 1 / TWS-side silence causes are out of scope. Q81–Q83 are **non-blocking confirmations** — build proceeds on the stated defaults; P15 carries `Status: READY_FOR_PLAN`. **[AMENDED 2026-11-20: Q81–Q83 ANSWERED by the owner — (a), (a), yes-to-both, exactly the options the criteria already carry.]**
 
 ## Q81 — D54: what renders when the 10 s target is missed?
 
-- **Status:** open (non-blocking).
+- **Status:** **ANSWERED 2026-11-20** — owner chose **(a) partial bars + the `AC-D16.4` shortfall** at T0+10 s.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** option **(a)** — whatever bars have arrived render on the chart plus the `AC-D16.4` shortfall marker for the missing remainder (never a blank chart when data exists). No criterion change: `AC-D54.1` already states (a); shipped P15-T3 latches the indicator to "Backfill (partial)…" with the verbatim shortfall.
 - **Question:** at T0+10 s (T0 = Load Chart click / `load_chart` invocation) with the wave still incomplete, what must the user see — (a) whatever bars have arrived so far rendered on the chart plus the `AC-D16.4` shortfall marker for the missing remainder (recommended default — the chart is never blank when data exists, consistent with the no-silent-hole rule), (b) the pre-load / skeleton view held with only the shortfall + retry affordance (no partial bars), or (c) an owner-named variant (e.g. cached-bars-only render even when fresher partials exist)?
 - **Recommended default (A148):** (a) — partial bars + shortfall. Rationale: never blank when data exists; consistent with `AC-D16.4` no-silent-hole.
 - **What a different answer would change:** `AC-D54.1`'s render assertion (partial-bars-present vs skeleton-held) only — target, lifecycle and guard are untouched.
@@ -1553,7 +1557,8 @@
 
 ## Q82 — D54: does the wave keep filling in the background after the 10 s target is missed?
 
-- **Status:** open (non-blocking).
+- **Status:** **ANSWERED 2026-11-20** — owner chose **(a) keep filling in the background**.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** option **(a)** — the wave continues in the background with the D53 indicator still running and the chart updating as bars land; **D53 lifecycle unchanged, no 10 s cancel path**. No criterion change: `AC-D54.2` already states (a); shipped P15-T2 confirms.
 - **Question:** after the 10 s miss renders per Q81, does the in-flight wave (a) continue in the background with the D53 persistent indicator still running and the chart updating as further bars land (recommended default — no user data is discarded, D53 lifecycle unchanged, completion/shortfall finalizes normally), or (b) cancel at 10 s so the user must explicitly retry/extend (indicator finalizes as cancelled per `AC-D53.2`)?
 - **Recommended default (A148):** (a) — background-continue. Rationale: no fetched data discarded; D53 lifecycle unchanged; no new 10 s cancel path invented.
 - **What a different answer would change:** `AC-D54.2`'s wave-state assertion past T0+10 s (continue vs cancel) only.
@@ -1562,7 +1567,8 @@
 
 ## Q83 — D54: how is shortfall vs completion surfaced at/after a 10 s miss (on the D53 surface)?
 
-- **Status:** open (non-blocking).
+- **Status:** **ANSWERED 2026-11-20** — owner chose **yes to both**.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** (a) surface the miss on the **existing D53 indicator** with an explicit **"partial @ 10 s" vs "complete"** distinction (no new surface; D53 referenced, not redesigned); (b) keep the **`AC-D16.4` shortfall** (missing-days + reason) visible with no current-cache claim per `AC-D53.3`. No criterion change: `AC-D54.3` already states both; shipped P15-W3 implements the marker.
 - **Question:** confirm that (a) the 10 s miss state is surfaced on the existing D53 persistent backfill-state indicator (no new surface — D53 is referenced, not redesigned), showing an explicit "partial @ 10 s" vs "complete" distinction, and (b) any still-missing spans at/after the miss keep the `AC-D16.4` shortfall (missing-days + reason) visible rather than any current-cache claim per `AC-D53.3` — or name the owner-preferred wording/surface if different.
 - **Recommended default (A148):** yes to both — D53 indicator + `AC-D16.4` shortfall. Rationale: reuses the shipped surface; preserves honesty without a copy redesign.
 - **What a different answer would change:** `AC-D54.3`'s surface/wording assertions only — D53 stays referenced, not reopened.
@@ -1985,7 +1991,10 @@
 
 ## Q119 — P25 / D67: when the forming week/month candle cannot be covered by data, should it be aggregated from cache or marked partial?
 
-- **Status:** **OPEN — NON-BLOCKING; the recommended default is written into `AC-D67.1`/`AC-D67.2` and P25 carries `Status: READY_FOR_PLAN` on it.** Raised 2026-11-19 from **owner-supplied audit findings, 2026-11-19**.
+- **Status:** **ANSWERED 2026-11-20 — owner chose option (a), "Always render partial and mark it"** — explicitly **(a)**, NOT the "(c) if a legal coarser combination exists, otherwise (a)" recommendation recorded below. Raised 2026-11-19 from **owner-supplied audit findings, 2026-11-19**.
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** *"Always render partial and mark it"* — option **(a)**: still render the forming candle from what it has and mark it partial. Option (c) (fetch a coarser bar size and aggregate) is **not** adopted.
+- **Checked against what P25 shipped (2026-11-20):** for the case the question asks about — the period **cannot** be covered — shipped **matches (a)**: the forming candle renders from the bars it has and carries one amber (`#fbbf24`) series marker above it (`ui/ticker_session.py::_stamp_partial`; `chart_assets/lwc/chart.js` `PARTIAL_MARKER_COLOR` / `partialMarkerEntries`), with no omission and no coarser-bar fetch anywhere in the change set. Where a **current-period base** exists, the `1 min` prime is skipped and the row is the period's own aggregation (`ui/ticker_session.py::prime_aggregator`; `data/bar_aggregator.py::adopt_period_base`) — that candle is **not** marked, because its head is covered.
+- **Flagged for the orchestrator (not reconciled here):** read literally, "**Always** … mark it" would also mark a forming candle that the cache base fully covers — which ships unmarked and which `AC-D67.1` ("period starts today … no marker") and `AC-D67.2` ("no marker appears on a candle whose data is complete") require. No criterion was changed in either direction; `requirements.md` D67 carries the same flag. If "always" is meant to cover every forming period candle regardless of coverage, that is a **rework decision** (P25 has already shipped), not something this entry may settle.
 - **Question:** the forming `1 week` / `1 month` candle is primed from at most the last 24 hours (a `1 min` request cannot exceed `1 D`; `2 D` and `7 D` are rejected — verified against TWS on 2026-11-19). When the cache cannot supply the period's earlier bars, should the chart (a) still render the forming candle from what it has and **mark it partial**, (b) **omit** the forming candle until the period completes, or (c) fetch a coarser bar size that can legally span the period (if such a combination is proved to be accepted) and aggregate from that?
 - **Recommended default: (c) if a legal coarser combination exists, otherwise (a).** Rationale: the first duty is "never present a 24-hour window as the period's candle"; the second is "show the current price on a weekly chart", which the owner has not asked to give up. Omission (b) trades a wrong number for a missing one and is the third choice.
 - **What a different answer changes:** only D67's display arm — the aggregation arithmetic, the marker, and the fixtures. No other phase or criterion is affected; the "no illegal request" criterion (`AC-D67.3`) holds under every arm.
@@ -1994,7 +2003,8 @@
 
 ## Q120 — P26 / D75 vs D72: does an identical-triple reload of a parked wave issue the queued plans, or nothing at all?
 
-- **Status:** **OPEN — NON-BLOCKING; flagged by Task Manager while decomposing P26 (2026-11-19).** Raised from the approved P26 plan's `FI-P26-1`; the graph implements the plan's adopted reading (`AP-P26-5`) and does not wait on this answer.
+- **Status:** **ANSWERED 2026-11-20 — owner chose: the reload resumes the parked queue** (no cancel, no re-plan, no duplicate, oldest first) — the `AP-P26-5` reading the P26 plan and graph already implement. Flagged by Task Manager while decomposing P26 (2026-11-19).
+- **Answer (owner, 2026-11-20; relayed by the orchestrator):** an identical-triple reload of a parked wave **resumes** the queue — **no cancel, no re-plan, no duplicate, oldest first**. This is a **confirmation**, not a change: `docs/plan.md` AP-P26-5 and the built graph use it. `AC-D75.1`'s last clause was corrected to it on 2026-11-20 (`AC-D72.3` already required the oldest queued plan to be issued).
 - **Question:** `AC-D75.1` says an identical-triple reload of a queue-only wave issues "no new request … for the parked plans", while `AC-D72.3` says the *same* load "issues the oldest queued plan" and its measurable is "issued-plan order + pacing-manager call log". Read literally the two cannot both hold.
 - **Reading the plan and the graph use:** the reload **resumes** the parked queue — no cancel, no re-plan, no duplicate, no extra request beyond the queued plans themselves (oldest first). Under this reading both measurables hold: `AC-D75.1`'s measurable names only the cancel spy, the queue's contents and `_pending_prefetch`.
 - **What a different answer changes:** only the wording of `AC-D75.1`'s last clause (e.g. "no *duplicate* request") and `AC-D72.3`'s first clause; the implementation is unaffected. If instead the literal no-issue reading is intended, `AC-D72.3` must be restated and P26-T2's resume step drops the `_issue_wave_chunks()` call — a criterion change, not a build change.

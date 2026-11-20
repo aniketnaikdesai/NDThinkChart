@@ -11789,9 +11789,10 @@ Five defects, four rules, stated once so nothing is silently revised. An unlabel
   criterion is contradicted by `AC-D98.1`, which requires the first post-outage tick to seed with no
   evaluation and the gap to be reported "over both disconnect classifications". P29 implements
   `AC-D98.1` (the later, phase-governing criterion) and keeps AC-D40.4's other two clauses (no paused badge,
-  no pause flags). The contradiction is recorded in `docs/plan.md` § *Flagged Issues* **FI-P29-1** for the
-  Validator/Requirements Analyst to record as a supersession — P29 does not reopen D40 silently — and the
-  shipped case that encodes the superseded clauses
+  no pause flags). The supersession is recorded 2026-11-20 (`RG-P29-1`) at `AC-D40.4`
+  (`requirements.md:3821-3823`) and at Journey 35 step 3, and cross-referenced in `docs/plan.md`
+  § *Flagged Issues* **FI-P29-1** — P29 does not reopen D40 silently — and the shipped case that encodes
+  the superseded clauses
   (`tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui`) is re-baselined in the same
   wave with that AC cited.
 - **`[new in P29: a page-ready transition is a full-log replay and nothing else]`** — `set_ready(True)`
