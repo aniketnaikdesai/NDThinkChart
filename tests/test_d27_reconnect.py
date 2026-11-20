@@ -150,6 +150,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True  # P28 harness seam: live-attach cases
     fake = _FakeTws()
     win.rt_manager.client = fake
     win.md_manager.client = fake

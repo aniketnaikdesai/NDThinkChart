@@ -7,6 +7,32 @@ class IBKRNotReady(Exception):
     """
 
 
+def require_api_ready(client) -> None:
+    """Raise IBKRNotReady when the TWS handshake hasn't completed.
+
+    The one readiness seam: ``MarketDataManager._require_api_ready`` and
+    ``RealtimeBarsManager.subscribe`` both call this function, so a request
+    path can never drift from another. The duck-typing is the original
+    market-data body: a client exposing ``api_ready`` is asked for it, a
+    legacy client exposing ``_connected`` is asked for that, a test double
+    with neither is assumed ready, and a callable readiness is called.
+
+    Checked BEFORE allocating a reqId, touching pacing or sending: TWS
+    rejects pre-handshake requests with 504.
+    """
+    if hasattr(client, "api_ready"):
+        ready = client.api_ready
+    elif hasattr(client, "_connected"):
+        ready = client._connected
+    else:
+        # Test double with no readiness signal: assume ready.
+        return
+    if callable(ready):
+        ready = ready()
+    if not ready:
+        raise IBKRNotReady("IBKR API not ready (handshake pending)")
+
+
 def classify_error(error_code: int) -> str:
     """
     Returns 'info', 'warning', or 'fatal'.

@@ -52,6 +52,7 @@ def _make_window(monkeypatch, qapp):
     win._hist_calls = hist_calls
     win._rt_calls = rt_calls
     win._ibkr_connected = True
+    win._transport_ready = lambda: True
     win._now_ts = lambda: NOW_TS
     win.show()
     qapp.processEvents()

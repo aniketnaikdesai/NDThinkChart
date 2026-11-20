@@ -49,6 +49,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True  # P28 harness seam: live-attach cases
     win.rt_manager.subscribe = lambda *a, **k: 4242
     win.show()
     qapp.processEvents()

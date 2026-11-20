@@ -116,6 +116,7 @@ def _make_window(monkeypatch, qapp):
     monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
     from ui.main_window import MainWindow
     win = MainWindow()
+    win._transport_ready = lambda: True  # P28 harness seam: live-attach cases
     fake = _FakeClient()
     win.rt_manager.client = fake
     win.show()

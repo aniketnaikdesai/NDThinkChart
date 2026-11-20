@@ -39,7 +39,7 @@ from ibkr.contracts import get_contract_for_symbol
 from ibkr.contracts import footprint_cache_key  # D39: resolved-contract key
 from ibkr.error_codes import IBKRNotReady
 from ibkr.pacing import PacingExceeded, pacing_manager
-from ibkr.stream_health import StreamHealth
+from ibkr.stream_health import StreamHealth, StreamState
 from ibkr.subscription_manager import RT_BARS
 from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms, evaluate_volume_burst
@@ -226,6 +226,11 @@ class TickerSession(QObject):
         self._wall_now: Callable[[], int] = time.time
         self._rt_req_id: int | None = None
         self._rt_holders: int = 0
+        # S-P28-1: this session's live feed is owed on the next connect. Set
+        # by the window gate's refusal and by a drop that invalidated an
+        # in-flight load; cleared on a successful subscribe, on consumption
+        # and in teardown.
+        self._rt_attach_pending: bool = False
         self._last_chart_price: float | None = None
         self._rt_seen: bool = False  # D27.1: live bar observed since (re)load
         self._alarms: list = []  # own alarms (AlarmStore.load(symbol))
@@ -465,8 +470,22 @@ class TickerSession(QObject):
     def ensure_rt_subscribed(self) -> int:
         """Refcounted RT subscribe; returns the reqId. May raise
         PacingExceeded — the caller defers and retries (the view stays
-        registered; the retry re-enters here without re-syncing)."""
+        registered; the retry re-enters here without re-syncing).
+
+        S-P28-15/AC-D90.3: a terminal (EXHAUSTED) stream is recovered by the
+        user's attach — drop the dead line and issue one fresh subscribe with
+        the budget reset before the ordinary refcount bump. The predicate is
+        the terminal state, not ``retry_budget_spent``: a FAILED stream
+        mid-storm is not silently recovered by an unrelated attach.
+        """
         if self._rt_req_id is not None:
+            if self.stream_health.state == StreamState.EXHAUSTED:
+                # One fresh subscribe, reset budget: the same two mechanics
+                # ``resubscribe_rt`` uses, with the reset this path needs. A
+                # backoff retry never resets (Fix-B), and a PacingExceeded
+                # from here propagates to the caller's existing deferral.
+                self._unsubscribe_rt()
+                self._subscribe_rt(reset_backoff=True)
             self._rt_holders += 1
             return self._rt_req_id
         self._subscribe_rt()
@@ -493,6 +512,27 @@ class TickerSession(QObject):
             )
         view.set_alarms(self._alarms)
 
+    def _clear_prime_state(self) -> None:
+        """Drop every aggregator-priming marker for this session.
+
+        The one clear: ``teardown``, ``prepare_load``, ``_fail_open_prime``
+        and ``MainWindow._on_disconnected`` all call it, so a prime timer can
+        never outlive the request or the transport that invalidated it, and
+        none of them can forget one of the six statements.
+
+        Q-3/Q-12: an orphaned deferred retry must not re-enter after a
+        teardown or a reload — the scheduled callback is a no-op because
+        ``_prime_retry_pending`` and its args are gone.
+        P7-W2 (S-P7-4): a held prime reservation is dropped with the rest of
+        the priming state — the session yields the shared interval gate.
+        """
+        self._prime_timer.stop()
+        self._prime_req_id = None
+        self._prime_period_start = None
+        self._prime_retry_pending = False
+        self._prime_retry_args = None
+        self._prime_reserved = False
+
     def teardown(self) -> None:
         """Cancel the RT subscription and the in-flight history wave.
 
@@ -507,15 +547,10 @@ class TickerSession(QObject):
         self._wave_plan_queue.clear()
         self._disarm_history_wave_watchdog()
         self._wave_continue_timer.stop()  # D28.5: no deferred wave chunks
-        self._prime_timer.stop()
-        self._prime_req_id = None
-        self._prime_period_start = None
-        # Q-3/Q-12: an orphaned deferred retry must not re-enter after teardown.
-        self._prime_retry_pending = False
-        self._prime_retry_args = None
-        # P7-W2 (S-P7-4): teardown drops a held prime reservation with the rest
-        # of the priming state — a torn-down session yields the gate.
-        self._prime_reserved = False
+        self._clear_prime_state()
+        # S-P28-1: a deferred-attach obligation never outlives the session it
+        # was set for.
+        self._rt_attach_pending = False
     # ── Bars / aggregators (data plane) ────────────────────────────────
 
     def aggregator_for(self, timeframe: str) -> BarAggregator:
@@ -632,13 +667,20 @@ class TickerSession(QObject):
         self._rt_req_id = None
 
     def _reissue_rt(self) -> int:
-        """Reconnect replay hook: re-subscribe, return the new reqId."""
+        """Reconnect replay hook: re-subscribe, return the new reqId.
+
+        A236/S-P28-11: a replayed subscription is a fresh subscription — the
+        health restarts awaiting-first-bar with the retry budget reset, and
+        the badge follows the emitted signal.
+        """
         if self._rt_req_id is not None:
             self._host._unregister_req_id(self._rt_req_id)
         contract = self._wave_contract or get_contract_for_symbol(self.symbol)
         req_id = self._host.rt_manager.subscribe(self.symbol, contract)
         self._rt_req_id = req_id
         self._host._register_req_id(req_id, self)
+        self.stream_health.mark_subscribed(reset_backoff=True)
+        self.stream_health_changed.emit()
         return req_id
 
     def _rebind_rt_req_id(self, new_req_id: int) -> None:
@@ -949,15 +991,9 @@ class TickerSession(QObject):
         # scheduled retry must be a no-op (never a second first-time attempt
         # that re-arms the backstop: the pacing-limited loop) and its stale
         # request/timeout must not push bars into the fresh aggregator or
-        # fail open against the new load.
-        self._prime_timer.stop()
-        self._prime_req_id = None
-        self._prime_period_start = None
-        self._prime_retry_pending = False
-        self._prime_retry_args = None
-        # P7-W2 (S-P7-4): a reload supersedes the previous load's reservation
-        # with the rest of its priming state.
-        self._prime_reserved = False
+        # fail open against the new load. P7-W2 (S-P7-4): the reload
+        # supersedes the previous load's reservation too.
+        self._clear_prime_state()
         # S-P20-3: each load starts with an unrejected contract — a previous
         # load's error-200 latch must never gate this load's realtime attach.
         self._contract_rejected_200 = False
@@ -1855,12 +1891,7 @@ class TickerSession(QObject):
         routine pacing-limited line. A merely deferred prime (first attempt,
         one retry scheduled) is not a skip and is never counted.
         """
-        self._prime_timer.stop()
-        self._prime_req_id = None
-        self._prime_period_start = None
-        self._prime_retry_pending = False
-        self._prime_retry_args = None
-        self._prime_reserved = False
+        self._clear_prime_state()
         self._prime_skipped_count += 1
         _LOG.warning(
             "Skipped aggregator prime for %s [%s]: pacing-limited retry "

@@ -1,3 +1,4 @@
+from ibkr.error_codes import require_api_ready
 from ibkr.pacing import pacing_manager, PacingExceeded
 from ibkr.id_manager import id_manager
 from ibapi.contract import Contract
@@ -8,11 +9,16 @@ class RealtimeBarsManager:
     Manages reqRealTimeBars subscriptions.
     IBKR only supports 5-second real-time bars natively.
     The bar_aggregator rolls these up into wider timeframes.
+
+    This manager only subscribes, unsubscribes and cancels. Reconnect
+    replay is ``SubscriptionManager.replay_all`` (P26's transactional
+    pass), which carries the reissue/rebind hooks every session needs; it
+    is the single replay implementation.
     """
 
     def __init__(self, client):
         self.client = client
-        # Map reqId → (symbol, contract) so we can replay on reconnect
+        # Map reqId → (symbol, contract) for unsubscribe/cancel bookkeeping.
         self._subscriptions: dict[int, tuple[str, Contract]] = {}
 
     def subscribe(self, symbol: str, contract: Contract) -> int:
@@ -20,11 +26,16 @@ class RealtimeBarsManager:
         Start a 5-second real-time bar subscription.
         Returns the reqId.
 
+        Readiness comes first, through the same seam the market-data
+        manager uses: before pacing, before the id — a not-ready transport
+        allocates no reqId, records no pacing slot and never sends.
+
         D28.1: never sleeps. Raises PacingExceeded (with wait_seconds) when
         the realtime budget is exhausted; the caller defers via
         QTimer.singleShot. The budget slot is recorded only after the
         request is actually issued.
         """
+        require_api_ready(self.client)
         wait = pacing_manager.realtime_wait_seconds()
         if wait > 0:
             raise PacingExceeded(wait)
@@ -53,10 +64,3 @@ class RealtimeBarsManager:
             except Exception:
                 pass
             self._subscriptions.pop(req_id, None)
-
-    def replay_all(self):
-        """Re-subscribe all active streams after a reconnect."""
-        items = list(self._subscriptions.items())
-        self._subscriptions.clear()
-        for _old_id, (symbol, contract) in items:
-            self.subscribe(symbol, contract)

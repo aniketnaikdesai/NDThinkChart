@@ -64,6 +64,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True
     ids = iter([6001, 6002, 6003, 6004, 6005])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
     # D42's depth floor (S17) can issue many chunks from one load, so hand out

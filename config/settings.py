@@ -2,12 +2,30 @@ import os
 
 IBKR_HOST = os.getenv("IBKR_HOST", "127.0.0.1")
 # Default to Live TWS (7496)
-IBKR_PORT = int(os.getenv("IBKR_PORT", 7496))
-IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", 1))
+# D94 / S-P28-6: settings parsing cannot raise. A malformed value is kept as
+# text in _<NAME>_PARSE_ERROR and refused by check_live_port() — which runs in
+# main() AFTER QApplication exists, so the user gets the fatal dialog instead
+# of a bare ValueError before any UI can speak. IBKR_PORT is `int | None` only
+# between this import and the guard; MainWindow never sees anything but an int.
+_RAW_PORT = os.getenv("IBKR_PORT", "7496")
+try:
+    IBKR_PORT: int | None = int(_RAW_PORT)
+    _PORT_PARSE_ERROR: str | None = None
+except ValueError:
+    IBKR_PORT = None
+    _PORT_PARSE_ERROR = _RAW_PORT
 
-# D26.5: the only port this app may trade on. TWS uses 7496 for live and
-# 7497 for paper; a paper-port typo must never silently trade paper while
-# the UI claims to be live.
+_RAW_CLIENT_ID = os.getenv("IBKR_CLIENT_ID", "1")
+try:
+    IBKR_CLIENT_ID: int | None = int(_RAW_CLIENT_ID)
+    _CLIENT_ID_PARSE_ERROR: str | None = None
+except ValueError:
+    IBKR_CLIENT_ID = None
+    _CLIENT_ID_PARSE_ERROR = _RAW_CLIENT_ID
+
+# D26.5: the only port this app may connect on. NDThinkChart is a read-only
+# market-data client that places no orders; this guard is a configuration
+# check — it verifies the configured port only, not the TWS account behind it.
 LIVE_PORT = 7496
 
 
@@ -16,11 +34,31 @@ def check_live_port() -> None:
 
     Raises SystemExit with a human-readable message; main.py surfaces it
     as a fatal dialog before any connection is attempted.
+
+    D94 / S-P28-6: this is also where a malformed setting is refused — the
+    import keeps the raw text so the offending value can be named. The order
+    is port-parse, client-id-parse, then the D26.5 live-port comparison.
     """
+    if _PORT_PARSE_ERROR is not None:
+        raise SystemExit(
+            f"Refusing to start: IBKR_PORT={_PORT_PARSE_ERROR} is not a "
+            f"valid integer port (the live TWS port is {LIVE_PORT}). "
+            "NDThinkChart is a read-only market-data client that places no "
+            "orders — fix IBKR_PORT."
+        )
+    if _CLIENT_ID_PARSE_ERROR is not None:
+        raise SystemExit(
+            f"Refusing to start: IBKR_CLIENT_ID={_CLIENT_ID_PARSE_ERROR} is "
+            "not a valid integer client id. NDThinkChart is a read-only "
+            "market-data client that places no orders — fix IBKR_CLIENT_ID."
+        )
     if IBKR_PORT != LIVE_PORT:
         raise SystemExit(
-            f"Refusing to start: IBKR_PORT={IBKR_PORT} is not the live TWS "
-            f"port ({LIVE_PORT}). NDThinkChart trades live only — fix IBKR_PORT."
+            f"Refusing to start: IBKR_PORT={IBKR_PORT} is not the configured "
+            f"TWS port ({LIVE_PORT}). NDThinkChart is a read-only market-data "
+            "client — it places no orders. "
+            f"Set IBKR_PORT={LIVE_PORT} to continue. This check verifies the "
+            "configured port only, not the TWS account behind it."
         )
 
 DB_PATH = os.getenv("DB_PATH", "charting_app.sqlite3")

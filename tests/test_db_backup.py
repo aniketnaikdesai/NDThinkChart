@@ -243,7 +243,16 @@ def test_source_missing_a_required_table_raises(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_migrate_schema_aborts_drop_when_backup_fails(tmp_path, monkeypatch):
-    """P23-T12-AC2: backup raises -> no DROP runs, all tables and rows remain."""
+    """AC-D86.1 (re-baselined from P23-T12-AC2): a failed backup skips the drop
+    and the app starts.
+
+    D86 revises the D65 fatality this case used to pin: an unverifiable
+    pre-drop backup is a machine condition, so ``DB()`` completes, records
+    exactly one startup notice naming the backup path and the cause, and
+    performs no DROP. The verified-copy rule is unchanged — every no-drop/row
+    assertion below is the pre-D86 text verbatim, so this case still fails if
+    a DROP runs or a row disappears.
+    """
     legacy = _write_pre_d65_db(tmp_path / "abort.sqlite3")
     _route_db(monkeypatch, legacy, tmp_path / "userdata")
 
@@ -252,10 +261,24 @@ def test_migrate_schema_aborts_drop_when_backup_fails(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db_backup, "backup_before_drop", _boom)
 
+    from data import db as db_module
     from data.db import DB
 
-    with pytest.raises(BackupVerificationError):
-        DB()
+    instance = DB()  # AC-D86.1: construction completes — the app must start
+
+    try:
+        assert len(instance.startup_notices) == 1
+        notice = instance.startup_notices[0]
+        assert str(legacy) in notice
+        assert str(tmp_path / "userdata" / "backups") in notice
+        assert "injected: verification failed" in notice
+        # ``startup_notices()`` reads the module singleton; this case builds
+        # its own DB, so point the accessor at it for the assertion
+        # (monkeypatch restores the singleton afterwards).
+        monkeypatch.setattr(db_module, "db", instance)
+        assert db_module.startup_notices() == [notice]
+    finally:
+        instance.conn.close()
 
     # Inspect the file directly: nothing was dropped.
     conn = sqlite3.connect(str(legacy))

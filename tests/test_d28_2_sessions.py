@@ -35,6 +35,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True  # P28 harness seam: live-attach cases
     # Deterministic RT reqIds: first subscribe -> 7001, second -> 7002.
     ids = iter([7001, 7002, 7003, 7004])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)

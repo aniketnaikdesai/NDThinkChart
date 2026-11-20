@@ -240,26 +240,6 @@ def test_p7_t07_t11_replay_rebinds_reqids_without_bar_loss_or_dupes():
     assert forming.volume < 100.0 + 200.0 + 300.0 + 400.0 + 500.0 + 999.0
 
 
-def test_p7_t07_t11_manager_replay_rebounds_every_subscription():
-    """RealtimeBarsManager.replay_all resubscribes every stream with fresh ids."""
-    client = FakeIbapiClient()
-    mgr = RealtimeBarsManager(client)
-    from ibapi.contract import Contract
-    c1, c2 = Contract(), Contract()
-    c1.symbol, c2.symbol = "AAPL", "ES"
-    id1 = mgr.subscribe("AAPL", c1)
-    id2 = mgr.subscribe("ES", c2)
-    assert id1 != id2
-    assert len(client.rt_requests) == 2
-
-    mgr.replay_all()
-
-    assert len(client.rt_requests) == 4
-    rebound = [r for r in client.rt_requests[2:]]
-    assert {r[1] for r in rebound} == {"AAPL", "ES"}
-    assert {r[0] for r in rebound}.isdisjoint({id1, id2})
-
-
 def test_p7_t07_t11_health_reaches_live_only_on_first_post_reconnect_bar():
     """FAILED -> resubscribe -> awaiting; live only on the first live bar."""
     host = make_host()
@@ -564,6 +544,7 @@ def test_p7_t07_t13_live_feed_attach_defers_via_singleshot():
         session.ensure_rt_subscribed = _raise
         stub = SimpleNamespace(
             status_bar=FakeStatusBar(),
+            _transport_ready=lambda: True,
             get_or_create_session=lambda symbol: session,
             _retry_attach_live_feed=lambda symbol, contract: None,
         )

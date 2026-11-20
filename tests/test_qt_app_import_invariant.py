@@ -46,10 +46,10 @@ P7_W4_FILES = (STREAMING, DEFERRAL)
 _CONSTRUCTORS = frozenset({"QApplication", "QCoreApplication", "QGuiApplication"})
 
 #: Every id ``tests/test_p7_w4_streaming.py`` defined before the ESC-126 rework
-#: (13 cases: T11/T12/T13 as the module docstring records).
+#: (12 cases: T11/T12/T13 as the module docstring records; the realtime
+#: manager's dead-replay case retired in P28/D88).
 STREAMING_IDS = (
     "test_p7_t07_t11_replay_rebinds_reqids_without_bar_loss_or_dupes",
-    "test_p7_t07_t11_manager_replay_rebounds_every_subscription",
     "test_p7_t07_t11_health_reaches_live_only_on_first_post_reconnect_bar",
     "test_p7_t07_t12_burst_keeps_priming_with_exact_once_ordering",
     "test_p7_t07_t13_no_blocking_sleep_on_any_pacing_path",

@@ -35,6 +35,11 @@ class DB:
         self.db_path = paths.get_db_path()
         # Ensure parent directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # D86 / S-P28-5: one entry per migration this open skipped because a
+        # machine condition (an unverifiable backup) made it unsafe. Set before
+        # _init_schema so the migration can record into it; main() shows each
+        # one once a dialog can exist, and it is never persisted.
+        self.startup_notices: list[str] = []
         self.conn = sqlite3.connect(self.db_path, check_same_thread=True)
         self._init_schema()
 
@@ -166,6 +171,14 @@ class DB:
         # verification aborts the whole drop, leaving all three tables and
         # their rows intact for a retry on the next open. Order is child
         # first: position_group_map and positions both reference trade_groups.
+        #
+        # D86 / S-P28-5: "aborts the drop" no longer means "kills the process".
+        # A backup that cannot be verified is a machine condition (read-only
+        # volume, full disk), and this ran at import — before QApplication and
+        # before any dialog could exist. The verified-copy rule stays absolute
+        # (no drop without a verified copy; there is no force-drop path); the
+        # failure to prove the copy stops being fatal: record exactly one
+        # notice, keep the three inert tables, and start.
         _retired_tables = ("position_group_map", "positions", "trade_groups")
         _existing_tables = {
             row[0]
@@ -177,9 +190,20 @@ class DB:
             # Commit the migrations above so the copy is a consistent snapshot
             # of a committed database (no hot journal is needed to read it).
             self.conn.commit()
-            db_backup.backup_before_drop(self.db_path)
-            for _table in _retired_tables:
-                self.conn.execute(f"DROP TABLE IF EXISTS {_table}")
+            try:
+                db_backup.backup_before_drop(self.db_path)
+            except db_backup.BackupVerificationError as exc:
+                self.startup_notices.append(
+                    f"Pre-D65 backup of {self.db_path} could not be verified "
+                    f"({exc}). The backup directory is "
+                    f"{paths.get_user_data_path('backups')}. The retired tables "
+                    "position_group_map, positions and trade_groups were kept "
+                    "and are inert (never read or written); the drop will be "
+                    "retried on the next launch."
+                )
+            else:
+                for _table in _retired_tables:
+                    self.conn.execute(f"DROP TABLE IF EXISTS {_table}")
         # D42 / S16 (AR-D42-5): mode-aware bars key. SQLite cannot alter a
         # primary key, so a legacy `bars` table (symbol, timeframe, ts) is
         # rebuilt once with the new key (symbol, timeframe, ext_hours, ts).
@@ -307,3 +331,12 @@ class DB:
 
 # Main thread singleton
 db = DB()
+
+
+def startup_notices() -> list[str]:
+    """Return what the singleton's open skipped and why (one entry per skip).
+
+    A copy: ``main()`` reads it once at startup, and a caller can never mutate
+    the DB's own list. Empty on every normal launch.
+    """
+    return list(db.startup_notices)

@@ -50,7 +50,7 @@ from ibkr.subscription_manager import (
     S0_TICKS,
     SubscriptionManager,
 )
-from ibkr.stream_health import StreamHealth, StreamState
+from ibkr.stream_health import MAX_RETRY_ATTEMPTS, StreamHealth, StreamState
 from ui.chart_view import create_chart_view
 from services.chart_model import ChartMode
 from ui.watchlist_panel import (
@@ -354,7 +354,7 @@ def _toolbar_caption(text: str) -> QLabel:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("IBKR Trading Terminal")
+        self.setWindowTitle("NDThinkChart — read-only market data")
         self.resize(1400, 900)
         # D28.5: once set, IBKR/timer slots early-return so teardown never
         # touches cleared widgets.
@@ -1237,33 +1237,85 @@ class MainWindow(QMainWindow):
                 5000,
             )
             return
-        popout = PopoutChartWindow(
-            symbol=self._current_symbol,
-            timeframe=self._current_tf,
-            mode=self.mode_combo.currentText(),
-            extended_hours=self.ext_hours_btn.isChecked(),
-            host=self,
-            parent=self,
-            tz_offset=self._tz_offset,
-        )
-        popout.attach()
-        popout.show()
-        # D49.6: persist the threaded offset with the set. attach()'s own
-        # save predates the offset (passes none, which preserves); this
-        # upsert stamps the main chart's current offset on the same row.
-        from data.popout_store import PopoutStore
+        # D91 / S-P28-4: an open is ONE transaction — construction, attach,
+        # show and the D49.6 tail save. ``popout`` is bound to None *before*
+        # the try so a constructor raise reports once through
+        # ``_discard_popout(None, exc)`` instead of raising UnboundLocalError
+        # from inside the handler that exists to cover it. attach() is already
+        # transactional (S-P13-2/D49.2, tightened by P25); the discard closes
+        # the constructed window through its own frozen close path, so the
+        # record, the one RT hold, the view and the registry entry are all
+        # released exactly once.
+        popout = None
+        try:
+            popout = PopoutChartWindow(
+                symbol=self._current_symbol,
+                timeframe=self._current_tf,
+                mode=self.mode_combo.currentText(),
+                extended_hours=self.ext_hours_btn.isChecked(),
+                host=self,
+                parent=self,
+                tz_offset=self._tz_offset,
+            )
+            popout.attach()
+            popout.show()
+            # D49.6: persist the threaded offset with the set. attach()'s own
+            # save predates the offset (passes none, which preserves); this
+            # upsert stamps the main chart's current offset on the same row.
+            from data.popout_store import PopoutStore
 
-        PopoutStore.save(
-            popout.symbol,
-            popout.timeframe,
-            popout.mode,
-            popout.extended_hours,
-            popout._geometry_dict(),
-            tz_offset=self._tz_offset,
-        )
+            PopoutStore.save(
+                popout.symbol,
+                popout.timeframe,
+                popout.mode,
+                popout.extended_hours,
+                popout._geometry_dict(),
+                tz_offset=self._tz_offset,
+            )
+        except Exception as exc:
+            self._discard_popout(popout, exc)
+            return
         self.status_bar.showMessage(
             f"Popped out {self._current_symbol} [{self._current_tf}].", 3000
         )
+
+    def _discard_popout(self, popout, exc: Exception) -> None:
+        """D91 / S-P28-4: unwind a failed pop-out open — report exactly once.
+
+        ``popout`` may be ``None``: a failure can happen before the window
+        exists (a constructor raise), and in that case there is no window to
+        touch, only the one report. When a window was constructed, the unwind
+        is the window's *own* frozen close path (P25's ``closeEvent`` →
+        ``detach``): it deletes the persisted record, releases at most the one
+        RT hold it acquired, detaches its view from the still-alive session and
+        unregisters in a ``finally``. The explicit unregister afterwards is the
+        belt for a close path that itself raised; ``deleteLater()`` drops the
+        (already closed) widget. Nothing here reads an attribute of a window it
+        did not receive.
+        """
+        if popout is not None:
+            try:
+                popout.close()
+            except Exception as close_exc:
+                _LOG.debug(
+                    "Pop-out discard close failed: %s: %s",
+                    type(close_exc).__name__,
+                    close_exc,
+                )
+            if popout in self._popouts:
+                self._unregister_popout(popout)
+            try:
+                popout.deleteLater()
+            except Exception as delete_exc:
+                _LOG.debug(
+                    "Pop-out discard deleteLater failed: %s: %s",
+                    type(delete_exc).__name__,
+                    delete_exc,
+                )
+        _LOG.warning(
+            "Pop-out failed to open (%s): %s", type(exc).__name__, exc
+        )
+        self.status_bar.showMessage(f"Pop-out failed to open: {exc}", 8000)
 
     def _ensure_restore_data_path(self, record: dict) -> None:
         """D49.1: cold-restore data-path ensure for one saved pop-out.
@@ -1596,6 +1648,7 @@ class MainWindow(QMainWindow):
             )
             if key in open_keys:
                 continue
+            popout = None
             try:
                 self._ensure_restore_data_path(record)
                 # D49.6 (A134): apply the stored offset; a pre-change save
@@ -1617,6 +1670,12 @@ class MainWindow(QMainWindow):
                 popout.show()
                 open_keys.add(key)
             except Exception as exc:
+                # D91 / S-P28-4: the same one-transaction rule as
+                # ``_open_popout`` — a data-path failure, a constructor raise
+                # or an attach/save failure reports once, leaves no window
+                # behind (``popout`` may still be None), and the loop keeps
+                # going to the next record.
+                self._discard_popout(popout, exc)
                 _LOG.warning(
                     "Pop-out restore failed for %s: %s",
                     record.get("symbol"),
@@ -1808,6 +1867,10 @@ class MainWindow(QMainWindow):
         self.conn_badge.setStyleSheet(f"color: {color};")
 
     def _on_connected(self):
+        # S-P28-11/AC-D89.2: a pre-drop retry deadline must never act on a
+        # post-drop subscription. The replay below resets health itself, and
+        # that reset is what re-arms anything — no timer carries over.
+        self._rt_retry_timer.stop()
         self._ibkr_connected = True
         # D40.3: capture the resume-before-clear — a TWS-gone pause needs
         # the reconcile + gap report below; a transient drop must not
@@ -1828,6 +1891,9 @@ class MainWindow(QMainWindow):
         if self._option_active:
             self._option_engine.on_reconnected()
         self._replay_subscriptions()
+        # S-P28-1: a refused attach is owed once on the next connect; the
+        # replay above cannot pay it (a refused attach registered nothing).
+        self._attach_deferred_rt_feeds()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
         # D40.3: resume from a TWS-gone pause — the D27 replay above
@@ -2770,7 +2836,9 @@ class MainWindow(QMainWindow):
         if h is None:
             # No primary session (e.g. headless monitor only) — nothing to show.
             return
-        if h.state == StreamState.LIVE:
+        if h.state == StreamState.EXHAUSTED:
+            text, color = "● Stream stopped", "#f87171"
+        elif h.state == StreamState.LIVE:
             text, color = "● Stream live", "#34d399"
         elif h.state == StreamState.FAILED:
             code = f" [{h.fail_code}]" if h.fail_code is not None else ""
@@ -2782,12 +2850,31 @@ class MainWindow(QMainWindow):
 
     def _on_rt_stream_error(self, session: TickerSession, code: int,
                             message: str) -> None:
-        """D27.4: the live RT subscription failed — persist + backoff retry."""
+        """D27.4: the live RT subscription failed — persist + backoff retry.
+
+        D90: the retry budget is finite. The attempt past the cap ends in the
+        terminal EXHAUSTED state — one status line, no schedule, and the
+        sticky guard below means a late echo can neither resurrect a retry
+        nor repeat that line.
+        """
+        if session.stream_health.state == StreamState.EXHAUSTED:
+            # D90: only a reload/reconnect reset leaves the terminal state.
+            return
         session.stream_health.mark_failed(code, message)
         _LOG.warning("Realtime stream failed [%s]: %s", code, message)
         # Badge + retry scheduling are primary-chart concerns; a background
         # session just records the FAILED health for its views.
         if session is self._primary_session:
+            if session.stream_health.retry_budget_spent:
+                session.stream_health.mark_exhausted()
+                self._update_stream_badge()
+                self.status_bar.showMessage(
+                    f"{session.symbol} — realtime stream stopped after "
+                    f"{MAX_RETRY_ATTEMPTS} retries; reload the chart or wait "
+                    "for a reconnect.",
+                    15000,
+                )
+                return
             self._update_stream_badge()
             self.status_bar.showMessage(
                 f"Realtime stream failed [{code}]: {message} — retrying…",
@@ -2801,19 +2888,29 @@ class MainWindow(QMainWindow):
             )
 
     def _schedule_rt_retry(self) -> None:
-        """D27.4: schedule a backoff retry of the failed RT subscription."""
+        """D27.4/S-P28-12: schedule a backoff retry of the failed RT sub.
+
+        A scheduled retry is never moved: restarting an active single-shot
+        timer would starve it (an error storm arriving faster than the delay
+        means the retry never fires), and counting the attempt again would
+        inflate the budget. The pending timer already owns that one attempt.
+        """
+        if self._rt_retry_timer.isActive():
+            return
         delay_s = self._stream_health.next_retry_delay_s()
         self._rt_retry_timer.start(int(delay_s * 1000))
 
     def _retry_rt_subscribe(self) -> None:
         """D27.4: re-issue the RT subscription after a backoff delay.
 
-        No-op unless the failure is still current: a new load or a live bar
-        since scheduling moves the state off FAILED, which disarms this.
+        No-op unless the failure is still current: a reload, a live bar or a
+        terminal (EXHAUSTED) state moves the state off FAILED, which disarms
+        this — EXHAUSTED can never retry, its recovery is the user's attach.
         """
-        if self._stream_health.state != StreamState.FAILED:
+        health = self._stream_health
+        if health is None or health.state != StreamState.FAILED:
             return
-        if not self._ibkr_connected or not self._current_symbol:
+        if not self._transport_ready() or not self._current_symbol:
             # Still disconnected (or no symbol): keep backing off.
             self._schedule_rt_retry()
             return
@@ -2833,6 +2930,12 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(
                 int(e.wait_seconds * 1000), self._retry_rt_subscribe
             )
+            return
+        except IBKRNotReady:
+            # S-P28-12 belt: the transport refused after all (a callback
+            # queued before the drop stopped this timer). Re-enter the same
+            # not-ready guard instead of escaping a Qt slot with an exception.
+            self._schedule_rt_retry()
             return
         self._update_stream_badge()
         self.status_bar.showMessage(
@@ -2869,6 +2972,26 @@ class MainWindow(QMainWindow):
             self.conn_badge.setText("● Disconnected")
             self.conn_badge.setStyleSheet("color: #f87171;")
         self.load_btn.setEnabled(False)
+        # S-P28-1/S-P28-2: the drop owes the attach it invalidates. Mark the
+        # current session whose in-flight load this drop killed BEFORE the
+        # prime clear below removes the evidence — ``_attach_live_feed`` is
+        # the only other setter of the flag, and a cleared backstop never
+        # reaches it. The three terms are the decision: current (only this
+        # session's prime would have attached), no live line (flagging a live
+        # one would bump its holders a second time), in-flight (an armed
+        # backstop, a prime reqId, or a deferred prime retry — the three
+        # states that would have reached the attach on their own).
+        for session in list(self._sessions.values()):
+            if (session._rt_req_id is None
+                    and session.symbol == self._current_symbol
+                    and (session._prime_timer.isActive()
+                         or session._prime_req_id is not None
+                         or session._prime_retry_pending)):
+                session._rt_attach_pending = True
+            session._clear_prime_state()
+        # A pre-drop retry deadline must not act on a post-drop transport —
+        # the reconnect replay is what re-arms anything.
+        self._rt_retry_timer.stop()
         # D16 / ESC-024: a transport drop must not strand an in-flight backfill
         # wave. Cancel every tracked reqId, advance the generation so late
         # responses are rejected, and finalise once so AC-D16.4's shortfall is
@@ -3379,6 +3502,21 @@ class MainWindow(QMainWindow):
         ):
             self._attach_live_feed(symbol, contract)
 
+    def _transport_ready(self) -> bool:
+        """True when the transport can carry a new realtime line.
+
+        This is the ONLY window-side readiness predicate for the realtime
+        attach. In production the two terms agree: ``_ibkr_connected`` is
+        set from the client's ``connected`` signal, which is emitted only
+        from ``nextValidId``, and ``api_ready`` is the client's handshake
+        flag. It does not replace the direct ``_ibkr_connected`` reads in
+        the search, watchlist-add, option and backfill gates.
+        """
+        return bool(
+            self._ibkr_connected
+            and getattr(self.ib_client, "api_ready", True)
+        )
+
     def _attach_live_feed(self, symbol: str, contract) -> None:
         """Start the real-time bar stream (+ DOM). Step 3 of load_chart."""
         # D28.2: the session owns the RT subscription (refcounted). The
@@ -3389,6 +3527,12 @@ class MainWindow(QMainWindow):
         # realtime reqIds on an unfillable contract).
         session = self.get_or_create_session(symbol)
         if session._contract_rejected_200:
+            return
+        # S-P28-1: nothing attaches on a not-ready transport. The refusal is
+        # remembered on the session — no singleShot and no status line; the
+        # reconnect path owns the retry, and the refusal costs no reqId.
+        if not self._transport_ready():
+            session._rt_attach_pending = True
             return
         try:
             session.ensure_rt_subscribed()
@@ -3402,6 +3546,8 @@ class MainWindow(QMainWindow):
                 lambda: self._retry_attach_live_feed(symbol, contract),
             )
             return
+        # S-P28-1: the owed attach has been paid.
+        session._rt_attach_pending = False
         # D27.4: new subscription -> awaiting first bar; disarm any retry
         # timer left over from a previous load/failure.
         self._rt_retry_timer.stop()
@@ -3429,6 +3575,27 @@ class MainWindow(QMainWindow):
             session.symbol,
             session._wave_contract or get_contract_for_symbol(session.symbol),
         )
+
+    def _attach_deferred_rt_feeds(self) -> None:
+        """Attach the live feeds a not-ready transport refused, once.
+
+        Consumes each session's ``_rt_attach_pending`` (cleared before the
+        attempt, so a refusal by the gate re-arms it for the next connect).
+        Called from ``_on_connected`` right after the replay: the replay
+        only re-issues registered lines, and a refused attach registered
+        nothing — without this pass the chart would stay feedless after a
+        reconnect (R175).
+        """
+        for session in list(self._sessions.values()):
+            if not session._rt_attach_pending:
+                continue
+            session._rt_attach_pending = False
+            if session._contract_rejected_200:
+                continue
+            self._attach_live_feed(
+                session.symbol,
+                session._wave_contract or get_contract_for_symbol(session.symbol),
+            )
 
     def _now_ts(self) -> int:
         """Wall-clock epoch seconds; a seam for deterministic load-path tests."""
@@ -5200,6 +5367,28 @@ class MainWindow(QMainWindow):
             event.accept()
             return
         self._closing = True
+        # D85 / S-P28-3: close the pop-outs FIRST — immediately after the
+        # latch and BEFORE the session teardown loop. ORDER MATTERS: each
+        # pop-out's own close path releases the one RT hold it acquired and
+        # detaches its view from the session it references, so that session
+        # must still be alive; tearing sessions down first would leave every
+        # pop-out closing against a dead session. Iterate a COPY (R176) —
+        # detach() unregisters the window while we iterate — and run each
+        # close in its own guard so one raising close (Journey 75's edge)
+        # never skips the rest or escapes closeEvent. The registry empties by
+        # construction (detach's ``finally`` unregisters); the belt in the
+        # except covers a close that raised before reaching it.
+        for popout in list(self._popouts):
+            try:
+                popout.close()
+            except Exception as exc:
+                _LOG.debug(
+                    "Pop-out close failed during main-window close: "
+                    "%s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+                self._unregister_popout(popout)
         # Explicit teardown order: persist prefs → cancel lookups → disarm
         # timers → cancel subs → disconnect → join reader → clear UI.
         # Persist watchlist dock width (D13/D17): re-clamp to the current

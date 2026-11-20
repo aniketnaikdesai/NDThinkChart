@@ -60,6 +60,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True
     fake = _FakeRtManager()
     win.rt_manager.subscribe = fake.subscribe
     win.rt_manager.unsubscribe = fake.unsubscribe

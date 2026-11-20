@@ -40,6 +40,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True  # P28 harness seam: live-attach cases
     ids = iter(range(9501, 9600))
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
     hids = iter(range(9601, 9700))

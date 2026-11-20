@@ -1,6 +1,9 @@
 NDThinkChart Quick Start
 =========================
 
+A PyQt6 read-only market-data client for Interactive Brokers TWS. It places
+no orders.
+
 This is the short pointer. The canonical full guide is usage.md
 (workflows, features, troubleshooting, change record pointer).
 
@@ -36,9 +39,10 @@ Requirements
     Port: 7496
     Client ID: 1
 
-   The app refuses to start on any other port. Live account only:
-   paper-trading logins are not supported (live-only per
-   config/settings.py::check_live_port).
+   The app refuses any other port and places no orders; it works against
+   a live TWS session - paper-trading logins are not supported. The port
+   guard (config/settings.py::check_live_port) is a configuration check:
+   it verifies the configured port only, not the TWS account behind it.
 
 4. Market data entitlements for the symbols being viewed (the app opens
    without them, but live charts and ticks need them).

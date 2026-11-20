@@ -3,8 +3,8 @@
 > **As of 2026-11-17.** Canonical user guide. Short version: `USAGE.txt` (pointer + quick start).
 > Change record: `docs/phase-changelog.md`.
 
-A PyQt6 trading terminal for Interactive Brokers TWS with the **Lightweight Charts** engine
-(served through an offline QtWebEngine page) and the official `ibapi`.
+A PyQt6 read-only market-data client for Interactive Brokers TWS that places no orders, with the
+**Lightweight Charts** engine (served through an offline QtWebEngine page) and the official `ibapi`.
 
 ---
 
@@ -13,7 +13,7 @@ A PyQt6 trading terminal for Interactive Brokers TWS with the **Lightweight Char
 - **macOS 11+ (Big Sur)** on Apple Silicon (ARM64)
 - **Python 3.11+** (managed via pyenv recommended)
 - **Interactive Brokers TWS** installed and running
-- **TWS API port 7496** enabled with a **live** TWS login (the app refuses any other port and trades live only — paper-trading logins are not supported)
+- **TWS API port 7496** enabled with a **live** TWS login (the app refuses any other port and places no orders; it works against a live TWS session — paper-trading logins are not supported)
 
 ---
 
@@ -74,7 +74,7 @@ The bundle is self-contained:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IBKR_HOST` | `127.0.0.1` | TWS host |
-| `IBKR_PORT` | `7496` | TWS socket port (Live only) |
+| `IBKR_PORT` | `7496` | TWS live-session socket port; the app refuses any other (configuration check) |
 | `IBKR_CLIENT_ID` | `1` | Unique client ID per session |
 | `DB_PATH` | `charting_app.sqlite3` | SQLite path (dev); overridden in bundle |
 | `NDT_CHART_ENGINE` | ignored (legacy) | Older versions used this to select a chart engine. The app is now Lightweight-Charts-only; the variable is read by nothing that selects a renderer, so setting it has no effect |
@@ -105,9 +105,10 @@ no engine switch and no opt-in — one engine, always on.
 
 1. **Install TWS** from IBKR website (not IB Gateway)
 2. **Login** — live account only. The app connects only to `127.0.0.1:7496` and refuses
-   any other port; NDThinkChart trades live only (`config/settings.py::check_live_port`
-   fails fast on any other port). Paper-trading logins are not supported — log in with
-   your live TWS login
+   any other port; it is a read-only market-data client that places no orders
+   (`config/settings.py::check_live_port` is a configuration check that fails fast
+   on any other port — it verifies the configured port, not the account behind it).
+   Paper-trading logins are not supported — log in with your live TWS login
 3. **Enable API**:
    - Edit → Global Configuration → API → Settings
    - ✅ Enable ActiveX and Socket Clients
@@ -118,7 +119,8 @@ no engine switch and no opt-in — one engine, always on.
 
 **Connection badge.** The toolbar badge reports the connection, not the account: while connected it reads
 `● Connected` (green). There is no `Live` or `Paper` badge — the account-type label was retired with the
-account-summary stream it derived from, and the app is live-only anyway. When TWS goes away the badge shows
+account-summary stream it derived from, and the app only connects to a live TWS session
+anyway. When TWS goes away the badge shows
 the amber `Monitoring paused — TWS disconnected` described below; a brief drop shows a red `● Disconnected`
 until it reconnects.
 
@@ -282,7 +284,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 
 ## Safety
 
-- **Port guard: only 7496** — the app refuses to start on any other port (live TWS port only; paper-trading logins are not supported — see `config/settings.py::check_live_port`)
+- **Port guard: only 7496 (configuration check)** — the app refuses to start on any other port; it is a read-only market-data client that places no orders, and the check verifies the configured port only, not the TWS account behind it (paper-trading logins are not supported — see `config/settings.py::check_live_port`)
 - **No order entry in the app** — the app places, cancels and closes nothing; place, cancel and close orders in TWS
 - **Read-Only API** recommended in TWS for extra safety
 

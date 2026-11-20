@@ -284,6 +284,7 @@ def test_t12_drive_live_feed_attach_throttled(monkeypatch, tmp_path):
 
     stub = SimpleNamespace(
         _current_symbol="AAPL",
+        _transport_ready=lambda: True,
         get_or_create_session=lambda symbol: _Session(),
         status_bar=SimpleNamespace(
             showMessage=lambda msg, timeout=None: shown.append(msg)),

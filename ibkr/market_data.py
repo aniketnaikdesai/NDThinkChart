@@ -1,4 +1,4 @@
-from ibkr.error_codes import IBKRNotReady
+from ibkr.error_codes import IBKRNotReady, require_api_ready
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.id_manager import id_manager
 from ibapi.contract import Contract
@@ -29,18 +29,10 @@ class MarketDataManager:
         Checked BEFORE allocating a reqId or touching pacing so nothing
         is sent (or budgeted) pre-handshake — TWS rejects such requests
         with 504.
+
+        The one seam; the realtime manager calls the same function.
         """
-        if hasattr(self.client, "api_ready"):
-            ready = self.client.api_ready
-        elif hasattr(self.client, "_connected"):
-            ready = self.client._connected
-        else:
-            # Test double with no readiness signal: assume ready.
-            return
-        if callable(ready):
-            ready = ready()
-        if not ready:
-            raise IBKRNotReady("IBKR API not ready (handshake pending)")
+        require_api_ready(self.client)
 
     def req_historical_data(
         self,

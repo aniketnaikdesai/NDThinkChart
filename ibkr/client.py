@@ -74,7 +74,13 @@ class IBApiClient(EWrapper, EClient):
 
         Handshake-gated: a fresh connect is CONNECTING with the API not
         ready — only ``nextValidId`` promotes to CONNECTED.
+
+        D93: a pending backoff timer is disarmed first — the caller is
+        starting a new attempt, so the old one must not fire behind it.
         """
+        if self._reconnect_timer is not None:
+            self._reconnect_timer.cancel()
+            self._reconnect_timer = None
         self._conn_host = host
         self._conn_port = port
         self._conn_client_id = clientId
@@ -348,6 +354,13 @@ class IBApiClient(EWrapper, EClient):
         2. The backoff reconnect loop is (re)started. The old code
            stopped polling here and scheduled nothing — the app would
            never notice the morning TWS login without a restart.
+
+        D87: a close before the handshake is a transient failure — it still
+        schedules a retry with the same backoff, but the classification stays
+        inside the ``was_connected`` branch, so it records no ``TWS_GONE``
+        (no pause UI, no gap accounting). ``_schedule_reconnect``'s
+        cancel-first contract keeps a ``_poll``-armed backoff from
+        duplicating.
         """
         super().connectionClosed()
         was_connected = self._connected
@@ -356,18 +369,30 @@ class IBApiClient(EWrapper, EClient):
         if was_connected:
             self._last_disconnect_class = DisconnectClass.TWS_GONE
         self._set_state(ConnectionState.DISCONNECTED)
-        if was_connected:
-            # D40: keep trying so the morning login reconnects on its
-            # own. The pause UI (MainWindow) carries the visible state.
-            self._schedule_reconnect()
+        # D40: keep trying so the morning login reconnects on its own. The
+        # pause UI (MainWindow) carries the visible state.
+        # D87: unconditional — a pre-handshake close is transient, not
+        # TWS-gone, and it retries through the same backoff.
+        self._schedule_reconnect()
 
     def close(self) -> None:
-        """Clean disconnect."""
+        """Deliberate teardown: forget every connection-state trace.
+
+        D93: a close is not an outage — the state is set directly instead of
+        through ``_set_state`` so no ``disconnected`` signal runs the outage
+        path during teardown, and the backoff bookkeeping is reset.
+        """
         self._connected = False
         self.stop_polling()
         if self._reconnect_timer is not None:
             self._reconnect_timer.cancel()
             self._reconnect_timer = None
+        # Set directly: _set_state(DISCONNECTED) would emit `disconnected`
+        # into _on_disconnected and run the outage path during teardown.
+        self._connection_state = ConnectionState.DISCONNECTED
+        self._last_disconnect_class = None
+        self._reconnect_attempt = 0
+        self._last_reconnect_log_delay = None
         try:
             super().close()
         except Exception:

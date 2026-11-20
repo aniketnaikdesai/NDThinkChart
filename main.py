@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from config import paths
+from config import instance_lock, paths
 
 # ESC-043 limb 2: this is the real application entry point, so opt in to the
 # user-space production DB BEFORE anything imports data.db -- data/db.py builds
@@ -10,7 +10,6 @@ from config import paths
 paths.opt_in_production_db()
 
 from config import settings
-from ui.main_window import MainWindow
 
 
 def _register_lwc_scheme_before_qapp() -> None:
@@ -46,23 +45,54 @@ def main() -> int:
     app.setStyle("Fusion")
 
     # D26.5: fail fast unless configured for the live TWS port — before any
-    # connection is attempted. A paper-port typo must never silently trade
-    # paper while the UI claims to be live.
+    # connection is attempted. This is a configuration check: it verifies the
+    # configured port only, not the TWS account behind it, and the app places
+    # no orders.
+    # D94: this is also where a malformed IBKR_PORT/IBKR_CLIENT_ID is refused —
+    # settings' import keeps the raw value so the message can name it, and this
+    # guard runs after QApplication, so the refusal is a dialog rather than a
+    # bare ValueError raised while main was being imported.
     try:
         settings.check_live_port()
     except SystemExit as exc:
         QMessageBox.critical(None, "NDThinkChart — cannot start", str(exc))
         return 1
 
-    theme_path = os.path.join(os.path.dirname(__file__), "config", "theme.qss")
-    if os.path.exists(theme_path):
-        with open(theme_path, "r") as f:
-            app.setStyleSheet(f.read())
+    # D95 / S-P28-7: one process owns the user-space database. The lock is
+    # keyed on the RESOLVED DB path (so a DB_PATH override is an independent
+    # instance by construction) and is taken here -- after the port guard and
+    # BEFORE the window/DB import below -- so a second instance refuses without
+    # ever opening a second SQLite writer.
+    lock, refusal = instance_lock.acquire(paths.get_db_path())
+    if lock is None:
+        QMessageBox.critical(None, "NDThinkChart — already running", refusal)
+        return 1
 
-    window = MainWindow()
-    window.show()
+    try:
+        # D86 / S-P28-5: the window import constructs the DB singleton, and that
+        # singleton's open can skip a migration for a machine reason (an
+        # unverifiable pre-drop backup). Importing it HERE — after QApplication,
+        # the port guard and the instance lock — means such a condition can be
+        # reported through a dialog instead of killing the process before any UI
+        # exists. It also means the DB is constructed while the lock is held.
+        from data import db as db_module
+        from ui.main_window import MainWindow
 
-    return app.exec()
+        for notice in db_module.startup_notices():
+            QMessageBox.warning(
+                None, "NDThinkChart — database migration skipped", notice)
+
+        theme_path = os.path.join(os.path.dirname(__file__), "config", "theme.qss")
+        if os.path.exists(theme_path):
+            with open(theme_path, "r") as f:
+                app.setStyleSheet(f.read())
+
+        window = MainWindow()
+        window.show()
+
+        return app.exec()
+    finally:
+        lock.unlock()
 
 
 if __name__ == "__main__":
