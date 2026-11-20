@@ -1767,5 +1767,53 @@
     "status": "addressed",
     "verified": "2026-11-20 (P29 rework verification, commit f7a8be4). Independently re-read on the live tree. BOTH FACTS CONFIRMED at docs/codebase-map.md:649: the note still carries the retired literal 'tests/test_alarm_service.py::TestBoundaryAndState::test_exactly_on_alert_price_above_counts' (which tests/test_p29_fence.py:103-107 REBASELINED_CASES requires, so the fence is not reddened) AND names the live case 'test_arrival_on_the_level_is_a_touch_not_a_cross' with its semantics ('9.5 -> 10.0 is a touch, 10.0 -> 10.01 fires'). HONESTY JUDGEMENT: the parenthetical says why the retired id is still listed ('P29-T2 renamed it to ...') and why it must stay ('the retired id stays listed because tests/test_p29_fence.py's REBASELINED_CASES pins this literal'), so a reader cannot mistake it for a live test - the ambiguity I reported ('a reader following it finds nothing') is closed by explicit disambiguation rather than by removing the id. No fence edit was made: cat of tests/test_p29_fence.py is unchanged in the range (git diff dcfdd60..f7a8be4 -- tests/ shows only tests/conftest.py and the new guard suite), and the fence still passes 13/13 on the committed tree (my run of tests/test_p29_fence.py). RESIDUAL, now documented in the record itself: the fence still pins the retired literal, so a future cleanup of that note must update REBASELINED_CASES in the same change; because the note states that coupling in the exact place a future editor reads, I am treating the finding as resolved rather than escalating the coupling a second time.",
     "opened": "2026-11-20T06:34:58.212167+00:00"
+  },
+  {
+    "id": "ESC-140",
+    "task_id": "P30-T4",
+    "routed_to": "PLAN",
+    "category": "consistency",
+    "severity": "should-fix",
+    "observed": "docs/codebase-map.md:690 (the P30 note) states \"No existing case is re-baselined and no existing suite is edited\", and tests/test_p30_fence.py:615 pins that exact sentence. Both are false at the phase's end state. P30-T6 (wave 469) rewrote the DG116 leg of tests/test_d64_batch_gate.py (test_p22_t5_ac2_shared_seam_record: the HEAD-working-tree check replaced by the phase-relative base check) and added two cases to that module; P30-T7 (wave 471) edited tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py (PROTECTED_SPAN_SHA256 literal plus audit comments). The note was written at plan time when T1-T4 were the whole phase; the later T6/T7 additions invalidated it and no task refreshed it (docs/codebase-map.md is Plan-owned and Build cannot write it). The same note still says the six new suites are \"planned, not yet on disk\".",
+    "expected": "The map's P30 note describes the phase as delivered: the three edited existing suites named (tests/test_d64_batch_gate.py by P30-T6; tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py by P30-T7) with the reason (phase-relative scope fence; owner-approved span re-pin), the six suites recorded as landed, and the \"no existing suite is edited\" / \"no existing case is re-baselined\" claims withdrawn or qualified. Because tests/test_p30_fence.py:615 pins the phrase, the map amendment and the fence assertion must move in lockstep - the fence is a Build-owned test file, so this needs a paired BUILD touch after the map edit.",
+    "status": "open",
+    "opened": "2026-11-20T20:39:57.079546+00:00",
+    "suggested_direction": "Append a dated correction line to the P30 note (the map's prior-note pattern, never rewriting history) and name the fence assertion that must follow it so the Orchestrator can pair the Plan edit with the Build test update."
+  },
+  {
+    "id": "ESC-141",
+    "task_id": "P30-T3",
+    "routed_to": "REQUIREMENTS",
+    "category": "consistency",
+    "severity": "nice-to-have",
+    "observed": "AC-D104.3 (requirements.md, P30 acceptance criteria) reads \"... the Existing Repository marker sentence and the Current Tech Stack are unchanged and present\". The Current Tech Stack IS changed in this phase by the owner-approved RG-P7-2 correction (requirements.md:561-575 now carries the shipped LWC-only record; the Constraints \"Observed from repository\" UI row at :594-598 changed too), and tests/test_p30_fence.py implements the clause as presence-only (it greps for the heading, not byte-identity). Separately, requirements.md:6045 (P16/D55 non-goals) still reads \"No restatement of AC-D16.8 (RG-P7-1 stays open Analyst debt ...)\" while requirements.md:6 and docs/plan_notes.md:747-780 now record RG-P7-1 as addressed 2026-11-20. The three T7 pin comments also say the marker sentence \"was restated\": \"This is an existing repository.\" is byte-identical; the paragraph following it was restated.",
+    "expected": "AC-D104.3 states the authorised carve-out explicitly (unchanged apart from the 2026-11-20 owner-approved RG-P7-1/RG-P7-2/RG-D23-1 record corrections, which the PROTECTED_SPAN_SHA256 pin authorises and the audit comments disclose), and the P16 non-goal parenthetical no longer asserts RG-P7-1 is open. No criterion, journey, A/R line or phase status altered otherwise.",
+    "status": "open",
+    "opened": "2026-11-20T20:39:57.105748+00:00",
+    "suggested_direction": "Word-only reconciliation; behaviour, fence boundaries and the digest pin stay as they are."
+  },
+  {
+    "id": "ESC-142",
+    "task_id": "P30-T3",
+    "routed_to": "BUILD",
+    "category": "consistency",
+    "severity": "nice-to-have",
+    "observed": "ui/lwc_view.py:3516-3518 (memory_bytes docstring) still calls the bridge replay log \"the one structure that grows with traffic\". P30's own D104 rationale contradicts the exclusivity: architecture S-P30-5 and the new release_resources comment at ui/lwc_view.py:3589-3591 call the five per-channel logs \"the structure that grows with traffic on a live pop-out\", and AR-P30-6 records that memory_bytes does not count them. The bucket set is deliberately out of scope, but the sentence is a false present-tense claim of exactly the family AC-D104.1 targets.",
+    "expected": "memory_bytes' docstring describes what it actually accounts (the bar / transport replay log) without claiming it is the only traffic-growing structure, and stays consistent with AR-P30-6. No bucket or return-shape change.",
+    "status": "open",
+    "opened": "2026-11-20T20:39:57.130763+00:00",
+    "suggested_direction": "One docstring clause (e.g. \"the transport replay log, the largest structure that grows with traffic\"), leaving the bucket set and the tests/test_lwc_popouts.py pinned shape untouched."
+  },
+  {
+    "id": "ESC-143",
+    "task_id": "P30-T1",
+    "routed_to": "TASK_MANAGER",
+    "category": "gap",
+    "severity": "nice-to-have",
+    "observed": "P30-T1 restores the chart control cluster (-, +, magnifier, Reset) into the live page: chart.html gains #controls in the price-scale gutter and chart.js::init mounts it through mountControls - a user-visible affordance on the main chart. usage.md (the canonical user guide, 299 lines; precheck doc_candidates lists it with touched:false) documents no chart control cluster and no chart pan/zoom affordance at all: the only zoom mention is usage.md:155 (pop-outs still allow zoom/pan). No P30 task owns usage.md and the phase allowlist does not include it.",
+    "expected": "usage.md records the restored cluster (the four buttons, the magnifier's drag-to-zoom, Reset returning to the default framing, and that the keyboard/wheel paths still work) - a small docs task, no code change and no new allowlist entry for this phase.",
+    "status": "open",
+    "opened": "2026-11-20T20:39:57.154994+00:00",
+    "suggested_direction": "Follow the ESC-128/ESC-138 precedent: one small TASK_MANAGER doc task (usage.md only) if a documentation pass is wanted now; otherwise record it as accepted doc debt for the next docs batch."
   }
 ]

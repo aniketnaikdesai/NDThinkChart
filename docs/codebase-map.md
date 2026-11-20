@@ -667,7 +667,7 @@ order was P29-01 ∥ P29-02 ∥ P29-04 → P29-03 → P29-05. **Selection:** a c
 root row as a slash-suffixed (root) token, which the map lint reads as a path and rejects; the row is kept in
 its slash-free form below — `update_codebase_map.py` should emit it that way.
 
-**P30 note (2026-11-20) — D101–D104: UI surface integrity; no new module, and the six suites are planned, not yet on disk.** Skeleton re-run against the **P29 build tree** (HEAD `dcfdd60`, base `3b92ce6`): **303 code files, 23 test-impact rows**. **P30 adds no production module and no dependency, migration, settings key or envelope-version bump**, so the index shape is unchanged; the file count moves only when P30's four `tests/` suites and its two new `chart_assets/lwc/` node suites land (`test_d101_control_cluster`, `test_d102_d103_surface_state`, `test_d104_stale_claims`, `test_p30_fence`, `interaction.controls.test.js`, `controls.test.js`).
+**P30 note (2026-11-20) — D101–D104: UI surface integrity; no new module, and the six suites are built.** Skeleton re-run against the **P29 build tree** (HEAD `dcfdd60`, base `3b92ce6`): **303 code files, 23 test-impact rows**. **P30 adds no production module and no dependency, migration, settings key or envelope-version bump**, so the index shape is unchanged; the file count moved when P30's four `tests/` suites and its two new `chart_assets/lwc/` node suites landed with the build (`test_d101_control_cluster`, `test_d102_d103_surface_state`, `test_d104_stale_claims`, `test_p30_fence`, `interaction.controls.test.js`, `controls.test.js`).
 
 | Row moved by P30 | What the row now means | Status |
 |---|---|---|
@@ -687,11 +687,22 @@ their P5/P6 status for the seven `ui/` files above (and the `chart_assets/lwc/` 
 `interaction.js` as P6 assets); P30 changes them in place without moving any path. The `services/` combined
 row likewise still shows its P5/P6 status for `services/chart_model.py`'s one-line docstring fix.
 
-**Test rows / selection for P30.** No existing case is re-baselined and **no existing suite is edited**: the
-page-glue evidence lands in two new node files (chart_assets/lwc/interaction.controls.test.js and
-chart_assets/lwc/controls.test.js, named without backticks until they land), so the shared `chart.test.js`
-harness is untouched (AR-P30-7 — the cost is one duplicated minimal fake, paid to keep nine existing cases
-unperturbed). A
+**Test rows / selection for P30.** **Three existing suites are edited** *(corrected 2026-11-20 per `ESC-140`:
+this paragraph previously claimed both that no existing case was re-baselined and that no existing suite was
+edited — both halves were false)*. **P30-T6** rewrote `tests/test_d64_batch_gate.py`'s DG116 leg so the scope fence is
+phase-relative: it derives the phase base from `docs/tasks/task-graph.json`'s `meta.baseline_commit` and the
+`tests/` allowlist from every task's declared `tests/` footprint, instead of comparing against a hard-coded
+pre-phase point. **P30-T7** re-pinned the two history fences — `tests/test_p14_cache_guard.py`
+(`PROTECTED_SPAN_SHA256` plus one live-span `expected`) and `tests/test_p15_surfacing.py`
+(`PROTECTED_SPAN_SHA256`) — to `4de9f5642c…`; the re-pin was authorised because the owner-approved RG-P7-1 /
+RG-P7-2 / RG-D23-1 record correction changed the protected requirements span itself (the Current Tech Stack
+and Constraints rows now record the shipped LWC-only engine end state, the existing-repository marker sentence
+was restated, and the D23.1 record carries its reconciliation). Only the digest literal and its comment moved:
+the span boundaries, span-extraction expressions and exact-equality comparison are byte-identical.
+**No behavioural expectation was re-baselined.** The page-glue evidence lands in two new node suites,
+`chart_assets/lwc/interaction.controls.test.js` and `chart_assets/lwc/controls.test.js` (both on disk since the
+P30 build), so the shared `chart.test.js` harness is untouched (AR-P30-7 — the cost is one duplicated minimal
+fake, paid to keep nine existing cases unperturbed). A
 change to `chart_assets/lwc/*` should select the whole node `--test` set under `chart_assets/lwc` plus
 `test_lwc_router_mirror`, `test_lwc_page_wiring`, `test_lwc_bridge`, `test_chart_mouse_router`,
 `test_p11_replace`, `test_lwc_alarms`, `test_lwc_drawing_tool`, `test_lwc_e2e_data`, `test_d57_chevron` and

@@ -3513,11 +3513,13 @@ class LwcChartView(QWidget):
 
         A pop-out owns a private copy of the series (``_bars`` /
         ``_plotted``), its logical index column, its study value arrays, its
-        drawing wire items and — the one structure that grows with traffic —
-        the bridge replay log (the transport replays it after a renderer
-        restart). Reporting the buckets separately keeps a leak attributable
-        instead of collapsing into one opaque number; the pop-out ledger
-        aggregates ``total_bytes`` per window.
+        drawing wire items and the bridge replay log (the transport replays it
+        after a renderer restart) — the one traffic-growing structure among
+        these buckets. The five per-channel replay logs are not counted here
+        (AR-P30-6); ``release_resources`` clears them on close. Reporting the
+        buckets separately keeps a leak attributable instead of collapsing
+        into one opaque number; the pop-out ledger aggregates ``total_bytes``
+        per window.
         """
         buckets = {
             "bars": len(self._bars) * self.BAR_BYTES,

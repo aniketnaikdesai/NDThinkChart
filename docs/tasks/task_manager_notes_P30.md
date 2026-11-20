@@ -254,3 +254,77 @@ File-disjoint from `P30-T6` (`tests/test_d64_batch_gate.py`), so they may run to
 (`graph_struct_sha256 47f03a9f75b5970ea4a077ce6742818bfa356dd532ed7487c1b35cf7a7e5dadb`); metadata
 `"status": "READY_FOR_BUILD"`, `meta.baseline_commit` still `956f9f8`. (`P30-T6` flipped to `done` while
 this run was writing — `build_wave.py` advancing it, not this run's write.)
+
+## 8. Escalation run 2026-11-20 — the post-review residue (ESC-140 build half, ESC-141 part 3, ESC-142)
+
+**State on entry:** `P30-T1`–`P30-T7` `done`; the tree red on exactly one test
+(`tests/test_p30_fence.py`, 19 passed / 1 failed) after Plan corrected the map note and the analyst restated
+`AC-D104.3` and corrected the stale `RG-P7-1` flag (outside the pinned span, so no re-pin; both fences re-run
+green, 16 passed). No `TASK_MANAGER` escalation is left to translate as new scope — the three items are the
+review hands-off already stated in ESC-140 / ESC-141 / ESC-142, so this run adds **one** size-S task and
+touches no other task's status, footprint, test list or dependency edges.
+
+| Task | Purpose | Size | Deps (all `done`) | Frontier |
+|---|---|---|---|---|
+| `P30-T8` | the fence re-point + three precise pin comments + `memory_bytes` docstring | S | `P30-T3`, `P30-T4`, `P30-T6`, `P30-T7` | wave 1 |
+
+### The standing rule this run adds — a record correction owns its fence in lockstep
+
+**When another agent corrects a record that a Build-owned fence pins, the fence assertion moves with the
+record — in the same change, and by re-pointing, never by deleting.** ESC-140 is the concrete case: the map's
+P30 note said "no existing suite is edited" at plan time and became false once `P30-T6` (DG116 phase-relative
+rewrite) and `P30-T7` (digest re-pin in both history fences) landed; `docs/codebase-map.md` is Plan-owned, so
+Plan corrected the note, and `tests/test_p30_fence.py:615` — the assertion that pinned the false sentence — is
+Build-owned and went red on the corrected note. The fix is to **assert the corrected record**:
+`"Three existing suites are edited"`, the two history-fence filenames and the digest fragment `4de9f5642c`.
+Deleting the assertion would have been the cheap green; it would also have removed the only guard that the map
+still describes the phase as delivered, and the withdrawn claim could have returned unnoticed.
+
+**Non-tautology is a stated requirement, not a style preference.** `P30-T8-02` feeds a synthetic regressed note
+(corrected sentence swapped back to the withdrawn one) to the same helper the live case uses and requires both
+`corrected claim missing` and `withdrawn claim still present`. So the assertion is checkable in both
+directions, which is what makes "re-point, don't delete" verifiable rather than asserted in prose.
+
+### The three items, decided
+
+- **A — the map assertion.** Corrected sentence + both fence filenames + `4de9f5642c`, with every prior
+  assertion in the same case kept (six suites, `chart.test.js` / `harness is untouched`, G7, prior
+  annotations). The only forbidden string is the **present tense** withdrawal: the corrected note legitimately
+  quotes the old claim in the past tense ("no existing suite **was** edited"), so a blanket ban would redden a
+  correct note.
+- **B — the three pin comments.** Wording only, using the analyst's sentence: the *preamble sentence adjacent
+  to* the marker was corrected to match, **the marker sentence itself is byte-identical**, and the D23.1 record
+  carries its reconciliation. Sites: `tests/test_p14_cache_guard.py:84-91` (above `PROTECTED_SPAN_SHA256`) and
+  `:464-468` (above `expected = (`, inside `test_p28_t14_pin_matches_live_span`), and
+  `tests/test_p15_surfacing.py:77-84`. The task must not change the three digest literals, the
+  `start =` / `span =` boundaries, the equality comparison, or any assertion — and must not add a test *to*
+  either history-fence file (P30-T7's reasoning: a new case there is itself an assertion change). The new
+  comment-precision case therefore lives in `tests/test_p30_fence.py`, reading the three blocks from outside.
+  The blocks must stay contiguous `#` lines and keep the `test_p28_t14_repin_is_pin_only` tokens
+  (`RG-P29-1`, `Q120`, `AC-D75.1`, `2026-11-20`, the outside-the-pin marker).
+- **C — `memory_bytes`' docstring.** One sentence, describing what the buckets measure: the bridge replay log is
+  **the only traffic-growing structure these buckets count**, and the five per-channel logs are **not counted**
+  (AR-P30-6) and are cleared by `release_resources`. No superlative ("largest") is used — the bucket set is
+  deliberately unchanged, so the word must not imply a comparison the account cannot make. No bucket and no
+  return-shape change; `tests/test_lwc_popouts.py`'s pinned ledger shape is untouched.
+
+### Where the constraints are encoded
+
+- `docs/codebase-map.md`, `usage.md` and `docs/requirements/**` are named as **other agents' writes** in
+  `AC-P30-08-SCOPE` and in the description's Do-not: the map is read-only in the pack (`read_files` entry
+  marked read-only), and a concurrent `requirements.md` write is reported, never reverted.
+- `P30-T4`'s `AC-P30-04-MAP` carried the now-false clause ("states that no existing suite is edited"). It is
+  **appended to, not rewritten**: the appended clause marks that phrase as T4's historical requirement and
+  points at `P30-T8` / `AC-P30-08-MAP` for the current claim. T4's status, footprint, tests and result stay as
+  delivered.
+- `P30-T8`'s `test_command` runs the fence, both history fences and `tests/test_d104_stale_claims.py` (the
+  suite whose `ui/` scan the docstring lives under); none of the four carries a `webengine` marker, so no
+  `-m 'not webengine'` flag is needed.
+
+### Graph state after this run
+
+`check_tasks.py`: **OK — 8 tasks validated**, `execution_graph.json` regenerated
+(`graph_struct_sha256 646745094290d759324c0d07942a405fac0786a407b28a5ade78f0a305b0077a`); metadata
+`"status": "READY_FOR_BUILD"`, `meta.baseline_commit` still `956f9f8`. `P30-T8` is `not_started`, size S, all
+four dependencies `done`, so it opens alone in the next wave. The five pre-existing `check_tasks.py` warnings
+(T1–T4 `touches_files` that are pure-output new files) are unchanged by this run.

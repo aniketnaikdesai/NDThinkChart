@@ -1,6 +1,6 @@
 # NDThinkChart — Usage Guide
 
-> **As of 2026-11-17.** Canonical user guide. Short version: `USAGE.txt` (pointer + quick start).
+> **As of 2026-11-20.** Canonical user guide. Short version: `USAGE.txt` (pointer + quick start).
 > Change record: `docs/phase-changelog.md`.
 
 A PyQt6 read-only market-data client for Interactive Brokers TWS that places no orders, with the
@@ -143,6 +143,12 @@ until it reconnects.
 1. Type symbol (e.g., `AAPL`) in toolbar
 2. Select timeframe (1 min – 1 month, including 1 week and 1 month)
 3. Click **Load Chart** or press Enter
+
+### Chart Controls & Pan / Zoom (Phase D101)
+1. Four controls sit in the chart's top-right corner, just left of the price scale: **−** zoom out, **+** zoom in, **⌕** the magnifier, and **Reset** (back to the fresh framing for the loaded symbol)
+2. The **magnifier** is a toggle — with it on, drag a region on the chart to zoom into it. Its highlighted state says whether it is actually on, not merely what was last clicked: if the chart cannot honour the switch, the button does not claim it did
+3. A control that cannot act right now reports instead of pretending: while alarm placement is armed, zooming is refused and the status bar reads `Finish or cancel alarm placement before zooming` for a few seconds
+4. The chart's own gestures keep working outside those modes: drag to pan, scroll to zoom, double-click an axis to reset it; with the chart focused, the arrow keys pan, `+` / `-` zoom and `Esc` gives focus back to the app
 
 ### Collapse / Expand the Watchlist (Phase D44)
 1. Click the **Watchlist** header button to collapse the dock — it shrinks to a thin vertical bar showing the rotated `WATCHLIST` label

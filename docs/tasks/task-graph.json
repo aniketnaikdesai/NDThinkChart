@@ -800,7 +800,7 @@
         },
         {
           "id": "AC-P30-04-MAP",
-          "criterion": "Given `docs/codebase-map.md` read-only, Then its P30 note is present and names all six new suites (`test_d101_control_cluster.py`, `test_d102_d103_surface_state.py`, `test_d104_stale_claims.py`, `test_p30_fence.py`, `interaction.controls.test.js`, `controls.test.js`), states that no existing suite is edited and the shared `chart.test.js` harness is untouched, and carries the 'G7 is owner-run and not claimed' sentence \u2014 and the task edits no map line."
+          "criterion": "Given `docs/codebase-map.md` read-only, Then its P30 note is present and names all six new suites (`test_d101_control_cluster.py`, `test_d102_d103_surface_state.py`, `test_d104_stale_claims.py`, `test_p30_fence.py`, `interaction.controls.test.js`, `controls.test.js`), states that no existing suite is edited and the shared `chart.test.js` harness is untouched, and carries the 'G7 is owner-run and not claimed' sentence \u2014 and the task edits no map line. **Superseded 2026-11-20 (ESC-140; re-pointed by `P30-T8` / `AC-P30-08-MAP`):** the note now records that **three existing suites are edited** (`tests/test_d64_batch_gate.py` by P30-T6; `tests/test_p14_cache_guard.py` and `tests/test_p15_surfacing.py` by P30-T7), so the phrase above that the note 'states that no existing suite is edited' is this task's historical requirement, not the current one \u2014 the fence assertion moved with the map. Every other clause here still holds."
         },
         {
           "id": "AC-P30-04-G7",
@@ -1344,6 +1344,208 @@
           "RG-D23-1"
         ],
         "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p14_cache_guard.py::test_p28_t14_pin_matches_live_span tests/test_p14_cache_guard.py::test_p28_t14_repin_is_pin_only tests/test_p15_surfacing.py::test_t33_history_markers_intact -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P30-T8",
+      "title": "P30-T8 (record lockstep) \u2014 re-point the fence at the corrected map claim, make the three pin comments precise, and correct `memory_bytes`' docstring",
+      "description": "Close the three build-owned ESC-140/ESC-141/ESC-142 residues left after T1\u2013T7. (a) `tests/test_p30_fence.py`'s map case still asserts the withdrawn sentence `no existing suite is edited`, so Plan's corrected note makes the suite red (19 passed, 1 failed): re-point it at `Three existing suites are edited`, the two history-fence filenames and the re-pin digest fragment `4de9f5642c`, and make it fail again if the map regresses to the withdrawn claim. (b) Three pin comments claim the marker sentence 'was restated'; only the preamble sentence adjacent to it was corrected and the marker is byte-identical \u2014 reword the comments, changing no digest, boundary or assertion. (c) `LwcChartView.memory_bytes`' docstring still calls the bridge replay log 'the one structure that grows with traffic', contradicting AR-P30-6; make it describe the buckets actually measured. **Do not** edit `docs/codebase-map.md`, `usage.md` or anything under `docs/requirements/` (all owned by other agents, already done), and **do not** delete the map assertion, relax the digest pin, or add a test to the two history-fence files.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P30-T3",
+        "P30-T4",
+        "P30-T6",
+        "P30-T7"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P30-08-MAP",
+          "criterion": "Given the corrected `docs/codebase-map.md` P30 note and `tests/test_p30_fence.py`, When `test_the_map_carries_the_p30_note_and_every_prior_annotation` runs, Then it asserts the note says `Three existing suites are edited`, names both history fences (`tests/test_p14_cache_guard.py`, `tests/test_p15_surfacing.py`) and cites the re-pin digest fragment `4de9f5642c`; it rejects the withdrawn present-tense claim `no existing suite is edited`; and it keeps every pre-existing assertion (the six suite names, `chart.test.js` + `harness is untouched`, `G7 is owner-run and not claimed`, every prior annotation). The check is a **re-point, never a deletion**: a note carrying the withdrawn claim and lacking the corrected one must make it fail."
+        },
+        {
+          "id": "AC-P30-08-COMMENTS",
+          "criterion": "Given the three pin comments \u2014 `tests/test_p14_cache_guard.py` above `PROTECTED_SPAN_SHA256 = (` and above `expected = (` inside `test_p28_t14_pin_matches_live_span`, and `tests/test_p15_surfacing.py` above `PROTECTED_SPAN_SHA256 = (` \u2014 When read, Then each says the **preamble sentence adjacent to the `This is an existing repository.` marker** was corrected to match and that the marker sentence itself is **byte-identical**, none says the marker sentence was restated, and nothing else moves: the three digest literals stay `4de9f5642c\u2026`, the span-extraction expressions and the exact-equality comparison stay byte-identical, every assertion stays, and both fence modules pass unchanged in substance."
+        },
+        {
+          "id": "AC-P30-08-MEMORY",
+          "criterion": "Given `LwcChartView.memory_bytes`, When its docstring and its return value are read, Then the docstring no longer calls the bridge replay log `the one structure that grows with traffic`, names the five per-channel replay logs as **not counted** here (AR-P30-6) and as cleared by `release_resources`, and the returned dict is unchanged in shape: `set(result['buckets']) == MEMORY_BUCKETS` and top-level keys `bridge`, `bars`, `buckets`, `engine`, `read_only`, `total_bytes`."
+        },
+        {
+          "id": "AC-P30-08-SCOPE",
+          "criterion": "Given this task's footprint, When the working tree is diffed, Then exactly the four declared files changed \u2014 `tests/test_p30_fence.py`, `tests/test_p14_cache_guard.py`, `tests/test_p15_surfacing.py`, `ui/lwc_view.py` \u2014 and `docs/codebase-map.md`, `usage.md` and everything under `docs/requirements/` were not written by this task (another agent's concurrent write there is named in the result, never reverted)."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P30-T8-01",
+          "type": "unit",
+          "linked_acceptance_criterion": "AC-P30-08-MAP",
+          "description": "Run the unmodified-by-name map case against the corrected map: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p30_fence.py::test_the_map_carries_the_p30_note_and_every_prior_annotation -q`. RED before the edit (the withdrawn sentence is gone from the map), GREEN after.",
+          "expected_result": "Before: one failing assertion on the withdrawn `no existing suite is edited` string (19 passed, 1 failed in the module). After: the case passes \u2014 the note carries `Three existing suites are edited`, both history-fence filenames and `4de9f5642c`, and the six-suite / `harness is untouched` / G7 assertions are still present and still asserted."
+        },
+        {
+          "test_id": "P30-T8-02",
+          "type": "unit",
+          "linked_acceptance_criterion": "AC-P30-08-MAP",
+          "description": "`test_the_map_note_check_reddens_on_the_withdrawn_claim`: feed the live note and a regressed copy of it (with `P30_EDIT_CLAIM` replaced by `WITHDRAWN_MAP_CLAIM`) to `_p30_note_problems`.",
+          "expected_result": "The live note yields an empty problem list; the regressed copy yields both a `corrected claim missing` and a `withdrawn claim still present` problem \u2014 proving the re-pointed assertion is not a tautology and would re-redden on regression."
+        },
+        {
+          "test_id": "P30-T8-03",
+          "type": "unit",
+          "linked_acceptance_criterion": "AC-P30-08-COMMENTS",
+          "description": "`test_the_repin_comments_say_the_marker_is_byte_identical`: for each `REPIN_COMMENT_SITES` entry, extract the contiguous `#` block above the named assignment (scoped to `test_p28_t14_pin_matches_live_span` for the `expected = (` site) and flatten its whitespace.",
+          "expected_result": "All three blocks contain `4de9f5642c`, `preamble sentence` and `byte-identical`, and none contains `marker sentence was restated`."
+        },
+        {
+          "test_id": "P30-T8-04",
+          "type": "integration",
+          "linked_acceptance_criterion": "AC-P30-08-COMMENTS",
+          "description": "Run both history fences in full: `pytest tests/test_p14_cache_guard.py tests/test_p15_surfacing.py -q`.",
+          "expected_result": "All cases pass, including the four P30-T7 guard nodes (`test_t34_history_markers_intact`, `test_p28_t14_pin_matches_live_span`, `test_p28_t14_repin_is_pin_only`, `test_t33_history_markers_intact`): the three digest literals still read `4de9f5642c\u2026` and the audit tokens (`RG-P29-1`, `Q120`, `AC-D75.1`, `2026-11-20`, the outside-the-pin marker) are still in each pin comment."
+        },
+        {
+          "test_id": "P30-T8-05",
+          "type": "manual",
+          "linked_acceptance_criterion": "AC-P30-08-COMMENTS",
+          "description": "Run `git diff -U0 -- tests/test_p14_cache_guard.py tests/test_p15_surfacing.py` (working tree vs HEAD, which already carries P30-T7's digest re-pin) and read every changed line.",
+          "expected_result": "Every added and removed line is a comment line (leading `#` after optional indentation). No digest literal, `start =` / `span =` boundary expression, equality-comparison line or assertion appears in the diff."
+        },
+        {
+          "test_id": "P30-T8-06",
+          "type": "unit",
+          "linked_acceptance_criterion": "AC-P30-08-MEMORY",
+          "description": "Read `LwcChartView.memory_bytes.__doc__` and, on a fresh `LwcChartView` (`qapp` fixture), call `memory_bytes()` and inspect the returned dict.",
+          "expected_result": "The docstring contains neither `the one structure that grows with traffic` nor any exclusive traffic-growth claim; it contains `per-channel` and `AR-P30-6`. `set(result['buckets']) == MEMORY_BUCKETS` and the six top-level keys are unchanged."
+        },
+        {
+          "test_id": "P30-T8-07",
+          "type": "manual",
+          "linked_acceptance_criterion": "AC-P30-08-SCOPE",
+          "description": "Run `git diff --name-only` and `git status --porcelain` from the repo root after the edits.",
+          "expected_result": "The listing is exactly the four declared files. `docs/codebase-map.md`, `usage.md` and `docs/requirements/**` are absent from this task's changes; any concurrent write there (another agent's) is named in the result and left untouched."
+        }
+      ],
+      "expected_artifacts": [
+        "`tests/test_p30_fence.py` \u2014 the map case re-pointed at the corrected claim, plus a non-tautology case and a pin-comment precision case",
+        "`tests/test_p14_cache_guard.py` \u2014 comment wording only, in the two re-pin comment blocks",
+        "`tests/test_p15_surfacing.py` \u2014 comment wording only, in the one re-pin comment block",
+        "`ui/lwc_view.py` \u2014 `memory_bytes` docstring only (no bucket, no return-shape change)",
+        "a recorded RED-before / GREEN-after for `test_the_map_carries_the_p30_note_and_every_prior_annotation` in `docs/build/results/P30-T8.json`"
+      ],
+      "touches_files": [
+        "tests/test_p30_fence.py",
+        "tests/test_p14_cache_guard.py",
+        "tests/test_p15_surfacing.py",
+        "ui/lwc_view.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the corrected `docs/codebase-map.md` P30 note (Plan-owned, read-only)",
+        "P30-T7's re-pinned digest `4de9f5642c8eb\u2026` in both history fences",
+        "ESC-140 (map/fence lockstep), ESC-141 part 3 (pin comments), ESC-142 (memory_bytes docstring)"
+      ],
+      "outputs": [
+        "a map assertion that follows the corrected record and reddens on regression",
+        "three precise re-pin comments with the digest, boundaries and assertions byte-identical",
+        "a `memory_bytes` docstring that describes the buckets it measures"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p30_fence.py",
+            "lines": "96-150",
+            "why": "extend: the suite/memory constants the new map-claim constants sit beside"
+          },
+          {
+            "path": "tests/test_p30_fence.py",
+            "lines": "585-630",
+            "why": "extend: `test_release_clears\u2026` (memory residual) and the map case this task re-points"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "64-98",
+            "why": "edit: the authorising comment block above `PROTECTED_SPAN_SHA256` (site 1)"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "455-475",
+            "why": "edit: the comment block above `expected = (` inside `test_p28_t14_pin_matches_live_span` (site 2)"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "495-545",
+            "why": "read-only: the audit-trail tokens and outside-the-pin marker `test_p28_t14_repin_is_pin_only` requires the edited block to keep"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "64-92",
+            "why": "edit: the authorising comment block above `PROTECTED_SPAN_SHA256` (site 3)"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "3509-3532",
+            "why": "edit: `memory_bytes` docstring only \u2014 the bucket dict and return shape below are unchanged"
+          },
+          {
+            "path": "docs/codebase-map.md",
+            "lines": "688-708",
+            "why": "read-only: the corrected P30 note (Plan-owned \u2014 do not edit it) whose claims the re-pointed assertions read"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_p30_fence.py:test_the_map_carries_the_p30_note_and_every_prior_annotation",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p14_cache_guard.py:test_p28_t14_repin_is_pin_only",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:memory_bytes",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p30_fence.py",
+            "signature": "P30_EDIT_CLAIM = \"Three existing suites are edited\"\nHISTORY_FENCES = (\"tests/test_p14_cache_guard.py\", \"tests/test_p15_surfacing.py\")\nP30_REPIN_DIGEST_FRAGMENT = \"4de9f5642c\"\nWITHDRAWN_MAP_CLAIM = \"no existing suite is edited\"  # present tense only: the note's own correction quotes it as \"was edited\""
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p30_fence.py",
+            "signature": "def _p30_note_problems(note: str) -> list[str]  # [] == the note carries the corrected claim; otherwise one readable problem per failed claim (missing corrected claim, withdrawn claim present, each history fence not named, digest fragment missing)"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p30_fence.py",
+            "signature": "REPIN_COMMENT_SITES = ((\"tests/test_p14_cache_guard.py\", \"PROTECTED_SPAN_SHA256 = (\", None), (\"tests/test_p14_cache_guard.py\", \"expected = (\", \"def test_p28_t14_pin_matches_live_span(\"), (\"tests/test_p15_surfacing.py\", \"PROTECTED_SPAN_SHA256 = (\", None))\ndef _comment_block_above(text: str, needle: str, scope: str | None = None) -> str  # contiguous '#' lines directly above needle (scoped when a scope anchor is given), whitespace-flattened"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p14_cache_guard.py",
+            "signature": "pin-comment wording, all three blocks (the same wording in tests/test_p15_surfacing.py): \"\u2026 the preamble sentence adjacent to the \\\"This is an existing repository.\\\" marker was corrected to match \u2014 the marker sentence itself is byte-identical \u2014 and the D23.1 record carries its reconciliation.\"  Comment lines only: no digest literal, boundary expression or assertion moves."
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_view.py",
+            "signature": "memory_bytes docstring clause: \"\u2026 its drawing wire items and the bridge replay log (the transport replays it after a renderer restart) \u2014 the only traffic-growing structure these buckets count; the five per-channel replay logs are not counted here (AR-P30-6) and ``release_resources`` clears them.\""
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P30",
+        "plan_ref": "docs/plan.md#Phase P30",
+        "requirement_ids": [
+          "AC-D104.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p30_fence.py tests/test_p14_cache_guard.py tests/test_p15_surfacing.py tests/test_d104_stale_claims.py -q",
         "memory_refs": [
           "offscreen"
         ],

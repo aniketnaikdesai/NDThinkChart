@@ -27,6 +27,10 @@
     {
       "id": "P30-T7",
       "type": "Task"
+    },
+    {
+      "id": "P30-T8",
+      "type": "Task"
     }
   ],
   "edges": [
@@ -54,7 +58,27 @@
       "from": "P30-T1",
       "to": "P30-T5",
       "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P30-T3",
+      "to": "P30-T8",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P30-T4",
+      "to": "P30-T8",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P30-T6",
+      "to": "P30-T8",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P30-T7",
+      "to": "P30-T8",
+      "type": "DEPENDS_ON"
     }
   ],
-  "graph_struct_sha256": "47f03a9f75b5970ea4a077ce6742818bfa356dd532ed7487c1b35cf7a7e5dadb"
+  "graph_struct_sha256": "646745094290d759324c0d07942a405fac0786a407b28a5ade78f0a305b0077a"
 }

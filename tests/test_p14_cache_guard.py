@@ -85,12 +85,13 @@ CLAIM_PHRASES = (
 # closed RG-P7-1, RG-P7-2 and RG-D23-1 landed inside this span: the Current
 # Tech Stack and Constraints rows now record the shipped LWC-only engine end
 # state with pyqtgraph removed as the engine (its name survives in the span as
-# decision lineage), the "This is an existing repository." marker sentence was
-# restated to match, and the D23.1 record carries its reconciliation. The
+# decision lineage), the preamble sentence adjacent to the "This is an existing
+# repository." marker was corrected to match — the marker sentence itself is
+# byte-identical — and the D23.1 record carries its reconciliation. The
 # RG-P29-1 re-pin above stays as history and the Q120 / AC-D75.1 reword still
-# lands after \n### D53, outside this pin. Again only this literal and this
-# comment changed: boundaries, the span-extraction expressions and the
-# exact-equality comparison below are byte-identical.
+# lands after \n### D53, outside this pin. Again only this literal (now
+# 4de9f5642c…) and this comment changed: boundaries, the span-extraction
+# expressions and the exact-equality comparison below are byte-identical.
 PROTECTED_SPAN_SHA256 = (
     "4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede"
 )
@@ -463,8 +464,10 @@ def test_p28_t14_pin_matches_live_span():
 
     # Re-pinned 2026-11-20 for the same owner-approved closure of RG-P7-1,
     # RG-P7-2 and RG-D23-1 that moved the protected span: Current Tech Stack /
-    # Constraints now record the LWC-only end state, the marker sentence was
-    # restated, and the D23.1 record carries its reconciliation. Digest only.
+    # Constraints now record the LWC-only end state, the preamble sentence
+    # adjacent to the "This is an existing repository." marker was corrected to
+    # match — the marker sentence itself is byte-identical — and the D23.1
+    # record carries its reconciliation. Digest only: 4de9f5642c…
     expected = (
         "4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede"
     )

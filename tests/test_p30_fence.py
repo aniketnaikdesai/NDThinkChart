@@ -147,6 +147,38 @@ UPDATE_GROUP_FIELDS = ("name", "color", "visible", "locked")
 #: replaces) plus the P29 note the phase builds on.
 PRIOR_NOTE_MARKERS = ("P6 note", "P9 note", "P25 note", "P28 note", "P29 note")
 
+#: The P30 map note's corrected edit claim: three existing suites were edited
+#: (P30-T6's scope fence and P30-T7's two history fences). P30-T8 re-points
+#: this assertion at the corrected sentence — a re-point, never a deletion.
+P30_EDIT_CLAIM = "Three existing suites are edited"
+
+#: The two history fences P30-T7 re-pinned; the note must name both.
+HISTORY_FENCES = (
+    "tests/test_p14_cache_guard.py",
+    "tests/test_p15_surfacing.py",
+)
+
+#: The re-pin digest fragment both history fences now carry.
+P30_REPIN_DIGEST_FRAGMENT = "4de9f5642c"
+
+#: The withdrawn claim, **present tense only**: the corrected note legitimately
+#: quotes the old sentence as "was edited", so a blanket ban on the subject
+#: would redden a correct map. This exact string is what the fence rejects.
+WITHDRAWN_MAP_CLAIM = "no existing suite is edited"
+
+#: The three pin-comment sites P30-T8 makes precise. Each entry is
+#: ``(path, assignment line, optional scope anchor)`` — the scope tells the two
+#: ``expected = (`` / ``PROTECTED_SPAN_SHA256 = (`` sites apart.
+REPIN_COMMENT_SITES = (
+    ("tests/test_p14_cache_guard.py", "PROTECTED_SPAN_SHA256 = (", None),
+    (
+        "tests/test_p14_cache_guard.py",
+        "expected = (",
+        "def test_p28_t14_pin_matches_live_span(",
+    ),
+    ("tests/test_p15_surfacing.py", "PROTECTED_SPAN_SHA256 = (", None),
+)
+
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -163,6 +195,54 @@ def _section(text: str, start_marker: str) -> str:
     rest = text[start + len(start_marker):]
     match = re.search(r"(?m)^## ", rest)
     return rest[: match.start()] if match else rest
+
+
+def _p30_note_problems(note: str) -> list[str]:
+    """Every claim the P30 map note must make that ``note`` does not.
+
+    ``[]`` means the note carries the corrected edit claim, names both
+    history fences and cites the re-pin digest — and does not restate the
+    withdrawn present-tense claim. One readable entry per failed claim, so a
+    red says which part of the record moved.
+    """
+    problems: list[str] = []
+    if P30_EDIT_CLAIM not in note:
+        problems.append(f"corrected claim missing: {P30_EDIT_CLAIM}")
+    if WITHDRAWN_MAP_CLAIM in note:
+        problems.append(f"withdrawn claim still present: {WITHDRAWN_MAP_CLAIM}")
+    for rel in HISTORY_FENCES:
+        if rel not in note:
+            problems.append(f"history fence not named: {rel}")
+    if P30_REPIN_DIGEST_FRAGMENT not in note:
+        problems.append(
+            f"re-pin digest fragment missing: {P30_REPIN_DIGEST_FRAGMENT}"
+        )
+    return problems
+
+
+def _comment_block_above(text: str, needle: str, scope: str | None = None) -> str:
+    """The contiguous ``#`` block directly above ``needle``, flattened.
+
+    When ``scope`` is given, ``needle`` is located inside that anchor (so two
+    functions carrying the same literal are told apart). The block is joined
+    and its whitespace collapsed, so a re-wrapped comment still reads as one
+    sentence and a wording claim can be asserted as a substring.
+    """
+    if scope is not None:
+        text = text[text.index(scope):]
+    idx = text.index(needle)
+    block: list[str] = []
+    for line in reversed(text[:idx].splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            block.append(stripped.lstrip("#").strip())
+        elif not stripped and block:
+            break
+        elif not stripped:
+            continue
+        else:
+            break
+    return " ".join(" ".join(reversed(block)).split())
 
 
 # ── AC-D104.3 / P30-T4-01 — the requirements record's markers ───────────────
@@ -611,8 +691,15 @@ def test_the_map_carries_the_p30_note_and_every_prior_annotation():
             f"P30 note does not name the new suite {rel}"
         )
 
+    # Re-pointed by P30-T8: the note's corrected edit claim, both re-pinned
+    # history fences and the digest fragment they now carry. The withdrawn
+    # sentence is rejected in its present-tense form only — the corrected note
+    # legitimately quotes the old claim as "was edited", so a blanket ban on
+    # the subject would redden a correct map.
+    problems = _p30_note_problems(note)
+    assert problems == [], f"P30 map note regressed: {problems}"
+
     # Zero harness change, stated where the page suites are recorded.
-    assert "no existing suite is edited" in note
     assert "chart.test.js" in note and "harness is untouched" in note
 
     # G7's boundary is part of the record, not an implied claim.
@@ -623,3 +710,48 @@ def test_the_map_carries_the_p30_note_and_every_prior_annotation():
     for marker in PRIOR_NOTE_MARKERS:
         assert marker in text, f"prior annotation lost: {marker}"
     assert "(root)/" not in text
+
+
+# ── P30-T8 — the record lockstep: the re-pointed check and the pin comments ─
+
+def test_the_map_note_check_reddens_on_the_withdrawn_claim():
+    """The re-point is not a tautology: a regressed note is red."""
+    text = _text(CODEBASE_MAP)
+    note_start = text.index("P30 note (2026-11-20)")
+    note_end = text.index("<!-- MAP-SKELETON:BEGIN -->")
+    note = text[note_start:note_end]
+
+    assert _p30_note_problems(note) == []
+
+    # Feed the same helper a copy whose corrected sentence is replaced by the
+    # claim the corrected note withdrew. Both the missing claim and the
+    # surviving withdrawn sentence must be reported, or the live assertion
+    # above would pass on any note that merely happens to mention the fences.
+    assert P30_EDIT_CLAIM in note
+    regressed = note.replace(P30_EDIT_CLAIM, WITHDRAWN_MAP_CLAIM)
+    problems = _p30_note_problems(regressed)
+    assert any("corrected claim missing" in problem for problem in problems), (
+        f"regressed note did not report the missing claim: {problems}"
+    )
+    assert any("withdrawn claim still present" in problem for problem in problems), (
+        f"regressed note did not report the withdrawn claim: {problems}"
+    )
+
+
+def test_the_repin_comments_say_the_marker_is_byte_identical():
+    """All three pin comments name the preamble, never the marker, as edited."""
+    for rel, needle, scope in REPIN_COMMENT_SITES:
+        block = _comment_block_above(_text(REPO_ROOT / rel), needle, scope)
+        assert P30_REPIN_DIGEST_FRAGMENT in block, (
+            f"{rel}: comment above {needle!r} lost the re-pin digest"
+        )
+        assert "preamble sentence" in block, (
+            f"{rel}: comment above {needle!r} does not name the preamble sentence"
+        )
+        assert "byte-identical" in block, (
+            f"{rel}: comment above {needle!r} does not say the marker is "
+            "byte-identical"
+        )
+        assert "marker sentence was restated" not in block, (
+            f"{rel}: comment above {needle!r} still claims the marker was restated"
+        )
