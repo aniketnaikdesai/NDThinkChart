@@ -12,8 +12,9 @@
 > chart/engine no longer select a renderer); live-session sign-off waived-not-satisfied per
 > `docs/build/gate_P6_T13.md`. **P7 BUILT** (data-path batch, feature commit `7cba534`, 2026-10-28) and
 > **P8 BUILT** (D48 weekly/monthly timeframes, feature commit `09761fb`, 2026-10-28). Detail lives in
-> `docs/phase-changelog.md` (Phase P6/P7/P8) and `docs/lwc_parity_matrix.md`. Skeleton figures are current:
-> **211 code files, 11 module rows, 24 test-impact rows**; `graphify-out/graph.json` used for discovery
+> `docs/phase-changelog.md` (Phase P6/P7/P8) and `docs/lwc_parity_matrix.md`. Skeleton re-run 2026-11-19
+> at P28 planning, HEAD `0ff7964`: **289 code files, 11 module rows, 23 test-impact rows**;
+> `graphify-out/graph.json` used for discovery
 > only — **the source is authoritative** where they disagree. P8 adds **no new module**, so every annotation
 > below carries forward. All P6-planned paths have landed, so the 2026-10-26 skeleton-naming note below is
 > spent (kept for lineage).
@@ -319,8 +320,9 @@
 |---|---|---|---|
 | `config/settings.py` | Tunables (`SESSION_BAR_CAP`, `MAX_HISTORICAL_PER_600S`, `MIN_INTRADAY_SESSIONS`, …). | **`[changed in P5]`** | **P5 wave 4 deletes `MAX_ORDER_NOTIONAL`** and its `validate_order()` comment (zero readers; the gate died in D45). `check_live_port` and every other constant are frozen and untouched. |
 | `config/paths.py` | `get_db_path()` (honours `DB_PATH`). | `[existing]` | `get_db_path` |
+| config/instance_lock.py (planned, lands in P28-06) | Single-instance guard: one process owns the user-space DB (D95/A240). | **`[new in P28]`** (planned — the generated index lists the file from the next skeleton refresh; it is deliberately not backticked here because this map may not name a path that is not yet on disk) | `lock_path_for(db_path)` (`<db path>.lock`), `acquire(db_path) -> (QLockFile \| None, message)` — `QLockFile` with `setStaleLockTime(0)`/`tryLock(0)`, message from `getLockInfo()`. Called only from `main()`; no test constructs it indirectly |
 | `config/theme.qss` | The app-level stylesheet. | `[existing]` | — |
-| `main.py`, `NDThinkChart.spec`, `packaging/`, `dist/`, `build/` | Entry point + PyInstaller bundle. | `[existing]` | — |
+| `main.py`, `NDThinkChart.spec`, `packaging/`, `dist/`, `build/` | Entry point + PyInstaller bundle. | `[existing]` | P28: `main()` takes the instance lock and imports `ui.main_window` lazily (the DB singleton is built inside `main()`, after `check_live_port`), shows `data.db.startup_notices()`, and `unlock()`s in a `finally`. `_register_lwc_scheme_before_qapp()` stays at module scope above `QApplication` — do not move it. |
 | `pytest.ini`, `requirements*.txt` | Test config + pinned deps (`PyQt6`, `pyqtgraph`, `numpy`, `ibapi-latest==10.51.1`). | `[existing]` | — |
 
 ## `tests/` — the offscreen suite (131 modules)
@@ -593,6 +595,33 @@ node cases in `chart_assets/lwc/chart.test.js` / `envelope.test.js`. **Selection
 `test_p7_w4_streaming`, `test_p13_hold_fix`, `test_p13_attach`, `test_d24_popouts`, `test_lwc_popouts` as
 well as their generated rows.
 
+**P28 note (2026-11-19) — D84–D95: connection, startup and window lifecycle; one new module (not yet on
+disk).** Skeleton re-run 2026-11-19 at **HEAD `0ff7964`** (P27 build): **289 code files, 11 module rows,
+23 test-impact rows** — the drift since the P25 note is test modules only. **P28 adds exactly one
+production module — the instance lock, config/instance_lock.py** (`[new in P28]`, planned; it gets its
+annotation row below now and its generated index entry from the next skeleton refresh, because the file
+does not exist yet and this map may not name a path that is not on disk). No dependency, no migration, no
+settings key. **Rows whose P5-era status cell is stale for P28** (the cell says
+`[changed in P5]`/`[existing]`; see the row's note for the current contract): `main.py`,
+`config/settings.py`, `ibkr/client.py`, `ibkr/realtime_bars.py`, `ibkr/stream_health.py`,
+`ui/main_window.py`, `ui/ticker_session.py`. **P28 read set (all `[existing]` unless its row says
+otherwise):** `ibkr/error_codes.py`, `ibkr/market_data.py`, `ibkr/realtime_bars.py`, `ibkr/client.py`,
+`ibkr/stream_health.py`, `ibkr/pacing.py`, `ibkr/id_manager.py`, `ibkr/subscription_manager.py`,
+`ui/ticker_session.py`, `ui/main_window.py`, `ui/popout_window.py`, `data/db.py`, `data/db_backup.py`,
+`data/popout_store.py`, `data/bar_cache.py`, `config/settings.py`, `config/paths.py`, `main.py`,
+`services/market_calendar.py`, `services/backfill_service.py`. **Untouched by P28:** `ui/popout_window.py`
+(P25's transactional `attach`/`detach`/`closeEvent` are the close path P28 orchestrates), `data/db_backup.py`,
+`data/popout_store.py`, `config/paths.py`, and the three `ibkr/pacing.py` / `ibkr/id_manager.py` /
+`ibkr/subscription_manager.py` contracts.
+The per-file deltas (what each site encodes today → what P28 changes) live in `docs/architecture.md`
+§ *Phase P28* § *Codebase Summary*; this note only points. **Selection:** a change to
+`ui/main_window.py`'s RT/close paths should select `test_d27_stream_health`, `test_d28_5_teardown`,
+`test_d24_popouts`, `test_lwc_popouts`, `test_d68_hold_balance` plus the P28 suites; a change to
+`ibkr/realtime_bars.py` or `ibkr/stream_health.py` should select `test_ibkr_handshake_gate`,
+`test_d27_stream_health`, `test_p7_w4_streaming`, `test_d71_replay_transaction`; a change to `main.py` or
+`data/db.py` should select `test_port_guard`, `test_lwc_host_bootstrap`, the D65 backup suites and
+`test_d86_d94_startup`.
+
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
@@ -604,7 +633,7 @@ well as their generated rows.
 - `packaging/` — __init__.py
 - `services/` — __init__.py, alarm_monitor.py, alarm_service.py, backfill_service.py, chart_model.py, contract_lookup_service.py, drawing_service.py, gap_vix_service.py, ict_service.py, indicator_service.py, market_calendar.py, md_line_guard.py, option_ladder.py, option_spread_engine.py, session_service.py, sound_service.py, symbol_search.py, time_collapse_service.py, volume_baseline.py
 - `spikes/lwc/` — spike_probe.py
-- `tests/` — conftest.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_aggregator_priming.py, test_d27_backfill_granularity.py, test_d27_et_anchoring.py, test_d27_phantom_alarms.py, test_d27_reconnect.py … (+164 more)
+- `tests/` — conftest.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_aggregator_priming.py, test_d27_backfill_granularity.py, test_d27_et_anchoring.py, test_d27_phantom_alarms.py, test_d27_reconnect.py … (+173 more)
 - `ui/` — __init__.py, add_symbol_dialog.py, alarm_dialog.py, alarm_edit_dialog.py, chart_controls.py, chart_mouse_router.py, chart_view.py, dock_layout.py, drawing_groups_dialog.py, drawing_settings_common.py, drawing_tools.py, horizontal_line_settings_dialog.py, lwc_bridge.py, lwc_host.py, lwc_view.py, main_window.py, option_spreads_panel.py, popout_window.py, studies_dialog.py, ticker_session.py, toast.py, visual_conventions.py, watchlist_panel.py, zone_settings_dialog.py
 - `ui/overlays/` — __init__.py
 

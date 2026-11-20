@@ -56,13 +56,24 @@ from ibkr.pacing import PacingManager
 #: working when the repo is checked out anywhere (no cwd assumption).
 TESTS_DIR = Path(__file__).resolve().parent
 
-#: The three suites whose installed double was changed from ``lambda: None`` to
-#: ``lambda *, stamp=True: None`` (``AC-P27-06-3``). They must appear in the
-#: discovered set, or the discovery itself is broken.
+#: Every suite whose installed ``monkeypatch.setattr(..., "throttle", ...)``
+#: double was changed from ``lambda: None`` to ``lambda *, stamp=True: None``
+#: by this sweep (``AC-P27-06-3`` / ``AC-P27-06-2``): the three the signature
+#: change broke, plus the five whose paths merely stub the generic request seam
+#: or drive RT-bar/historical paths, so the edit there is signature conformance
+#: alone. All eight must appear in the discovered set — if one stops being
+#: discoverable (for example it is rewritten as a class attribute, which matches
+#: neither recognised shape) the parametrized case would silently disappear, so
+#: this list makes that a failure instead of a coverage gap.
 FIXED_SETATTR_FILES = (
     "tests/test_d65_option_stream.py",
     "tests/test_d27_reconnect.py",
     "tests/test_d45_removal.py",
+    "tests/test_d27_aggregator_priming.py",
+    "tests/test_d48_mode_parity.py",
+    "tests/test_d67_forming_candle.py",
+    "tests/test_d27_stream_health.py",
+    "tests/test_d41_removal.py",
 )
 
 #: The two class-based doubles that already carried ``*, stamp: bool = True`` —

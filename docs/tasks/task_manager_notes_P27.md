@@ -227,3 +227,194 @@ source (AST, grep, schema walk) rather than exercising behaviour, "behaviourally
 "out of scope" — the `touches_files` set must be the same set the scan discovers. This sharpens the
 earlier lesson ("a signature change must enumerate every double") with its scoping corollary: the AC's
 form decides how wide the footprint has to be, so write the footprint **after** the AC, not before.
+
+---
+
+## Rework wave — 2026-11-20 (ESC-130 / ESC-131 / ESC-132, owner-approved 2026-11-20)
+
+**Baseline.** The P27 build is committed at **`0ff7964`** (phase baseline `623809e`); `P27-T1`…`P27-T6` are
+`done`; the phase review is `REVIEW_COMPLETE` with exactly three open entries in
+`docs/code_review/escalations.json`. **The diff base for this wave is `0ff7964`, not `623809e`** — any delta
+list this wave records is `git diff --name-only 0ff7964`. `623809e`'s phase allowlist (`docs/plan.md`
+P27-04 deliverable 3) is not the base here.
+
+**Gate checked.** `docs/plan.md` § *Phase P27* still ends `Status: READY_FOR_TASK_MANAGER` (`:8144`);
+`docs/plan_review_P27.md` is `Status: APPROVED`; no phase section was regenerated and no decided P27
+behaviour is reopened. `check_tasks.py` → **`OK: 8 tasks validated, execution_graph.json written`** (the same
+benign pure-output-file warnings as before, plus one for `P27-T7`'s new suite).
+
+### What was added — two S tasks, one wave
+
+| Task | Escalation | Scope | Size | Depends on | Touches |
+|---|---|---|---|---|---|
+| **P27-T7** | **ESC-130** (nice-to-have, BUILD, `task_id: P27-T4`) | Restate `_register_history_request`'s comment at `ui/ticker_session.py:990-991`: the live sites are the registration stamp and the accepted-bar re-stamp in `on_historical_bar`; record that P27-T4 deleted the issue-time re-stamp. Comment text only. Guard: a new source/AST suite. | S | **P27-T4** | `ui/ticker_session.py`, `tests/test_p27_stamp_sites_documented.py` |
+| **P27-T8** | **ESC-131** (nice-to-have, BUILD, `task_id: P27-T6`) | Extend `FIXED_SETATTR_FILES` from three to **eight** files (all the `setattr` doubles P27-T6 swept) and add the discriminating per-required-pair presence test. Discovery, predicate, `KEYWORD_DEF_FILES`, negative control untouched. | S | **P27-T6** | `tests/test_p27_throttle_double_signature.py` |
+| — | **ESC-132** (nice-to-have, TASK_MANAGER, `task_id: P27-T3`) | **No task.** The criterion is qualified to the four generic paths; the edit belongs to the Requirements Analyst (see below). | — | — | none |
+
+No size exception is used (the ~32-step holistic exception is not invoked): T7 is a two-line comment plus one
+source suite (~6 steps), T8 is one constant block, one comment and one parametrized test (~7 steps). Both sit
+far inside the ~20-step target. Neither is split — each is a single cluster. The three fixes are
+file-disjoint, so they are **one wave**: the execution graph's frontier is `{P27-T7 ∥ P27-T8}` (the third fix
+writes no file).
+
+### Edge rationale (logical, not file-level)
+
+- `P27-T7 ← P27-T4` (already `done`): T7's comment states T4's deletion of `mark_history_request_issued`
+  as a fact and its regression pin asserts that absence. The relation is not file overlap alone — the
+  comment's subject is the post-T4 state of the stamp.
+- `P27-T8 ← P27-T6` (already `done`): T8 edits the guard T6 wrote and its required list *is* T6's swept file
+  set (`P27-T6.touches_files`). Both the file and the premise are T6's.
+
+### ESC-130 — one comment; the "optional" second site is already correct
+
+The escalation offers an optional matching note at the D80 rule in `_cancel_history_requests`. It is
+**already there**: `ui/ticker_session.py:1033` reads *"The slot was recorded after the send; a wave never
+refunds."* (P27-T4's restatement), and `_retry_silent_chunk:1210-1211` states the same rule for the retry
+path. T7 therefore edits **one** comment and its pack marks `:1019-1045` read-only with an explicit "do not
+restate" — otherwise a worker would duplicate the rule a third time, which is the drift class this escalation
+exists to stop.
+
+The replacement wording is stated verbatim in T7's `new` contract, so the comment cannot drift from the test:
+stamped at registration and on each accepted bar (`on_historical_bar`); P27-T4 deleted the issue-time
+re-stamp; this registration stamp is the only issue-side one. The discriminating assertion is the absence of
+the retired string `re-stamped at issue` (verified: **one** occurrence in the tree, at `:990`), which is RED
+before the edit and GREEN after.
+
+### ESC-131 — the presence set becomes the swept set
+
+Measured on the live tree: **eight** `monkeypatch.setattr(..., "throttle", ...)` doubles
+(`test_d65_option_stream.py`, `test_d27_reconnect.py`, `test_d41_removal.py`, `test_d27_stream_health.py`,
+`test_d48_mode_parity.py`, `test_d67_forming_candle.py`, `test_d45_removal.py`,
+`test_d27_aggregator_priming.py`) plus **two** class-based `def throttle` doubles
+(`test_d65_option_chain.py:109`, `test_ibkr_contract_details_d22.py:115`) — the ten the escalation names.
+T8's required tuples therefore become all ten.
+
+The new test is the point, not the constant: parametrized over the ten pairs, it removes one pair from
+`_DISCOVERED` and asserts `_assert_required_files_present` raises. On the pre-change three-file list **five**
+of those ten cases fail (the helper never looks at those five paths), so the test is genuinely RED→GREEN and
+pins the escalation's actual complaint — a double that stops being discoverable must fail, not silently
+drop its case. The discovery/predicate/negative control are explicitly out of scope and read-only in the
+pack; `KEYWORD_DEF_FILES` (the two class doubles) already covers its pair.
+
+### ESC-132 — decision: **(a) qualify the criterion**; the edit is the Requirements Analyst's
+
+`AC-D81.2` is unqualified, while the shipped rollback covers only the four generic `MarketDataManager` paths
+(`req_mkt_data`, `req_contract_details`, `req_sec_def_opt_params`, `req_matching_symbols`). `req_historical_data`
+still allocates an id at `:76` before an unwrapped send at `:79`, so a raising send there leaves an id gap.
+
+**Route (b) — a follow-up BUILD task carrying the historical rollback — is rejected**, for four reasons:
+
+1. **It re-scopes a decided deliverable.** `docs/plan.md` P27-03 deliverable 2 says, for
+   `req_historical_data`, *"move the gate in front of `get_id`; the send and `record_historical_slot()` stay
+   where they are"* — the absence of a rollback there is the approved plan, not an oversight. Wrapping that
+   send is new behaviour the plan explicitly did not schedule; the brief for this wave forbids re-opening
+   decided P27 behaviour.
+2. **There is no defect to fix.** `AC-D81.1` holds on that path (`record_historical_slot()` runs after the
+   send, so a raise charges nothing), and the id gap costs nothing: `IdManager.release_id` only rolls back
+   the newest allocation and `set_next_valid_id` is forward-only, so ids stay increasing — the property the
+   wire actually needs.
+3. **The AC already has the branch.** `AC-D81.2` reads *"either no id is consumed by the failed attempt **or
+   the phase records why an allocated id is acceptable**"*. Qualifying the criterion is not a weakening: it
+   names the branch the phase chose and the scope in which it chose it.
+4. **Churn on a closed, reviewed data path for zero user-visible gain.** The phase is committed and reviewed;
+   editing `ibkr/market_data.py` to close a harmless gap buys nothing and puts a reviewed send path at risk.
+
+**The edit is not mine to make** — `docs/requirements/requirements.md` is the Requirements Analyst's file, and
+Task Manager never edits it. Delivered instead as a flag: `docs/requirements/open_questions.md` **Q121**
+(append-only, non-blocking) with the exact replacement wording below.
+
+**Recommended replacement (Analyst's edit; keep the `**AC-D81.2` label — see the fence note):**
+
+> - **AC-D81.2 (ids are not burned on a failed generic send)** Given the same failing send on one of the four
+>   generic market-data request paths (`req_mkt_data`, `req_contract_details`, `req_sec_def_opt_params`,
+>   `req_matching_symbols`), When the client call raises, Then the id that attempt took is released before the
+>   exception propagates, so the id sequence has no gap caused by a failed generic send. On
+>   `req_historical_data` the send is not wrapped and an allocated id may be left unused: no pacing budget is
+>   charged there (the slot is recorded only after the send, `AC-D81.1`), the counter has already moved past
+>   the id so it is never reissued, and ids remain increasing, which is what the wire requires — this is the
+>   criterion's "records why an allocated id is acceptable" branch, recorded rather than fixed. (Measurable:
+>   `id_manager` sequence assertion across the four generic paths; the historical path's send stays
+>   unwrapped by design.)
+
+**Minimum edit, if the Analyst prefers not to restate the paragraph** — append to the existing sentence:
+"… the id sequence has no gap caused by a failed **generic** send (`req_mkt_data`, `req_contract_details`,
+`req_sec_def_opt_params`, `req_matching_symbols`); on `req_historical_data` an allocated id may be left
+unused, since the budget is unchanged and ids only need to increase."
+
+### Fence check — `tests/test_p27_fence.py` stays valid
+
+Read at `:1-296`. It pins **only**: the requirements markers (existing-repository sentence, `D41`–`D83`
+headings, Journeys 71–73, the AC ranges, A/R ranges, Current Tech Stack), the five pacing settings,
+`per_load_historical_cap()`, the two watchdog fractions, `_PRIME_BACKSTOP_MS` / `_prime_backstop_ms`,
+`TIMEFRAME_CONFIG`'s nine rows, and the planner's Qt/DB/clock-free import block.
+
+- It does **not** pin the `_register_history_request` comment or any comment text → **ESC-130's edit leaves it
+  valid**. Neither does it pin `tests/test_p27_throttle_double_signature.py`'s file lists → **ESC-131's edit
+  leaves it valid** (the fence's *docstring* mentions the eight swept files, and that prose stays true).
+- It is in **no** task's `touches_files`; both new tasks read it read-only, and their packs say "never edit".
+- The one constraint it does impose on ESC-132: `test_acceptance_criteria_ranges_are_present` matches
+  `\*\*AC-D81\.2\b`, so the reworded criterion must keep the `**AC-D81.2` prefix (it asserts presence, never
+  the body). Recorded in Q121 as well.
+
+### Wave shape, and the one interaction worth recording
+
+`P27-T7` and `P27-T8` are file-disjoint (`ui/ticker_session.py` + a new suite vs the guard module) and run in
+one wave. T8's guard enumerates `tests/**/*.py` at import time and therefore *reads* T7's new module; **no
+edge is added** because T7's module contains no `throttle` double (it is a source-text/AST test over
+`ui/ticker_session.py`), and `doubles_in_source` returns `[]` on a `SyntaxError`, so even a partially written
+file cannot redden T8. Recorded so the missing edge is not later read as an omission.
+
+### Invariants preserved
+
+- `P27-T1`…`P27-T6`: statuses, ACs, tests, footprints and descriptions untouched; the graph keeps them so the
+  phase record stays readable.
+- No production behaviour reopened, no pacing constant, no settings key, no module, dependency or migration;
+  the only production file in either footprint is `ui/ticker_session.py`, and only a comment line in it.
+- `doc_required: false` on both — neither changes user-facing behaviour or a documented default (a source
+  comment and a test guard), so the Reviewer's doc check does not apply.
+- No guarantee lives only in a comment: T7's restated claim is enforced by P27-T7-01's source assertion; T8's
+  "all ten are enforced" is enforced by P27-T8-01's per-pair removal cases.
+- `docs/code_review/escalations.json` untouched (Code Reviewer's file) — all three entries stay `open` for its
+  verification pass. Nothing under `docs/requirements/` was edited except the single permitted **Q121**
+  append, which is a flag, not a criterion change.
+
+## Graph correction — 2026-11-20: `P27-T7` / `P27-T8` deleted (redundant with the build loop's own reset+rework)
+
+**Trigger.** Orchestrator: `build_wave.py advance` reset the two escalated tasks themselves — **P27-T4**
+(ESC-130) and **P27-T6** (ESC-131) — both rework workers completed and self-checked green, and the same
+`advance` then published `P27-T7` / `P27-T8` `in_progress` with no worker and no result file.
+
+**Why deleting them is the correct fix, not a workaround.** Each new task's *entire* deliverable had already
+landed in the escalated task's own rework:
+
+- **`P27-T7`** carried only the `_register_history_request` comment restatement, and **T4's rework already
+  wrote it** (registration + accepted-bar, no issue-time re-stamp). Running T7 would have re-edited the same
+  lines for zero behavioural change.
+- **`P27-T8`** carried only widening the throttle-double guard's required set to the eight `setattr` files
+  plus both class doubles, and **T6's rework already did it** (61 tests green). Running T8 would have
+  re-edited the same constant and test for zero change.
+
+Both were leaves (nothing depended on them); the removal is two task objects and no other field. T1–T6 are
+untouched: `P27-T1`…`P27-T5` and **`P27-T6` `done`** — T6's rework result was consolidated on the previous
+advance; no status was reset, no AC, test, footprint or description reopened. `tests/test_p27_fence.py` was not
+read or written by this correction, and `docs/code_review/escalations.json` was not touched — all three
+entries stay `open` until the reviewer re-verifies them.
+
+`check_tasks.py` → **`OK: 6 tasks validated, execution_graph.json written`** (0 errors; the same benign
+pure-output-file warnings for T1–T6 as before). `execution_graph.json` was regenerated in that same run, so the
+structural hash matches the corrected graph.
+
+**Lesson (the reusable part).** An escalation entry that is already routed to a task keeps a live *owner*:
+`build_wave.py` resets **that** task and reworks it directly. Scoping a *new* task for the same fix does not
+close that route — so the wave publisher sees two items for one change and queues both, duplicating the work
+and producing two misleading `done` results. There are only two coherent moves when an open escalation is
+routed to a task that is still in the loop:
+
+1. **Leave it to the build loop** — reset and rework the routed task (what happened here), and scope nothing
+   new; or
+2. **Deliberately take it away from the build loop** — scope the new task *and* close the escalation route so
+   the routed task is not also queued.
+
+Doing both at once is the defect. When the reviewer escalates with `task_id` naming a task that will be reset,
+the default answer is (1): decide whether the existing task can absorb the fix before writing a task at all —
+if it can, the correct graph diff is empty.

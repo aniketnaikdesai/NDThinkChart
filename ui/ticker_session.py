@@ -987,8 +987,8 @@ class TickerSession(QObject):
         self._history_req_ids.add(req_id)
         self._history_req_generation[req_id] = self._history_generation
         self._req_bars.setdefault(req_id, [])
-        # P17-T1: stamp last activity at registration (re-stamped at issue
-        # and on each accepted bar).
+        # P17-T1: stamp last activity at registration and re-stamp it on each
+        # accepted bar in on_historical_bar (the only two stamp sites).
         self._history_req_last_activity[req_id] = self._silence_now()
         # A reqId re-entering the wave is live again, not superseded: a
         # stale cancel tag must never misclassify a later 162 for it. The
