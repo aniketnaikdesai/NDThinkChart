@@ -202,6 +202,26 @@
 > slash-suffixed `(root)` token, which the map lint reads as a path and rejects; the row is kept in its
 > previous slash-free form — `update_codebase_map.py` should emit it that way.)*
 >
+> **P27 note (2026-11-19):** planner + pacing hygiene batch (D77–D83, Batch 38 slice 3); the phase adds
+> **no new production module** and no new dependency, migration or settings key, so the generated index
+> is structurally unchanged (the skeleton is re-run at the phase's start as usual). Every change lands
+> in existing files in place: `services/backfill_service.py` (one plan per request identity, no plan for
+> an empty span, half-open session windows with the `now` cap inclusive, one 1.5-period gap threshold),
+> `ui/ticker_session.py` (the prime's deferral backstop is derived from the retry's own deadline; the
+> pre-issue refund branch and the `_history_req_issued` ledger are deleted), `ibkr/pacing.py` (the gate
+> can be consulted without stamping; the inexact refund is deleted), `ibkr/market_data.py` (gate before
+> the id, send, then stamp; a raising send rolls the id back), `ibkr/id_manager.py` (one new
+> `release_id`), `data/bar_cache.py` (the mode-blind `get_last_timestamp` is deleted). Planned test
+> modules (do not look for them yet, per the naming rule above): tests/test_d77_d82_d83_planner_identity.py,
+> tests/test_d78_prime_retry_reachable.py, tests/test_d79_d80_d81_budget_honesty.py,
+> tests/test_p27_fence.py; two existing cases are re-baselined (the D80 refund assertions in
+> `tests/test_p7_w1_coalesce.py` and `tests/test_d56_taxonomy_pacing.py`) and two pacing doubles gain the new
+> keyword-only parameter (tests/test_d65_option_chain.py, tests/test_ibkr_contract_details_d22.py).
+> The phase's decisions are S-P27-1…S-P27-7 in `docs/architecture.md` § *Phase P27*; wave order is
+> P27-01 ∥ P27-02 → P27-03 → P27-04 in `docs/plan.md` § *Phase P27* (02 and 03 share
+> `ui/ticker_session.py`, so they serialise). `services/market_calendar.py` and `ui/main_window.py` are
+> unchanged.
+>
 > **As-built P6-T13 note (2026-10-28):** the P6 plan-time sentences above ("pyqtgraph retained and default
 > through Phase 10", "no pyqtgraph code is deleted before Phase 11") are **superseded history** — P6-T13 executed
 > 2026-10-27 (removal commit `6e35b27`; gate owner-waived (live-session sign-off waived, not satisfied) per `docs/build/gate_P6_T13.md`). The tree is

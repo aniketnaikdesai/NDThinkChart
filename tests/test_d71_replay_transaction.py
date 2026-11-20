@@ -72,10 +72,11 @@ class FakeRtManager:
 class FakePacing:
     """The union gate, controllable: a batch of >1 is refused until admitted.
 
-    Mirrors PacingManager's arithmetic for the one property the replay needs:
-    a single send is never "batched" (``count <= 1`` needs no reservation),
-    and a batch of n is either admissible (0.0) or refused for a reported
-    wait.
+    Mirrors PacingManager's contract for the one property the replay needs:
+    an empty reservation (``count <= 0``) never waits, and a batch of exactly
+    one admits its single send by design (an open batch of ``n`` admits ``n``
+    calls, AC-D71.5). A batch is either admissible (0.0) or refused for a
+    reported wait.
     """
 
     def __init__(self, *, admit: bool, generic_wait: float = 0.0,
@@ -437,3 +438,75 @@ def test_P26_T1_rt_only_pass_ignores_a_throttled_generic_gate(monkeypatch):
     assert pairs == [(101, 5000)]
     assert pacing.rt_counts == [1]
     assert pacing.batch_counts == [0]   # generic_n is exactly len(pending)-rt_n
+
+
+# ---------------------------------------------------------------------------
+# ESC-129 rework: an empty reservation is not spendable and does not touch
+# the interval clock; a batch of one says plainly that it admits its send.
+# ---------------------------------------------------------------------------
+
+
+def test_P26_T1_empty_reservation_spends_nothing_and_stamps_nothing():
+    pm = PacingManager()
+    pm.reset_for_tests()
+    pm._last_req_time = time.time() - 1.0   # the ordinary gate is open
+
+    with pm.generic_batch(0):
+        assert pm._batch_remaining == 0     # nothing was reserved
+        pm.throttle()                       # the unchanged gate decides
+        stamped = pm._last_req_time
+    # The exit stamp is skipped for a zero-unit reservation: the clock is
+    # exactly where the body's own admitted send left it.
+    assert pm._last_req_time == stamped
+    assert pm._batch_remaining == 0
+
+    # On a throttled manager an empty reservation neither admits a send nor
+    # resets the interval clock.
+    pm._last_req_time = time.time()
+    stamped = pm._last_req_time
+    with pm.generic_batch(0):
+        with pytest.raises(PacingExceeded):
+            pm.throttle()
+    assert pm._last_req_time == stamped
+
+    # Negative counts are empty reservations too.
+    with pm.generic_batch(-2):
+        with pytest.raises(PacingExceeded):
+            pm.throttle()
+    assert pm._last_req_time == stamped
+
+
+def test_P26_T1_batch_of_one_admits_its_single_send_by_design():
+    pm = PacingManager()
+    pm.reset_for_tests()
+    pm._last_req_time = time.time()         # the ordinary gate would refuse
+
+    with pm.generic_batch(1):
+        pm.throttle()                       # reserved: no gate read
+        assert pm._batch_remaining == 0
+        pm.record_request_slot()
+        with pytest.raises(PacingExceeded):
+            pm.throttle()                   # over-spend falls through to gate
+    # The finally stamp leaves the ordinary gate authoritative afterwards.
+    with pytest.raises(PacingExceeded):
+        pm.throttle()
+    assert pm._batch_remaining == 0
+
+
+def test_P26_T1_rt_only_pass_leaves_the_generic_clock_untouched(monkeypatch):
+    """ESC-129 case (1): an RT-only pass must not defer the next send."""
+    pm = PacingManager()
+    pm.reset_for_tests()
+    reg = SubscriptionManager()
+    rt = FakeRtManager()
+    reg.subscribe(
+        "AAA", 101, RT_BARS,
+        reissue=lambda: rt.subscribe("AAA"),
+        rebind=lambda _new: None,
+    )
+    monkeypatch.setattr(sub_mod, "pacing_manager", pm)
+
+    assert reg.replay_all(INCLUDE) == [(101, 5000)]
+    # generic_n was 0, so no phantom 20 ms was spent: the very next send is
+    # admitted by the unchanged gate instead of being refused.
+    pm.throttle()

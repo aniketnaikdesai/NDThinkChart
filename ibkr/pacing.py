@@ -73,11 +73,15 @@ class PacingManager:
     def generic_wait_for_batch(self, count: int) -> float:
         """Seconds until ``count`` back-to-back generic sends may issue.
 
-        Pure and non-blocking. ``count <= 1`` needs no extra room: the next
-        send is gated by the ordinary minimum interval, so 0.0 is reported
-        and the caller lets ``throttle`` decide. For ``count > 1`` the batch
-        is modelled as occupying ``count - 1`` further intervals after the
-        last real send. The lock is held only around the timestamp read.
+        Pure and non-blocking. ``count <= 0`` is an empty reservation: it
+        reserves no unit and never touches the interval clock, so 0.0 is
+        reported. A batch of exactly one reserves one unit **by design**:
+        an open batch of ``n`` admits ``n`` calls to :meth:`throttle`
+        (AC-D71.5), so its single send is admitted without reading the
+        ordinary gate — a caller that wants the gate to decide must not
+        open a reservation. For ``count > 1`` the batch is modelled as
+        occupying ``count - 1`` further intervals after the last real send.
+        The lock is held only around the timestamp read.
         """
         if count <= 1:
             return 0.0
@@ -99,16 +103,28 @@ class PacingManager:
         without consulting the gate, and on exit clears the reservation and
         stamps the interval clock once for the whole burst.
 
+        An empty reservation (``count <= 0``) is not spendable and does not
+        touch the interval clock: the body still runs — so a caller can pass
+        a derived count unguarded, as ``replay_all`` does — but no unit is
+        reserved, the gate decides every send, and the exit stamp is
+        skipped. A batch of exactly one admits its single send by design
+        (an open batch of ``n`` admits ``n`` calls, AC-D71.5) and likewise
+        stamps the clock once on exit.
+
         Fail-closed: a send beyond the reservation falls through to the
         unchanged gate — admitted only when the interval has genuinely
         elapsed since the last real stamp, and raising otherwise — so a
         reservation can never be spent twice or leak past this ``with``.
         """
-        wait = self.generic_wait_for_batch(count)
+        units = int(count)
+        if units <= 0:
+            yield
+            return
+        wait = self.generic_wait_for_batch(units)
         if wait > 0:
             raise PacingExceeded(wait)
         with self._lock:
-            self._batch_remaining = int(count)
+            self._batch_remaining = units
         try:
             yield
         finally:

@@ -7723,3 +7723,342 @@ and its indicator word); P26-03 is invisible bookkeeping and P26-04 is the recor
   persisted wave state (a migration this phase forbids).
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P27 — Planner, pacing and backfill hygiene: duplicate chunks, the prime retry that cannot fire, window edges (D77–D83) — drafted 2026-11-19
+
+> Companion: `docs/architecture.md` § *Phase P27* (Relationship to prior phases, Codebase Summary,
+> tech-stack decisions, System Components, Data Model, frozen interfaces, Non-Functional Approach,
+> AR-P27-1…AR-P27-9, S-P27-1…S-P27-7). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P27 (D77–D83), Journeys
+> 71–73, `AC-D77.1`–`AC-D83.2`**, A230–A234, R170–R174, `design_gaps.md` **DG135**; no live gate.
+>
+> **Baseline: HEAD `70b16f2`** (P26 build complete; tree clean at drafting time; P26's code review is
+> still open, so AP-P27-1 fixes how the build treats a P26 review fix). The work is four rules behind
+> seven defects: **one request per identity** (D77/D83 — the planner over-requests), **one window
+> rule** (D82 — the same function's arithmetic), **one owner for the prime's completion** (D78), and
+> **budget stamped only by a send that crossed the wire** (D81, which makes D80's refund vacuous and
+> retires it, with D79's dead cache read). Hard constraints: D1–P26 read-only apart from the two
+> labelled revisions; `plan_requests` stays pure; **no new module, dependency, migration or settings
+> constant**; no pacing-constant retuning; sizes S/M only; every criterion offscreen.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey | Architecture | Wave |
+|---|---|---|
+| **AC-D77.1** — no two plans share `(endDateTime, duration, bar_size)`, and the union of the plans' coverage is unchanged by the change while containing every input span (AP-P27-2) | **S-P27-1** (identity de-duplication in `plan_requests`), *Data Model*, AR-P27-1 | **P27-01** |
+| **AC-D77.2** — every interval covered before the change is still covered; a floor span starting earlier than the presence span still fetches the earlier part | **S-P27-1** (detector untouched; first occurrence wins per identity), AP-P27-2 | **P27-01** |
+| **AC-D77.3** — a coinciding-span scenario spends exactly one request where the pre-change planner spent two, and the per-load cap is charged once | **S-P27-1**, *Non-Functional* (spend proportionality) | **P27-01** |
+| **AC-D82.1** — a bar timestamped exactly at a session's end belongs to exactly one window and adds no duplicate boundary coverage | **S-P27-2** (half-open `[start, end)`, `now` cap inclusive), AR-P27-2 | **P27-01** |
+| **AC-D82.2** — a one-period trailing hole is not reported and a two-period hole is; the docstring and the code state the same number | **S-P27-2** (one `gap_threshold = 1.5 × period`), AR-P27-3 | **P27-01** |
+| **AC-D83.1** — a span whose end equals its start emits no plan, and a list of only such spans yields an empty list | **S-P27-1** (`end_ts <= start_ts` guard; `max(1, …)` removed) | **P27-01** |
+| **AC-D78.1** — with `wait > 15 s`, either the prime issues at the reported wait or the retry is gone and the phase records the single backstop path; a pending retry that cannot run fails | **S-P27-3** (`_prime_backstop_ms(retry_ms)`), DG135 | **P27-02** |
+| **AC-D78.2** — an issued prime that never answers fails open exactly once, with no second attempt; `AC-D65.15`'s timeout cases stay green | **S-P27-3** (issued-prime branch keeps the flat 15 s; `_on_prime_timeout` frozen), AR-P27-4 | **P27-02** |
+| **AC-D78.3** — refusal → (issued prime or fail-open attach) is bounded by the reported wait plus the backstop; no unbounded wait | **S-P27-3**, *Non-Functional* (bounded prime), R172 | **P27-02** |
+| **AC-D79.1** — `get_last_timestamp` no longer exists (or is mode-aware with a caller); no production module queries `bars` by symbol+timeframe ignoring `ext_hours` | **S-P27-6** (deletion + a static scan that keeps the class out) | **P27-03** |
+| **AC-D80.1** — a refund frees exactly one slot that is the refunding request's own, **or** the path is removed and its caller with it; the two-request fixture's other slot survives | **S-P27-5** (retired: `refund_historical_slot`, its caller branch and the ledger that gated it), AP-P27-5 | **P27-03** |
+| **AC-D81.1** — a client whose request call raises leaves the interval clock and the budgets unchanged; the next successful request is spaced from the previous **successful** one | **S-P27-4** (`throttle(stamp=False)` + post-send `record_request_slot()`), AR-P27-5 | **P27-03** |
+| **AC-D81.2** — the id sequence has no gap caused by a failed send (or the phase records why an allocated id is acceptable) | **S-P27-4** (`IdManager.release_id`, newest-allocation rollback only), AR-P27-7 | **P27-03** |
+| **AC-D83.2** — `### D41`–`### D76`, `AC-D1.1`–`AC-D76.3`, A1–A229, R1–R169, the existing-repository sentence and the Current Tech Stack unchanged and present | *Relationship to prior phases* (`[existing]`, read-only inputs); **P27-04**'s fence | **P27-04** |
+| **Journey 71** — plan a load from a cache that is entirely out-of-mode; a partial floor; an empty cache; a zero-length span | S-P27-1, S-P27-2, AR-P27-9 | **P27-01** |
+| **Journey 72** — prime right after a backfill wave, when the wait exceeds the backstop; a wait below it; the 15 s boundary | S-P27-3 | **P27-02** |
+| **Journey 73** — two requests, one refused send; the slot count and the id sequence; a cancel with no slot | S-P27-4, S-P27-5 | **P27-03** |
+| A230/A231/A232/A233/A234, DG135 | S-P27-1…S-P27-6 (each names the assumption it implements) | 01/02/03 |
+| R170–R174 | *Architecture Risks* AR-P27-1…AR-P27-9 | all waves |
+
+### Phases
+
+Dependency shape: **P27-01 ∥ P27-02 → P27-03 → P27-04.** `P27-01` edits only
+`services/backfill_service.py` (plus its own suite) and shares no file with the other waves, so it may
+run alongside them. `P27-02` and `P27-03` both edit `ui/ticker_session.py`, so they serialise in that
+order (the prime first: it is the smaller edit to that file, and the ledger deletion is easier to
+reason about once nothing else in the session is moving). `P27-04` records the phase and runs last.
+
+Two waves change user-visible behaviour: `P27-01` (fewer/cleaner requests — the wave a load issues)
+and `P27-02` (a prime that can actually retry after a backfill, so the forming bar appears without a
+reload). `P27-03` is invisible budget hygiene; `P27-04` is the record.
+
+#### P27-01 — D77 + D82 + D83: one request per identity, one window rule — size M
+
+- **Covers:** AC-D77.1, AC-D77.2, AC-D77.3, AC-D82.1, AC-D82.2, AC-D83.1, Journey 71, A230, A232,
+  R170, R171.
+- **Depends on:** nothing.
+- **Files:** `services/backfill_service.py` (three functions + the module docstring), a new
+  `tests/test_d77_d82_d83_planner_identity.py`.
+- **Deliverables, in this order:**
+  1. **The empty-span guard and the identity set (S-P27-1).** In `plan_requests`: inside the
+     per-span loop, `if span.end_ts <= span.start_ts: continue` (replacing the `span_seconds < 0`
+     test, which the new guard subsumes); `chunk_count = -(-span_seconds // chunk_seconds)` — drop the
+     `max(1, …)` clamp, which the guard makes unnecessary; before appending, compute
+     `end_dt = _format_end_date(anchor)` and skip when `(end_dt, duration, bar_size)` is already in a
+     local `seen` set, otherwise add it and append the `RequestPlan` with the **current** span's
+     `span_start_ts`/`span_end_ts`. Ordering (spans by `end_ts` desc, anchors descending), the
+     `TIMEFRAME_CONFIG` lookup and every field stay as they are.
+  2. **The window arithmetic (S-P27-2).** In `_bar_level_missing_spans`: keep
+     `bound = min(we, now_ts)`, then select `in_window` with `ws <= t <= bound` **only when**
+     `now_ts < we` (the window is capped by *now* — A232's exception) and with `ws <= t < bound`
+     otherwise; replace the trailing-edge test with `if bound - in_window[-1] > gap_threshold:` so the
+     leading, internal and trailing edges share `gap_threshold = period * 1.5`. In `present_days`'
+     equity branch: `if any(window_start <= ts < window_end for ts in day_ts): present.add(day)`.
+     The futures branches of both functions are untouched.
+  3. **The docstrings, stated once.** The module docstring and `_bar_level_missing_spans`' docstring
+     say: windows are half-open `[start, end)` with the `now` cap inclusive; one gap threshold of
+     **1.5 bar periods** governs leading, internal and trailing edges; a span with no positive length
+     yields no plan; each distinct `(endDateTime, duration, bar_size)` appears once.
+  4. **The suite** `tests/test_d77_d82_d83_planner_identity.py` — pure, no Qt, no DB, injected
+     timestamps. Cases: (a) AC-D77.1/AC-D77.3 — Journey 71's out-of-mode cache (ETH bars cached, RTH
+     load with `min_sessions=30`): the plan-identity multiset has no duplicate, and the coinciding
+     newest chunk appears once; assert the plan count drops by exactly the number of coinciding
+     identities and that a hand-built two-span list with the same `end_ts` yields one plan for the
+     shared anchor. (b) AC-D77.2 — a partially overlapping pair where the floor span starts earlier:
+     the test derives the expected anchor set from the input spans with its **own** chunk arithmetic
+     (independent of the implementation, the pre-change rule), asserts every expected anchor is present
+     and each exactly once, and asserts the earlier part of the floor span is still covered
+     (AP-P27-2). (c) an identity-keyed difference: two coinciding anchors with
+     **different durations** emit two plans (AR-P27-1). (d) AC-D83.1 — `MissingSpan(t, t)` emits none,
+     and a list of only such spans yields `[]`. (e) AC-D82.1 — a bar timestamped exactly at a session's
+     end belongs to no window of that day, and a fixture with a close-instant bar plus a next-window
+     bar shows each instant in exactly one window's accounting and no duplicate span at the boundary;
+     the same fixture through `find_missing_spans` (with the day-presence pass) still covers the day
+     (AR-P27-2). (f) AC-D82.2 — trailing holes of 1.0, 1.7 and 2.0 periods: 1.0 not reported, 1.7 and
+     2.0 reported (the 1.7 case is the one that distinguishes the unification from the old
+     `>= period` rule); the module docstring's number equals the constant the code uses (read it, do
+     not restate it). (g) Journey 71's edges — a partial floor, an empty cache with the floor enabled
+     (one span, not two), and a cache with exactly one in-mode bar.
+- **Exit condition:** the new suite green **and** `tests/test_backfill_service.py
+  tests/test_d27_backfill_granularity.py tests/test_d42_day_presence.py tests/test_d42_depth_floor.py
+  tests/test_d42_mode_cache.py tests/test_d42_nonregression.py tests/test_d48_planner_probe.py
+  tests/test_p12_planner_probe.py tests/test_p19_prefetch_depth.py tests/test_p19_prefetch_honesty.py
+  tests/test_history_backfill.py tests/test_history_backfill_loadpath.py` green, **unchanged**;
+  `git diff --name-only` ⊆ `services/backfill_service.py` + the new suite.
+- **Do not:** touch `find_missing_spans`, `_build_span`, `_floor_missing_span`, `present_days`'
+  signature/futures branch, `bar_period_seconds`, `floor_bar_budget`, `TRAILING_BAR_GRANULARITY_DAYS`
+  or `TIMEFRAME_CONFIG`; merge or sort spans into a union; change `MissingSpan`/`RequestPlan` fields;
+  de-duplicate anywhere outside `plan_requests`; import anything new (no DB, clock or Qt); re-baseline a
+  red existing assertion (stop and escalate instead — AP-P27-4).
+
+#### P27-02 — D78: the prime's backstop is armed for the retry's own deadline — size S
+
+- **Covers:** AC-D78.1, AC-D78.2, AC-D78.3, Journey 72, A231, DG135, R172.
+- **Depends on:** nothing (file-disjoint from P27-01; must precede P27-03).
+- **Files:** `ui/ticker_session.py` (two module constants, one helper, `prime_aggregator`'s deferral
+  branch and its comments), a new `tests/test_d78_prime_retry_reachable.py`.
+- **Deliverables, in this order:**
+  1. **The derived deadline (S-P27-3).** Module constants beside the existing prime constants:
+     `_PRIME_BACKSTOP_MS = 15_000`, `_PRIME_RETRY_GRACE_MS = 1_000`; helper
+     `def _prime_backstop_ms(retry_ms: int) -> int: return max(_PRIME_BACKSTOP_MS, retry_ms +
+     _PRIME_RETRY_GRACE_MS)` with a docstring stating that the backstop is armed for the retry's own
+     deadline so it can never pre-empt it.
+  2. **The one place the two timers are armed.** In `prime_aggregator`'s `PacingExceeded` branch:
+     compute `retry_ms = max(1000, int(wait_s * 1000))` **once**, pass it to
+     `QTimer.singleShot(retry_ms, self._on_prime_retry)` (same call shape — the P7 test double pins
+     one `singleShot`) and start the backstop with `self._prime_timer.start(_prime_backstop_ms(
+     retry_ms))`. The issued-prime branch keeps `self._prime_timer.start(_PRIME_BACKSTOP_MS)`.
+     Rewrite the surrounding comment: the backstop covers the retry's deferral **and** the answer to an
+     issued prime; the retry is the first path, never dead code.
+  3. **The suite** `tests/test_d78_prime_retry_reachable.py` — a fake clock/host with a stub
+     `md_manager` counting `req_historical_data` calls, and a `historical_wait_seconds` stub returning a
+     chosen `PacingExceeded.wait_seconds`. Cases: (a) AC-D78.1 with `wait=40`: after the refusal
+     `_prime_retry_pending` is `True` and `_prime_timer.interval() == 41_000`; at 15 s (the old
+     backstop) the retry is still pending and nothing was attached; at `wait − ε` the same; at the wait
+     the retry runs and a priming request is issued (`_prime_req_id` set). (b) the same with `wait=2`:
+     the interval is exactly `15_000` (today's value preserved) and the retry fires at 2 s. (c) the
+     boundary `wait=15`: interval `16_000`, retry fires first. (d) AC-D78.2 — an issued prime that
+     never answers: the backstop attaches exactly once (`host` spy) and no second request follows.
+     (e) AC-D78.3 — for several waits, the clock time from refusal to (issue or attach) never exceeds
+     `wait + 1 s + 15 s`. (f) Journey 72's edges — the retry itself refused (fail open once, no third
+     attempt), a new load during the deferral (the `singleShot` callback is a no-op and the new load's
+     own prime governs), a disconnect during the deferral leaves the pending callback harmless.
+- **Exit condition:** the new suite green **and** `tests/test_p7_w2_prime.py
+  tests/test_d28_3_historical_pacing.py tests/test_p7_w4_deferral.py tests/test_d27_aggregator_priming.py
+  tests/test_d67_forming_candle.py tests/test_prime_retry_pacing.py green, **unchanged**;
+  `git diff --name-only` ⊆ `ui/ticker_session.py` + the new suite.
+- **Do not:** change `_on_prime_timeout`, `_on_prime_retry`, `_fail_open_prime` or `prepare_load`;
+  remove the retry; lengthen the *issued*-prime bound; add a settings key; touch the wave, the silence
+  sweeper or any P26 state; add a timer.
+
+#### P27-03 — D79 + D80 + D81: budget stamped only by a send that crossed the wire — size M
+
+- **Covers:** AC-D79.1, AC-D80.1, AC-D81.1, AC-D81.2, Journey 73, A233, A234, R173, R174.
+- **Depends on:** P27-02 (both edit `ui/ticker_session.py`).
+- **Files:** `ibkr/pacing.py`, `ibkr/market_data.py`, `ibkr/id_manager.py`, `ui/ticker_session.py`
+  (the `_cancel_history_requests` branch and the `_history_req_issued` ledger), `data/bar_cache.py`;
+  re-baselined `tests/test_p7_w1_coalesce.py`, `tests/test_d56_taxonomy_pacing.py`; updated pacing
+  doubles in `tests/test_d65_option_chain.py` and `tests/test_ibkr_contract_details_d22.py`; a new
+  `tests/test_d79_d80_d81_budget_honesty.py`.
+- **Deliverables, in this order:**
+  1. **The gate/stamp split without a second gate (S-P27-4).** `ibkr/pacing.py`:
+     `def throttle(self, *, stamp: bool = True) -> bool:` — the reservation branch is unchanged except
+     that it `return True`; otherwise `request_wait_seconds()`, raise `PacingExceeded(wait)` when
+     positive, `if stamp: self.record_request_slot()`, `return False`. The docstring states the two
+     modes and that `stamp=False` is for callers that stamp after their own send.
+  2. **The four generic request paths.** In `req_mkt_data`, `req_contract_details`,
+     `req_sec_def_opt_params` and `req_matching_symbols`: `self._require_api_ready()` →
+     `reserved = pacing_manager.throttle(stamp=False)` → `req_id = id_manager.get_id()` →
+     `try: self.client.req…(…)` / `except Exception: id_manager.release_id(req_id); raise` →
+     `if not reserved: pacing_manager.record_request_slot()` → `return req_id`. Docstrings state the
+     order and cite the historical path's existing rule. In `req_historical_data`: move the existing
+     `wait = pacing_manager.historical_wait_seconds(); if wait > 0: raise PacingExceeded(wait)` block
+     **in front of** `id_manager.get_id()`; the send and `record_historical_slot()` stay where they are.
+  3. **The id rollback.** `ibkr/id_manager.py`: `def release_id(self, req_id: int) -> bool:` — under the
+     lock, `if self._next_id - 1 == req_id: self._next_id = req_id; return True` else `return False`,
+     with a docstring stating that only the newest allocation can be rolled back and that a rolled-back
+     id was never sent.
+  4. **The retired refund (S-P27-5).** `ibkr/pacing.py`: delete `refund_historical_slot` (update any
+     docstring that names it). `ui/ticker_session.py`: delete the
+     `if req_id not in self._history_req_issued: pacing_manager.refund_historical_slot()` lines and
+     restate that comment as the rule ("the slot was recorded after the send; a wave never refunds");
+     delete `_history_req_issued` (declaration and the comment block that describes it, the clear in
+     `_cancel_history_requests`, the in-place reset, the `discard` in `_register_history_request`) and
+     `mark_history_request_issued` together with its two call sites (`_issue_wave_chunks`,
+     `_reissue_historic`).
+  5. **The dead cache read (S-P27-6).** `data/bar_cache.py`: delete `get_last_timestamp` and the
+     `Optional` import that only it used (verified: no other reference in the file).
+  6. **The re-baselined cases, minimal and named.** `tests/test_p7_w1_coalesce.py`'s pre/post-issue case
+     keeps its cancel-tag half and asserts the retired rule instead: two slots recorded, one pre-issue
+     and one post-issue id cancelled, the slot count is **unchanged (2)** and both ids are superseded;
+     the refund-half and the `_history_req_issued` line go. `tests/test_d56_taxonomy_pacing.py`'s T33
+     keeps "both legs consumed a slot" (`len(pacing_manager._hist_times) == 2`) and drops the refund
+     counter and the issued-set assertion. The two pacing doubles gain the keyword-only parameter
+     (`def throttle(self, *, stamp=True)`), counting calls as they do today.
+  7. **The suite** `tests/test_d79_d80_d81_budget_honesty.py` — a fake client whose chosen call raises,
+     a fake `id_manager` wrapper over the real `IdManager`, a monkeypatched clock. Cases: (a) AC-D81.1
+     — a successful send, then a raising one, then a successful one: the interval between (1) and (3)
+     is one minimum interval (the failed attempt consumed none) and the budgets are unchanged by it.
+     (b) AC-D81.2 — the id sequence has no gap: after the failing send the next successful request
+     receives the id the failed attempt took. (c) `release_id`'s guard — releasing a non-newest id
+     returns `False` and changes nothing. (d) AC-D80.1 — the two-request fixture: both requests issued
+     (two slots), both cancelled, the slot count is unchanged and no refund symbol exists on the
+     manager. (e) AC-D79.1 — `not hasattr(BarCache, "get_last_timestamp")` **and** a static scan over
+     `data/`, `services/`, `ui/` for `MAX(ts)` queries against `bars` that filter `symbol` and
+     `timeframe` without `ext_hours` (R174: include `tests/` and repo-root probes in the scan).
+     (f) the batch contract — inside `pacing_manager.generic_batch(3)`, three `req_mkt_data` sends
+     consume three reservation units and leave `_last_req_time` untouched, and the batch's exit stamps
+     once (AR-P27-5).
+- **Exit condition:** the new suite green and the two re-baselined cases green **and**
+  `tests/test_d28_pacing.py tests/test_d71_replay_transaction.py tests/test_d65_option_chain.py
+  tests/test_ibkr_contract_details_d22.py tests/test_d28_3_historical_pacing.py
+  tests/test_d56_taxonomy_pacing.py tests/test_d56_silence_retry.py tests/test_d56_fencing.py
+  tests/test_p7_w1_cap.py tests/test_p7_w1_coalesce.py tests/test_p7_w3_wide.py
+  tests/test_history_backfill_loadpath.py tests/test_id_manager.py` green;
+  `git diff --name-only` ⊆ the five production files + the two re-baselined files + the two doubles +
+  the new suite.
+- **Do not:** change any pacing constant or the shape of `historical_wait_seconds`,
+  `record_historical_slot`, `realtime_*`, `generic_wait_for_batch` or `generic_batch`; keep or replace
+  the refund with an "exact" variant (the resolution is retirement); add a second gate method; change
+  the cancel tags, the generation stamping, `_prune_cancel_tags`, the wave lifecycle or any P26 state;
+  re-baseline any assertion other than the two named cases (stop and escalate — AP-P27-4); touch
+  `config/settings.py`.
+
+#### P27-04 — records and the phase fence — size S
+
+- **Covers:** AC-D83.2, the phase's own evidence record.
+- **Depends on:** P27-01, P27-02, P27-03.
+- **Files:** a new `tests/test_p27_fence.py`; `docs/` records; `docs/codebase-map.md`'s P27 note.
+  **No production file.**
+- **Deliverables:**
+  1. **The fence suite** `tests/test_p27_fence.py`, one assertion per named artefact:
+     `requirements.md` still carries `This is an existing repository.`, the `D41`–`D76` record
+     (presence per id in a heading — the record is mixed, exactly as P26-04 records), P27's own
+     `#### D77`–`#### D83` entries, `Journey 71`–`Journey 73`, `AC-D1.1`–`AC-D76.3` **plus**
+     `AC-D77.1`–`AC-D83.2`, `A1`–`A229` plus `A230`–`A234`, `R1`–`R169` plus `R170`–`R174`, and the
+     `Current Tech Stack` section.
+  2. **The pinning assertions** (read off the modules, not off prose): the five settings values
+     (`MAX_REQ_PER_SEC`, `HISTORICAL_MIN_INTERVAL_S`, `MAX_HISTORICAL_PER_600S`,
+     `MIN_INTRADAY_SESSIONS`, `SESSION_BAR_CAP`); `per_load_historical_cap() ==
+     max(1, settings.MAX_HISTORICAL_PER_600S // 4)`; `_WATCHDOG_BASE_WINDOW_FRACTION == 1 / 5` and
+     `_WATCHDOG_MARGIN_WINDOW_FRACTION == 1 / 20`; `_PRIME_BACKSTOP_MS == 15_000`;
+     `_prime_backstop_ms(2_000) == 15_000`, `_prime_backstop_ms(40_000) == 41_000`;
+     `TIMEFRAME_CONFIG`'s nine keys and durations unchanged; `plan_requests` still pure (the
+     isolated-interpreter Qt-free case stays green). No literal file/line counts, no phase hash.
+  3. **The delta-scope record** — a build-record artefact (P24/P25/P26 precedent), not a hash-pinned
+     test: the wave records `git diff --name-only 70b16f2` and requires it to be a subset of
+     {`services/backfill_service.py`, `ui/ticker_session.py`, `ibkr/pacing.py`,
+     `ibkr/market_data.py`, `ibkr/id_manager.py`, `data/bar_cache.py`, the four new suites, the two
+     re-baselined files, the two pacing doubles, `docs/`}. Anything else is a scope breach to escalate,
+     not to justify.
+  4. **Full offscreen suite green** recorded in the wave result; no live gate is claimed or listed
+     (the requirements declare none).
+- **Exit condition:** the fence suite green, the full offscreen suite green, and the recorded diff
+  listing matches the allowlist exactly.
+- **Do not:** edit `docs/requirements/**`; assert a phase commit hash or a file/line count; add an
+  assertion that a later phase (P28's lifecycle work) would redden.
+
+### Assumptions
+
+- **AP-P27-1 — baseline, and what a P26 review fix may change.** The build starts from HEAD `70b16f2`
+  or a descendant that carries only P26 review fixes. Because P26's review is open, the wave re-reads
+  `ibkr/pacing.py` (`throttle`, `generic_batch`, `reset_for_tests`), `ibkr/market_data.py` and
+  `ui/ticker_session.py` before editing: if a P26 fix has changed the batch's shape, the
+  stamp-after-send split (S-P27-4) adapts to the **new** shape and the reservation contract is
+  re-pinned in the new suite. P27 does not revert or re-decide anything P26 owns.
+- **AP-P27-2 — `AC-D77.1`'s "the union equals the union of the input spans" is read as
+  "unchanged by the change, and containing every input span".** Chunk-granularity means each plan
+  covers a whole configured duration ending at its anchor, so the earliest chunk of a span starts
+  *before* the span's `start_ts` — today and after P27. Literal equality between plan coverage and span
+  coverage is therefore false before the change too; the constraint that matters ("the set of covered
+  intervals is identical before and after; only the request count changes") is what the suite asserts.
+  Recorded as FI-P27-1 for the analyst.
+- **AP-P27-3 — the one threshold is 1.5 periods, and the `now` cap stays inclusive.** A232's exception
+  is applied literally: a window capped by *now* keeps `t <= now_ts` (so today's open session is not
+  over-fetched), while every other edge is half-open. The docstring states both halves.
+- **AP-P27-4 — existing assertions are not re-baselined except the two named D80 cases.** Every other
+  red is a stop-and-escalate. The two named cases *encode the defect* (one cannot tell whose slot the
+  refund popped; the other counts a refund that no longer exists), so leaving them would keep asserting
+  behaviour the phase removes.
+- **AP-P27-5 — `AC-D80.1`'s parenthetical is the adopted branch.** "the path is removed and its caller
+  with it" is what P27 does; the AC's measurable still holds in its two-request form — after cancelling
+  a pre-issue and a post-issue id the slot count is unchanged, so the other request's slot survives.
+  Recorded as FI-P27-2 so the analyst can confirm the branch.
+- **AP-P27-6 — the retry's grace tick is a module constant, not a setting.** `_PRIME_RETRY_GRACE_MS =
+  1_000` lives beside `_PRIME_BACKSTOP_MS` in `ui/ticker_session.py`; it exists so a wait of exactly
+  15 s (and any wait whose retry lands on the backstop's instant) cannot be pre-empted by timer
+  ordering. No `config/settings.py` key is added.
+- **AP-P27-7 — `throttle`'s default path is a compatibility contract.** `stamp=True` must behave
+  byte-identically (raise on a closed gate, stamp on success, consume a reservation unit inside a
+  batch) because `test_d28_pacing.py` and P26's replay suite pin it; the new parameter and return are
+  additions, and the return is ignored by every existing caller.
+- **AP-P27-8 — the phase has no live gate.** The requirements declare none; every criterion is
+  offscreen with injected timestamps and a monkeypatched clock. No owner observation is claimed.
+- **AP-P27-9 — the four waves are ordered, not parallel-decomposed.** `P27-02` → `P27-03` because both
+  edit `ui/ticker_session.py`; `P27-01` may run alongside both because it touches one other file; the
+  Task Manager may serialise all four if it prefers one chain. `P27-04` runs last, always.
+- **AP-P27-10 — no user-visible wording changes.** The per-load-budget message, the pacing-limited
+  lines, the prime's warning and the `AC-D16.4` shortfall keep their wording; P27 changes how many
+  requests are made and when budget is charged, never what the user reads.
+
+### Flagged Issues
+
+- **FI-P27-1 — `AC-D77.1`'s "the union of the plans' covered intervals equals the union of the input
+  spans" cannot hold literally, before or after P27 (non-blocking under AP-P27-2).** A plan's anchor is
+  the span end and its coverage is one configured duration backwards, so the oldest chunk of every span
+  reaches before the span's start (that is the accepted chunk-granularity over-fetch the cache's PK
+  makes harmless). Plan therefore asserts the constraint the requirements state in prose — the union is
+  identical before and after, and no input interval is dropped — plus a containment check. Suggested
+  direction: the analyst rewords `AC-D77.1`'s "equals" as "unchanged, and covering", or states the
+  chunk-granularity exception; a literal reading would need a planner that truncates the oldest chunk,
+  which `TIMEFRAME_CONFIG`'s fixed durations cannot express.
+- **FI-P27-2 — three existing APIs are retired rather than repaired (non-blocking; A233's preferred
+  branch and D79's own preference, recorded for confirmation).** `AC-D80.1` allows either "frees
+  exactly its own slot" or "the path is removed and its caller with it", and D79 allows either deletion
+  or a mode-aware read with a caller. P27 takes the removal branch for both: `refund_historical_slot`,
+  its `_cancel_history_requests` branch and the `_history_req_issued` / `mark_history_request_issued`
+  ledger that gated it are deleted (with the slot recorded after the send — D81 makes this uniform — a
+  request that never crossed the wire holds no slot, so an exact refund returns `False` by
+  construction and the API can only be dead code or a thief), and `BarCache.get_last_timestamp` is
+  deleted (zero callers in production and in `tests/`). Consequences to be confirmed, not assumed:
+  P26's frozen list still names `mark_history_request_issued`, so the deletion carries a
+  `[revises P26]` label and that frozen-list entry becomes history — P26's own requirements, ACs and
+  decisions are untouched, and its contract ("a post-issue cancel keeps its slot") is preserved by the
+  stronger rule that nothing is ever refunded; and two existing test cases are re-baselined (AP-P27-4)
+  because they encode the retired behaviour. If the owner prefers a live refund path or a live
+  mode-aware read, each is a new requirement (a slot-owner ledger for a pre-issue window that does not
+  exist today; a caller the application does not have), not a P27 edit.
+- **FI-P27-3 — the unified trailing threshold requests a band the old rule skipped (non-blocking,
+  deliberate).** A trailing hole between 1.5 and 2 periods is today *not* reported and after P27 *is*
+  (`> 1.5 × period` instead of `>= 2 × period`). This is the direction `AC-D82.2` and the module
+  docstring require (one number for one edge), and its cost is bounded by one chunk per affected
+  day-load; R171's opposite worry (a real one-period hole stopped being repaired) does not arise —
+  a hole of exactly one period is reported by neither rule. Recorded so the owner can see the budget
+  effect is intentional.
+
+Status: READY_FOR_VALIDATION
