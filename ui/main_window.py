@@ -134,6 +134,13 @@ _PRIME_MAX_SPAN_S = 7_200
 #: (single-sided bound — the handler no-ops once nothing is in flight).
 _BACKFILL_EXPIRY_BOUND_MS = 10_000
 
+#: S-P28-12/AC-P28-03-4: the transport-gated re-check interval (milliseconds).
+#: A retry callback that finds the transport not ready re-arms at this fixed
+#: interval and spends NO retry attempt: the ladder is advanced only for a
+#: request the transport can carry, so the terminal state is structurally
+#: unreachable while disconnected (the reconnect replay is the reset).
+_RT_RECHECK_MS = 5_000
+
 # Default watchlist symbols — used only on first run before DB persistence
 DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
 
@@ -2860,6 +2867,14 @@ class MainWindow(QMainWindow):
         if session.stream_health.state == StreamState.EXHAUSTED:
             # D90: only a reload/reconnect reset leaves the terminal state.
             return
+        if not self._transport_ready():
+            # AC-P28-03-4/ESC-135: a late error for a line the transport
+            # already dropped must not spend the budget or speak. Returning
+            # before ``mark_failed`` keeps the delay advance and the terminal
+            # transition behind the same readiness term, so the terminal
+            # state is structurally unreachable while disconnected — the
+            # reconnect replay's reset is what re-arms anything.
+            return
         session.stream_health.mark_failed(code, message)
         _LOG.warning("Realtime stream failed [%s]: %s", code, message)
         # Badge + retry scheduling are primary-chart concerns; a background
@@ -2900,18 +2915,41 @@ class MainWindow(QMainWindow):
         delay_s = self._stream_health.next_retry_delay_s()
         self._rt_retry_timer.start(int(delay_s * 1000))
 
+    def _rearm_rt_recheck(self) -> None:
+        """Re-arm the retry callback without spending a retry attempt.
+
+        AC-P28-03-4/ESC-135: the transport cannot carry a request
+        (disconnected, or the handshake is pending), so nothing may advance
+        the ladder — no ``next_retry_delay_s()`` call. The callback re-checks
+        readiness at ``_RT_RECHECK_MS``; only a ready transport reaches
+        ``_schedule_rt_retry`` and spends an attempt, which is what keeps the
+        terminal state unreachable while disconnected.
+        """
+        self._rt_retry_timer.start(_RT_RECHECK_MS)
+
     def _retry_rt_subscribe(self) -> None:
         """D27.4: re-issue the RT subscription after a backoff delay.
 
         No-op unless the failure is still current: a reload, a live bar or a
         terminal (EXHAUSTED) state moves the state off FAILED, which disarms
         this — EXHAUSTED can never retry, its recovery is the user's attach.
+
+        AC-P28-03-4/ESC-135: a not-ready transport re-arms the readiness
+        check at ``_RT_RECHECK_MS`` without touching the retry ladder; only
+        the no-symbol case (a ready transport with nothing to subscribe)
+        keeps the backoff schedule, which is the one allowed to spend.
         """
         health = self._stream_health
         if health is None or health.state != StreamState.FAILED:
             return
-        if not self._transport_ready() or not self._current_symbol:
-            # Still disconnected (or no symbol): keep backing off.
+        if not self._transport_ready():
+            # Still disconnected (or handshake-pending): keep checking, but
+            # spend nothing — one attempt per re-arm is exactly the walk to
+            # the terminal state that AC-P28-03-4 forbids.
+            self._rearm_rt_recheck()
+            return
+        if not self._current_symbol:
+            # No primary line to retry: keep backing off.
             self._schedule_rt_retry()
             return
         symbol = self._current_symbol
@@ -2933,9 +2971,11 @@ class MainWindow(QMainWindow):
             return
         except IBKRNotReady:
             # S-P28-12 belt: the transport refused after all (a callback
-            # queued before the drop stopped this timer). Re-enter the same
-            # not-ready guard instead of escaping a Qt slot with an exception.
-            self._schedule_rt_retry()
+            # queued before the drop stopped this timer). It cannot carry
+            # the request, so re-enter the same not-ready path — re-check,
+            # spend nothing — instead of escaping a Qt slot with an
+            # exception or advancing a ladder the transport cannot use.
+            self._rearm_rt_recheck()
             return
         self._update_stream_badge()
         self.status_bar.showMessage(

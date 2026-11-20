@@ -239,6 +239,59 @@ def test_P28_T6_02_budget_spent_ends_in_a_distinct_terminal_state(
 
 
 # ---------------------------------------------------------------------------
+# P28-T6-10 / AC-P28-03-4 — ESC-135: a post-drop storm cannot exhaust
+# ---------------------------------------------------------------------------
+
+
+def test_P28_T6_10_disconnected_error_storm_never_reaches_terminal(
+        monkeypatch, qapp):
+    """The terminal state is unreachable while the transport is not ready."""
+    from ui.main_window import _RT_RECHECK_MS
+
+    win = _make_window(monkeypatch, qapp)
+    _load(win)
+    # One attempt short of the cap, reached through the ready path.
+    _leave_failed(win, MAX_RETRY_ATTEMPTS - 1)
+    attempt_before = win._stream_health.retry_attempt
+
+    # The drop: the window stops the timer; the RT reqId stays routable, so
+    # late errors still reach the handler (ESC-135's ingress).
+    win._on_disconnected()
+    assert not win._ibkr_connected
+    assert win._stream_health.state == StreamState.FAILED
+    wired = _wire_counts(win)
+    lines_before = len(win.status_bar.messages)
+    starts_before = len(win._rt_retry_timer.starts)
+
+    # Six late errors interleaved with the retry callback — well past the
+    # budget the connected path would have spent.
+    for _ in range(MAX_RETRY_ATTEMPTS):
+        _fail(win)
+        _fire(win)
+
+    h = win._stream_health
+    assert h.retry_attempt == attempt_before, "a disconnected re-arm spends no attempt"
+    assert h.state == StreamState.FAILED
+    assert h.state != StreamState.EXHAUSTED
+    assert not h.retry_budget_spent
+
+    # No subscribe, no cancel: nothing reached the wire.
+    after = _wire_counts(win)
+    assert after[0] == wired[0]
+    assert after[1] == wired[1]
+    # Every transport-gated re-arm is the fixed readiness re-check.
+    assert win._rt_retry_timer.starts[starts_before:] == (
+        [_RT_RECHECK_MS] * MAX_RETRY_ATTEMPTS
+    )
+
+    # No terminal line and no "retrying" line for the late errors.
+    late = [text for text, _ in win.status_bar.messages[lines_before:]]
+    assert not [t for t in late if "stream stopped" in t]
+    assert not [t for t in late if "retrying" in t]
+    win.close()
+
+
+# ---------------------------------------------------------------------------
 # P28-T6-03 / AC-D90.3 — the reload recovers a terminal stream, once
 # ---------------------------------------------------------------------------
 

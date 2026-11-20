@@ -324,19 +324,159 @@ def test_p28_t2_04_live_line_is_not_flagged_and_replays_once(win_factory):
 # ── (e) AC-D88.1 — the dead replay is gone ──────────────────────────────────
 
 
+#: The deleted method's name. The scan proves the *symbol* has no code use:
+#: a prose mention (docstring, comment) and a negative ``hasattr`` string are
+#: not uses, and ``SubscriptionManager.replay_all`` — the one replay P28
+#: keeps — is a different symbol on a different receiver.
+_DEAD_REPLAY = "replay_all"
+
+#: Receivers that name the realtime manager directly (the class itself and the
+#: conventional variable names a reintroduction would use). Needed for the
+#: detector's self-check, whose snippet has no constructor binding to resolve.
+_RT_RECEIVER_NAMES = frozenset({
+    "RealtimeBarsManager",
+    "rt_manager",
+    "rt",
+    "realtime_manager",
+    "realtime_bars_manager",
+    "mgr",
+})
+
+#: The detector's two-sided self-check: one genuine use, and the two prose
+#: forms the P28 fence contains (its module docstring and its ``not hasattr``
+#: assertion) — both must stay clean.
+_USAGE_SNIPPETS = {
+    "hit": "mgr.replay_all()",
+    "clean_doc": '"""names RealtimeBarsManager.replay_all"""',
+    "clean_hasattr": 'assert not hasattr(RealtimeBarsManager, "replay_all")',
+}
+
+
+def _is_realtime_bars_manager(func: ast.expr) -> bool:
+    """True when ``func`` names the ``RealtimeBarsManager`` constructor."""
+    if isinstance(func, ast.Name):
+        return func.id == "RealtimeBarsManager"
+    if isinstance(func, ast.Attribute):
+        return func.attr == "RealtimeBarsManager"
+    return False
+
+
+def _replay_receivers(tree: ast.AST) -> set[str]:
+    """Return the receivers in ``tree`` that hold a realtime manager.
+
+    Every target assigned from a ``RealtimeBarsManager(...)`` call registers
+    both its dotted text (``self.rt_manager``) and its simple name
+    (``rt_manager``), so a later ``.replay_all`` on either is recognised
+    without inferring types.
+    """
+    receivers: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Call)
+                and _is_realtime_bars_manager(value.func)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            receivers.add(ast.unparse(target))
+            if isinstance(target, ast.Attribute):
+                receivers.add(target.attr)
+            elif isinstance(target, ast.Name):
+                receivers.add(target.id)
+    return receivers
+
+
+def _receiver_is_dead_replay(value: ast.expr, receivers: set[str]) -> bool:
+    """True when ``value.replay_all`` would be the *deleted* method's symbol."""
+    if isinstance(value, ast.Name):
+        return value.id in receivers
+    if isinstance(value, ast.Attribute):
+        return value.attr in receivers or ast.unparse(value) in receivers
+    if isinstance(value, ast.Call):
+        return _is_realtime_bars_manager(value.func)
+    if isinstance(value, ast.Subscript):
+        return ast.unparse(value) in receivers
+    return False
+
+
+def _definitions_in_class(tree: ast.AST, class_name: str) -> list[str]:
+    """Names of ``def``/``async def`` directly in ``class_name``'s body."""
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    names.append(item.name)
+    return names
+
+
+def _replay_all_usage_in_source(source: str,
+                                in_owning_module: bool = False) -> list[str]:
+    """AST-only half of :func:`_replay_all_usage` (also drives the snippets).
+
+    String constants, comments and docstrings are never walked as uses, so a
+    prose mention is clean while a call, a bare name or a definition reddens.
+    """
+    tree = ast.parse(source)
+    receivers = _replay_receivers(tree) | set(_RT_RECEIVER_NAMES)
+    hits: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == _DEAD_REPLAY:
+            if _receiver_is_dead_replay(node.value, receivers):
+                hits.append(f"line {node.lineno}: attribute {ast.unparse(node)}")
+        elif isinstance(node, ast.Name) and node.id == _DEAD_REPLAY:
+            hits.append(f"line {node.lineno}: name {_DEAD_REPLAY}")
+
+    # A reintroduced ``def replay_all`` is the dead symbol again only inside
+    # the realtime manager (or back at module level in its own module). The
+    # subscription-manager stand-ins in the suites define their own symbol.
+    hits.extend(f"definition: {name}"
+                for name in _definitions_in_class(tree, "RealtimeBarsManager")
+                if name == _DEAD_REPLAY)
+    if in_owning_module:
+        hits.extend(f"line {node.lineno}: definition {_DEAD_REPLAY}"
+                    for node in tree.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == _DEAD_REPLAY)
+    return hits
+
+
+def _replay_all_usage(path: Path) -> list[str]:
+    """Return every code USE of the dead ``RealtimeBarsManager.replay_all``.
+
+    The walk is AST-only: string literals, comments and docstrings can never
+    be hits. The P28 fence names the symbol in its module docstring and
+    asserts its absence with ``not hasattr(..., "replay_all")`` — both are
+    legitimate prose and stay clean. The symbol is the realtime manager's
+    method, so an attribute access is a use only on a receiver that holds a
+    ``RealtimeBarsManager``: the class itself, a name bound to its
+    constructor, or a realtime-manager-valued attribute such as
+    ``self.rt_manager``. The legitimate ``SubscriptionManager.replay_all``
+    (P26's transactional pass) is a different symbol on a different receiver
+    and is not a hit.
+    """
+    source = path.read_text(encoding="utf-8", errors="replace")
+    own_module = path.name == "realtime_bars.py"
+    return _replay_all_usage_in_source(source, in_owning_module=own_module)
+
+
 def test_p28_t2_05_dead_replay_absent_everywhere():
     assert not hasattr(RealtimeBarsManager, "replay_all")
 
-    needles = ("rt_manager." + "replay_all",
-               "RealtimeBarsManager." + "replay_all")
     hits = []
     for subtree in ("ui", "ibkr", "tests"):
         for path in sorted((ROOT / subtree).rglob("*.py")):
-            text = path.read_text(encoding="utf-8", errors="replace")
-            for needle in needles:
-                if needle in text:
-                    hits.append(f"{path.relative_to(ROOT)}: {needle}")
-    assert hits == []
+            for hit in _replay_all_usage(path):
+                hits.append(f"{path.relative_to(ROOT)}:{hit}")
+    assert hits == [], f"the dead replay is used again: {hits}"
+
+    # Two-sided self-check: a genuine use is flagged, while a docstring-only
+    # mention and the fence's ``not hasattr`` assertion are both clean.
+    assert _replay_all_usage_in_source(_USAGE_SNIPPETS["hit"])
+    for clean in ("clean_doc", "clean_hasattr"):
+        assert _replay_all_usage_in_source(_USAGE_SNIPPETS[clean]) == [], clean
 
 
 # ── (f) AC-D84.3 — one function, two call sites ─────────────────────────────

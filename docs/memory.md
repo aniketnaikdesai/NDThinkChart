@@ -273,3 +273,8 @@
 **Category:** Known Gotcha
 **Finding:** `tests/test_d28_3_historical_pacing.py::test_prime_aggregator_defers_once_on_pacing` and `::test_prime_aggregator_fails_open_when_retry_also_paced` fail whenever the wall clock is within 5 s of a 5-minute boundary. `_on_prime_retry` re-enters `prime_aggregator` with `now_ts = int(time.time())`, and the prime returns False when `span_s < 5` ("at a period boundary: nothing to prime"), so the retry never issues and `attempts` stays at 1. Pre-existing flake, ~1.7% of runs, independent of the code under change; reproduces reliably by starting the run at a boundary + <5 s. A red full-suite run on exactly these two tests is not evidence of a regression — re-run or check the clock before treating it as one.
 **Source:** P26 full-suite verification (commit `bda354f`)
+
+### 2026-11-20 — discovered during P28 build (orchestrator commit hygiene)
+**Category:** Known Gotcha
+**Finding:** `git add -A` while a build worker is mid-flight sweeps that worker's in-progress edits into whatever commit the orchestrator is making. It happened twice (`5096b78` swallowed the P29 plan docs; `e7ac594` swallowed three of P28-T12's files). The second time it also disabled a phase-bounded test: `tests/test_p28_seam_diff_shape.py` deliberately skips once a non-P28 commit exists in `<phase base>..HEAD`, and the swept commit tripped exactly that guard. Commit only paths you own (`docs/plan.md`, `docs/architecture.md`, `docs/tasks/**`, `docs/orchestrator_state.json`) while workers are running, or wait for the wave to settle.
+**Source:** P28 rework (T12), commit `e7ac594`

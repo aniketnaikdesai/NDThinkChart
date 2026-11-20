@@ -321,7 +321,7 @@
         "one replay path and two named re-baselines",
         "the readiness suite whose case (b) keeps the harness seam honest"
       ],
-      "status": "in_progress",
+      "status": "done",
       "size": "M",
       "context": {
         "read_files": [
@@ -1034,7 +1034,7 @@
         "one health-reset mechanism serving both recovery branches (reconnect through `_reissue_rt`, reload through `ensure_rt_subscribed`)",
         "retry callbacks that can never act on a superseded or terminal line"
       ],
-      "status": "not_started",
+      "status": "done",
       "size": "M",
       "context": {
         "read_files": [
@@ -2318,7 +2318,7 @@
         "a diff-shape case that enforces 'only the seam line was added' for all 21, phase-bounded so it cannot redden a later phase",
         "a recorded inventory of the seam population with its provenance"
       ],
-      "status": "in_progress",
+      "status": "done",
       "size": "S",
       "context": {
         "read_files": [
