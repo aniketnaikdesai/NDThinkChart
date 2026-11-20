@@ -309,3 +309,79 @@ remaining items are record/user-doc truthfulness, not behaviour, so P30 is **beh
 but not yet zero-open**: one short Plan pass on `docs/codebase-map.md` + `usage.md` closes it.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# P30 — Final verification pass (ESC-144, ESC-145)
+
+**Pass type:** escalation close-out on the two findings the previous pass introduced. **Tier: light** — both
+scoped items are one-clause prose fixes in Plan-owned docs, the suite verdict is `pass`, there is no footprint
+overlap, no size-L task and no shared/core file in the delta. Verified on the live tree rather than from the
+commit message. **Facts consumed:** `test_verification.json` — **verdict `pass`, exit 0, 258.41 s**, newer than
+`build_log.md`. `precheck.json` is still the previous run's (scope `P30-T3`/`P30-T8`, generated before this
+commit, which carries no task result); its facts are unchanged by a two-line docs commit, so this pass leans on
+the live tree plus its own targeted re-run: `test_p30_fence` + `test_p14_cache_guard` + `test_p15_surfacing` +
+`test_p25_usage_doc` → **40 passed, exit 0**.
+
+**What moved in `82527c1` (4 files, content changes are two hunks):** `docs/codebase-map.md` (one clause
+replaced: 4 lines) and `usage.md` (one line replaced); plus the previous pass's own `docs/code_review/
+escalations.json` / `review_log_P30.md` swept into the commit. **No test, criterion, pin, digest or production
+file changed** — the diff touches nothing under `tests/`, `docs/requirements/`, `ui/`, `services/`, `data/` or
+`ibkr/`.
+
+## 1. ESC-144 — map re-pin clause — **addressed**
+
+`docs/codebase-map.md:699-700` now reads "… the **preamble sentence adjacent to** the existing-repository marker
+was corrected — the **marker sentence itself**, `This is an existing repository.`, **is byte-identical** — and the
+D23.1 record carries its reconciliation". The stale clause ("the existing-repository marker sentence was
+restated") is gone from the file (grep: 0 hits).
+
+- **Against the source:** `requirements.md:416` begins with the unchanged literal `This is an existing
+  repository.` and continues into the corrected preamble ("NDThinkChart is a stabilization/extension run against
+  an already-built PyQt6 desktop trading terminal whose chart engine is in-page Lightweight Charts
+  (QtWebEngine) with an `ibapi` broker feed …"). Marker byte-identical; the adjacent preamble sentence is what
+  moved.
+- **Against the pin comments:** identical wording to `tests/test_p14_cache_guard.py:86-90` and
+  `tests/test_p15_surfacing.py:79-83` ("the preamble sentence adjacent to the … marker was corrected to match —
+  the marker sentence itself is byte-identical"), and to AC-D104.3's "present and **byte-identical**".
+- **Fence unaffected:** the note's watched strings are unchanged — "Three existing suites are edited" (1), both
+  history-fence paths (2), `4de9f5642c` (1), "no existing suite is edited" (0) — and `test_p30_fence.py` is green.
+- **Cosmetic only, no action:** the replacement line wraps at 181 chars against the note's ~100–110; left as is.
+
+## 2. ESC-145 — usage step 3 — **addressed**
+
+`usage.md` step 3 now reads: "… the ⌕ magnifier and the pointer wheel / drag zoom are refused, and the status bar
+reads `Finish or cancel alarm placement before zooming` for a few seconds (the − / + buttons and the keyboard + /
+− keys still zoom, so the view can be reframed without leaving placement)."
+
+- **Magnifier consults the router:** `ui/lwc_view.py:2889-2897` — `enabled → self._router.enter_zoom()`, refused on
+  TR-9; the refusal is what emits `zoom_refused`.
+- **Pointer wheel/drag refused while placing:** `chart_assets/lwc/gestures.js:377-391` — `syncChrome` applies
+  `handleScroll: !active` / `handleScale: !active`, with `active = isAlarmPlacing(router) or isDrawing(router)`.
+- **± buttons still zoom:** `chart_assets/lwc/chart.js::controlPressed` calls `zoom(range, 0.8|1.25)` with no mode
+  check, and `ui/lwc_view.py:2885-2888`'s zoom-in/out branch sets `refused = False` without consulting the router.
+- **Keyboard ± still zoom:** `chart.js::bindKeyboard`'s `+`/`=`/`-` branches have no mode check.
+- **Message verbatim:** `ui/main_window.py:886` — `"Finish or cancel alarm placement before zooming"`, 4000 ms.
+- **No internals** in the new clause; `usage.md` and `USAGE.md` remain one inode (`70268344`, same size/mtime).
+- No new truthfulness finding on this clause.
+
+## 3. Standing duties
+
+- **G7:** owner-run and unclaimed; nothing in this commit adds or touches a suite, and the four re-run modules make
+  no painted-page or `QWebEngineView` claim.
+- **No new module / dependency / migration / settings key / test change:** the commit contains no code and no
+  test file.
+- **`docs/requirements/**`:** untouched by `82527c1`.
+
+## 4. Close-out
+
+| id | verdict |
+|---|---|
+| ESC-144 | **addressed** — map names the preamble, marker byte-identical, consistent with the pin comments and AC-D104.3; fence strings unchanged and green |
+| ESC-145 | **addressed** — guide names exactly the refused gestures and states that ± (buttons and keys) still zoom; message verbatim |
+
+`escalations.json`: **140 entries, 140 addressed, zero open.** No `PRE-*` entry outstanding. Every finding raised
+across P30 (ESC-140…ESC-145, plus the four precheck fail-fast flags that were verified false positives) is closed
+on evidence. **P30 is gate-ready to close.**
+
+Status: REVIEW_COMPLETE

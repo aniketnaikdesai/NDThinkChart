@@ -802,3 +802,38 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - 70b16f2 P26 build: transactional reconnect replay, cap-parked wave lifecycle, retry surrender, generation-scoped ledgers (D71-D76)
 - 4975efa P26: plan approved (D71-D76 reconnect replay + wave lifecycle)
 - 629be4a P25 close-out: changelog, review log, escalations addressed
+## P30 — 2026-11-20
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 1.
+
+### Done
+- P30-T2 — D102: every collapse path dismisses the watchlist search popup and clears its items (via _apply_collapsed_visual), and show_search_results refuses while collapsed so an in-flight result cannot resurrect it; D103: DrawingGroupsDialog.reload captures selected drawing ids before the rebuild and re-selects exactly the surviving ids by UserRole. New two-class suite tests/test_d102_d103_surface_state.py proves the popup case can fail (pre-fix survivor recorded) and covers all collapse entry points, visible/locked toggles, vanished and reordered rows.
+- P30-T1 — D101 control cluster lands: chart.html #controls toolbar, chart.js mounts it once per load and applies zoom/fitAndFollow locally then reports one press, interaction.js mounts idempotently under the three-branch latch rule and exports syncControlState, CONTROL_SPECS is the one declaration CONTROL_IDS derives from, the Q-20 bridge gains controlPressed/pageControlPressed wired to the unchanged handle_control, and tests/test_d101_control_cluster.py adds the four-way id join (with a red negative and a non-vacuous guard), the per-id bridge path with a single TR-9 refusal report, hostile-input tolerance and the production-caller AST check — 128 node tests and the nine-suite pytest command green, G7 unclaimed.
+- P30-T3 — Rework ESC-142: memory_bytes' docstring now says the bridge replay log is the one traffic-growing structure among the counted buckets, and that the five per-channel logs are not counted (AR-P30-6) and are cleared on release — docstring-only, no bucket, key or behaviour change.
+- P30-T4 — Phase fence: tests/test_p30_fence.py pins the requirements record and Q118's answer, the four-way control declaration join, the latch rule, the local-viewport/durable-state seam, popup dismissal and selection-by-identity, D104's release end state (memory_bytes residual), and the map's P30 note read-only; the delta against 956f9f8 is within the allowlist and G7 is recorded as owner-run and not claimed.
+- P30-T5 — Reworded the _on_page_control_pressed docstring in ui/lwc_view.py to state both shipped facts without the renderer-boundary literal; docstring-only, behaviour and tests untouched.
+- P30-T6 — DG116 scope fence is now phase-relative: base from task-graph meta.baseline_commit (resolved, ancestor-checked, no HEAD fallback) and allowlist from the graph's tests/ footprint; two new tests prove allowlisted edits pass committed/uncommitted and unlisted edits are named. DG116 node + AC3 green; AC1 is red only on another agent's uncommitted docs/requirements/requirements.md edit (4 removed lines), not this task.
+- P30-T7 — Re-pinned the three PROTECTED_SPAN_SHA256 literals (both guard files plus the live-span expected) to 4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede and appended the 2026-11-20 RG-P7-1/RG-P7-2/RG-D23-1 closure record to each audit comment; boundaries, extraction and exact-equality untouched.
+- P30-T8 — Re-pointed the P30 map fence at the corrected 'Three existing suites are edited' claim (both history fences + 4de9f5642c) with a non-tautology regression case, and made the three pin comments name the corrected preamble while the marker stays byte-identical; ui/lwc_view.py was not written by this task (its memory_bytes docstring was already fixed by the prior write); concurrent writes in docs/codebase-map.md, usage.md and docs/requirements/requirements.md are other agents' and were left untouched.
+
+### Recent commits (unscoped)
+- 82527c1 P30 rework: correct the map's re-pin clause and the usage guide's refusal scope (ESC-144/145)
+- 0348a62 P30 rework: record-lockstep fence repair, precise pin comments, memory_bytes docstring, AC-D104.3 qualified (ESC-140/141/142/143)
+- f68b00b P30: engine-claim sweep, batch-gate base compare, requirements stack record + hash re-pin (D104, RG-P7-1/2, RG-D23-1)
+- 9425555 P30 build: restored control cluster with honest latch, dismissed popup, identity-restored selection, engine-claim sweep (D101-D104)
+- 956f9f8 P29 close-out: changelog, review log, ESC-138/139 addressed, memory correction
+- f7a8be4 P29 build: hermetic connect guard so the suite cannot depend on TWS being down (P29-T6)
+- 7b32e02 P29 docs: describe the brief-drop re-seed and name the renamed D97 case (ESC-138/139); P30 plan approved
+- dcfdd60 P29 build: atomic store writes, crossing rule, session-gated outage baseline, log-only page delivery (D96-D100)
+- 3b92ce6 P28 close-out: changelog, review log, ESC-137 addressed
+- 2bb9a62 P28 rework: re-pin the requirements history hash to the owner-approved RG-P29-1 span (ESC-137 close-out)
+- 8e5516f P28 rework: anchor the seam-shape gate at the phase tip so it always runs (ESC-137)
+- b7914c3 P28 rework: AST usage scan for the dead replay, readiness guard on RT errors, seam completion + shape gate (ESC-133/134/135/136)
+- e7ac594 P29: plan approved (persisted writes atomic, alarm crossing rule, outage gate, page-ready ordering)
+- 1404877 P28 build: readiness gate + deferred attach, stream budget, window ownership, startup survivability, instance lock, honest description (D84-D95)
+- e88f96b P28: plan approved after two revision rounds (drop owes the attach, prime-clear fourth site, seam)
+- ef04c5a P27 close-out: changelog, review log, escalations addressed
+- 5096b78 P27 rework: comment states the live stamp sites, guard covers every swept double, AC-D81.2 qualified (ESC-130/131/132)
+- 0ff7964 P27 build: planner request identity, confined window rule, reachable prime retry, gate-before-stamp, refund retirement (D77-D83)
+- 8fdc27f P27: plan approved after RC-1..RC-3 revision (present_days confinement, P17 supersession, 615s bound)
+- 623809e Q-80: freeze the clock for the deferred-prime retry tests (removes a 5s-per-5min wall-clock flake)
