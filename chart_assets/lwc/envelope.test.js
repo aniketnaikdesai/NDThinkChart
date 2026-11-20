@@ -232,6 +232,54 @@ describe("whitespace rows are not bars (P25-T4)", () => {
     assert.deepEqual(LwEnvelope.mergeRows([], ops), []);
   });
 
+  it("candles: open null with a real close is whitespace too", () => {
+    const openGap = { ts: T1, open: null, high: null, low: null, close: 2.0 };
+    const replaced = LwEnvelope.mergeRows([], [{
+      op: "set_bars", series: "candles",
+      cols: candleCols([realBar(T0, 10), openGap, realBar(T2, 12)]),
+    }]);
+    assert.deepEqual(times(replaced), [T0, T2], "skipped on a replace");
+    const seeded = LwEnvelope.mergeRows([], [{
+      op: "set_bars", series: "candles",
+      cols: candleCols([realBar(T0, 10), realBar(T1, 11)]),
+    }]);
+    const after = LwEnvelope.mergeRows(seeded, [{
+      op: "update_bar", series: "candles", cols: candleCols([openGap]),
+    }]);
+    assert.deepEqual(times(after), [T0], "deleted on an upsert");
+  });
+
+  it("candles: the ESC-127 close-null op is whitespace too", () => {
+    // `{open: 1, close: None, high: 2.0, low: 0.5}` — the mirror shape.
+    const closeGap = { ts: T1, open: 1.0, high: 2.0, low: 0.5, close: null };
+    const replaced = LwEnvelope.mergeRows([], [{
+      op: "set_bars", series: "candles",
+      cols: candleCols([realBar(T0, 10), closeGap, realBar(T2, 12)]),
+    }]);
+    assert.deepEqual(times(replaced), [T0, T2], "skipped on a replace");
+    const seeded = LwEnvelope.mergeRows([], [{
+      op: "set_bars", series: "candles",
+      cols: candleCols([realBar(T0, 10), realBar(T1, 11)]),
+    }]);
+    const after = LwEnvelope.mergeRows(seeded, [{
+      op: "update_bar", series: "candles", cols: candleCols([closeGap]),
+    }]);
+    assert.deepEqual(times(after), [T0], "deleted on an upsert");
+  });
+
+  it("exports the one predicate for chart.js to share (no second copy)", () => {
+    assert.equal(typeof LwEnvelope.isWhitespaceRow, "function");
+    assert.equal(LwEnvelope.isWhitespaceRow("candles", wsBar(T1)), true);
+    assert.equal(
+      LwEnvelope.isWhitespaceRow(
+        "candles", { ts: T1, open: null, high: null, low: null, close: 2 }),
+      true,
+      "open null alone makes a candle row whitespace",
+    );
+    assert.equal(LwEnvelope.isWhitespaceRow("candles", realBar(T1, 10)), false);
+    assert.equal(LwEnvelope.isWhitespaceRow("volume", { time: T1, value: null }), true);
+  });
+
   it("volume applies the same rule (null value)", () => {
     const ops = [{
       op: "set_volume", series: "volume",

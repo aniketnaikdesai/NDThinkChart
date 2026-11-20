@@ -29,7 +29,22 @@ from ui.watchlist_panel import WatchlistPanel
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-APP = QApplication.instance() or QApplication([])
+
+@pytest.fixture(scope="session", autouse=True)
+def _qt_app():
+    """The session ``QApplication``, created at test time (never at import).
+
+    Importing this module must not construct one: ``tests/test_lwc_render_smoke.py``
+    imports ``PyQt6.QtWebEngineWidgets`` at module scope, which raises
+    ``ImportError: QtWebEngineWidgets must be imported or Qt.AA_ShareOpenGLContexts
+    must be set before a QCoreApplication instance is created`` once an app
+    exists — collecting this file first used to break that suite (ESC-126).
+    ``WatchlistPanel`` still gets the app it needs, at test time.
+    """
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(["pytest"])
+    yield app
 
 
 # ── fakes ────────────────────────────────────────────────────────────────────

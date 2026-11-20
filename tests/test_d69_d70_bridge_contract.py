@@ -7,8 +7,9 @@ series' older ops are dropped; the non-series directives
 (``set_visible_range``, ``set_partial``) still ride after the rows.
 ``_op_log`` / ``replay_log`` keep every accepted op in plain arrival order.
 
-D70 (S-P25-6): a whitespace row (a placeholder whose value slots are
-``None``) is not a bar in either branch on either side — Python's
+D70 (S-P25-6): a whitespace row — a candle row whose ``open`` or ``close``
+is ``None`` (volume: ``value``) — is not a bar in either branch on either
+side — Python's
 ``apply_ops_to_bars`` skips it on a replace and removes its time on an
 upsert; the page's real ``mergeRows`` / ``lwSnapshot()`` agree, and the
 library sees a ``{time}`` placeholder only.
@@ -56,6 +57,19 @@ def _bar(ts, o=100.0, h=101.0, lo=99.0, c=100.5, volume=10.0):
 def _whitespace(ts):
     """The Q-20 placeholder row: value slots ``None``, the time real."""
     return SimpleNamespace(ts=ts, open=None, high=None, low=None,
+                           close=None, volume=None)
+
+
+def _open_gap(ts, close=2.0):
+    """The discriminating shape: ``open`` None while ``close`` is real."""
+    return SimpleNamespace(ts=ts, open=None, high=2.0, low=0.5,
+                           close=close, volume=None)
+
+
+def _close_gap(ts, open_=1.0):
+    """The mirror shape — the ESC-127 op: ``{open: 1, close: None, high: 2.0,
+    low: 0.5}`` — ``close`` None while ``open`` is real."""
+    return SimpleNamespace(ts=ts, open=open_, high=2.0, low=0.5,
                            close=None, volume=None)
 
 
@@ -217,6 +231,26 @@ def test_ac3_whitespace_update_for_an_absent_time_writes_nothing():
     bars = _three_bars()
     ops = [candles_set_op(bars), candle_update_op(_whitespace(T2 + STEP))]
     assert apply_ops_to_bars(ops) == [_candle_row(x) for x in bars]
+
+
+def test_ac3_every_whitespace_shape_obeys_the_one_predicate():
+    """The predicate is ``open is None or close is None`` — not close-only.
+
+    Every placeholder shape must behave identically in both reconstruction
+    branches: ``open`` null with a real close (the shape that used to
+    reconstruct as a bar in Python while the page dropped it), ``close`` null
+    with a real open, and all value slots null.
+    """
+    bars = _three_bars()
+    expected = [_candle_row(bars[0]), _candle_row(bars[2])]
+    for shape in (_open_gap(T1), _close_gap(T1), _whitespace(T1)):
+        via_update = [candles_set_op(bars), candle_update_op(shape)]
+        via_replace = [candles_set_op([bars[0], shape, bars[2]])]
+        assert apply_ops_to_bars(via_update) == expected, (
+            "an update naming a whitespace row removes the bar: %r" % (shape,))
+        assert apply_ops_to_bars(via_replace) == expected, (
+            "a whitespace row inside set_bars is never written: %r" % (shape,))
+        assert apply_ops_to_bars(via_update) == apply_ops_to_bars(via_replace)
 
 
 # ── AC5: edge legs ────────────────────────────────────────────────────────
@@ -436,40 +470,152 @@ def _rows_as_page_dicts(rows):
 
 def test_ac4_page_parity_for_whitespace_update_and_replace():
     bars = _three_bars()
+    # Fixture name -> (ops, the whitespace time the fixture names). Every
+    # fixture starts with a full replace, so each is self-contained.
     fixtures = {
-        # The same whitespace ts delivered once through update_bar...
-        "upsert": [
+        # The same all-null whitespace ts delivered once through update_bar...
+        "upsert": ([
             candles_set_op(bars),
             candle_update_op(_whitespace(T1)),
-        ],
+        ], T1),
         # ...and once as a row inside set_bars.
-        "replace": [candles_set_op([bars[0], _whitespace(T1), bars[2]])],
+        "replace": ([candles_set_op([bars[0], _whitespace(T1), bars[2]])], T1),
+        # The discriminating shape (open None, close real) — the row that
+        # used to reconstruct as a bar in Python while the page dropped it.
+        "open_gap_upsert": ([
+            candles_set_op(bars),
+            candle_update_op(_open_gap(T1)),
+        ], T1),
+        "open_gap_replace": ([
+            candles_set_op([bars[0], _open_gap(T1), bars[2]]),
+        ], T1),
+        # The mirror shape, for completeness: close None, open real.
+        "close_gap_replace": ([
+            candles_set_op([bars[0], _close_gap(T1), bars[2]]),
+        ], T1),
+        # ...and the ESC-127 op `{open: 1, close: None, high: 2.0,
+        # low: 0.5}` delivered as an update on top of a seeded series.
+        "close_gap_upsert": ([
+            candles_set_op(bars),
+            candle_update_op(_close_gap(T1)),
+        ], T1),
     }
-    payload = _run_node(fixtures)
+    payload = _run_node({name: ops for name, (ops, _) in fixtures.items()})
     snapshots = payload["snapshots"]
+    lib_rows = payload["libRows"]
 
-    for name in ("upsert", "replace"):
-        expected = _rows_as_page_dicts(apply_ops_to_bars(fixtures[name]))
+    for name, (ops, ws_ts) in fixtures.items():
+        expected = _rows_as_page_dicts(apply_ops_to_bars(ops))
         assert snapshots[name]["candles"] == expected, (
             "the page's bar series equals the Python reconstruction "
             "element-for-element for the %s fixture" % name)
-        assert T1 not in [r["time"] for r in snapshots[name]["candles"]], (
-            "the whitespace timestamp is absent from the page's candles")
-
-    # A whitespace row reaches the library as `{time}` only — never a
-    # null-valued point, and never painted as a candle.
-    lib_rows = payload["libRows"]
-    for name in ("upsert", "replace"):
+        assert ws_ts not in [r["time"] for r in snapshots[name]["candles"]], (
+            "the whitespace timestamp is absent from the page's candles "
+            "(%s)" % name)
+        # A whitespace row reaches the library as `{time}` only — never a
+        # null-valued point, and never painted as a candle.
         entries = lib_rows[name]
         for entry in entries:
             assert not any(v is None for v in entry["row"].values()), (
-                "the library was handed a null-valued point: %r" % (entry,))
-        t1_writes = [
+                "the library was handed a null-valued point (%s): %r"
+                % (name, entry))
+        ws_writes = [
             entry for entry in entries
-            if entry["series"] == "candles" and entry["row"]["time"] == T1
+            if entry["series"] == "candles" and entry["row"]["time"] == ws_ts
         ]
-        assert t1_writes, (
+        assert ws_writes, (
             "the whitespace time must be represented at the library (%s)" % name)
-        assert set(t1_writes[-1]["row"].keys()) == {"time"}, (
+        assert set(ws_writes[-1]["row"].keys()) == {"time"}, (
             "the whitespace row is a {time} placeholder only (%s): %r"
-            % (name, t1_writes[-1]["row"]))
+            % (name, ws_writes[-1]["row"]))
+
+
+# ── P25-T7 AC2: both discriminating shapes, both deliveries ───────────────
+
+
+def test_p25_t7_ac2_open_gap_and_close_gap_are_not_bars_in_either_delivery():
+    """The discriminating rows are not bars in either reconstruction branch.
+
+    ``open`` null with a real close, and the mirror (the ESC-127 op ``{open:
+    1, close: None, high: 2.0, low: 0.5}``), each delivered as a row of
+    ``set_bars`` between two real bars and as an ``update_bar`` on top of a
+    series that already contains that timestamp. No delivery keeps a tuple for
+    that ``ts``: a replace skips it and an update removes the existing bar.
+    """
+    bars = _three_bars()
+    neighbours = [_candle_row(bars[0]), _candle_row(bars[2])]
+    for shape in (_open_gap(T1), _close_gap(T1)):
+        deliveries = {
+            "set_bars": [candles_set_op([bars[0], shape, bars[2]])],
+            "update_bar": [candles_set_op(bars), candle_update_op(shape)],
+        }
+        for delivery, ops in deliveries.items():
+            rows = apply_ops_to_bars(ops)
+            times = [r[0] for r in rows]
+            assert T1 not in times, (
+                "no row survives for the whitespace ts (%s, %r)"
+                % (delivery, shape))
+            assert rows == neighbours, (
+                "the real neighbours are untouched (%s, %r): %r"
+                % (delivery, shape, rows))
+            assert times == sorted(times), (
+                "the series stays ascending (%s, %r)" % (delivery, shape))
+            assert len(times) == len(set(times)), (
+                "the series stays deduped (%s, %r)" % (delivery, shape))
+
+
+# ── P25-T7 AC1: one predicate per side, shared by that side's branches ────
+
+
+def test_p25_t7_ac1_whitespace_predicate_is_single_sourced_per_side():
+    """The rule is stated once per side; only the shared predicate is used.
+
+    Python: one module-level ``_candle_row_is_whitespace(o, c)`` called by
+    both ``apply_ops_to_bars`` branches, with no close-only test left in the
+    module. Page: ``envelope.js`` exports ``isWhitespaceRow`` and
+    ``mergeRows`` calls it in both branches; ``chart.js``'s display fold
+    delegates to ``window.LwEnvelope.isWhitespaceRow`` and holds no second
+    open/close comparison.
+    """
+    bridge_src = (REPO / "ui" / "lwc_bridge.py").read_text(encoding="utf-8")
+    assert bridge_src.count("def _candle_row_is_whitespace(o, c) -> bool:") == 1, (
+        "ui/lwc_bridge.py states the candle predicate exactly once")
+    assert "return o is None or c is None" in bridge_src, (
+        "the one predicate is `open is None or close is None`")
+    body = bridge_src.split("def apply_ops_to_bars(ops) -> list:", 1)[1]
+    body = body.split("\nclass LwBridge", 1)[0]
+    set_branch, update_branch = body.split('elif kind == "update_bar":', 1)
+    assert "_candle_row_is_whitespace(" in set_branch, (
+        "the set_bars branch calls the one predicate")
+    assert "_candle_row_is_whitespace(" in update_branch, (
+        "the update_bar branch calls the one predicate")
+    assert body.count("_candle_row_is_whitespace(") == 2, (
+        "apply_ops_to_bars holds no second copy of the candle rule")
+    assert 'cols["close"][0] is None' not in bridge_src, (
+        "the close-only update test is gone")
+    assert "if c is not None" not in bridge_src, (
+        "the close-only set_bars filter is gone")
+    assert "_is_whitespace_row" not in bridge_src, (
+        "the old helper name leaves no second definition behind")
+
+    env_src = (LWC_DIR / "envelope.js").read_text(encoding="utf-8")
+    assert env_src.count("function isWhitespaceRow(series, row)") == 1, (
+        "envelope.js states the predicate exactly once")
+    assert "isWhitespaceRow: isWhitespaceRow" in env_src, (
+        "envelope.js exports the predicate for chart.js")
+    merge_body = env_src.split("function mergeRows(base, ops) {", 1)[1]
+    merge_body = merge_body.split("\n  }", 1)[0]
+    assert merge_body.count("isWhitespaceRow(") == 2, (
+        "mergeRows calls the one predicate in both branches")
+    assert "isWhitespaceRow(op.series" in merge_body
+
+    chart_src = (LWC_DIR / "chart.js").read_text(encoding="utf-8")
+    assert chart_src.count("function isWhitespaceRow(name, row)") == 1, (
+        "chart.js keeps one display helper, not a second predicate")
+    chart_body = chart_src.split("function isWhitespaceRow(name, row) {", 1)[1]
+    chart_body = chart_body.split("\n  }", 1)[0]
+    assert "window.LwEnvelope.isWhitespaceRow" in chart_body, (
+        "chart.js delegates to envelope.js's exported predicate")
+    for token in ("open", "close", "=== null", "== null"):
+        assert token not in chart_body, (
+            "chart.js's fold states no comparison of its own (%r)" % token)

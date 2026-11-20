@@ -66,3 +66,79 @@ a defect in P25-T1's code.
 use it; earlier results record these cases as pre-existing skips). The webengine test stays in the file unchanged
 and still runs wherever WebEngine is functional. No acceptance criterion, test id, `touches_files` entry, dependency
 or other task was changed; the graph is re-validated with `check_tasks.py`.
+
+---
+
+## Rework run — 2026-11-19 (ESC-126 / ESC-127 / ESC-128, owner-approved)
+
+**Baseline:** the P25 build as recorded above (`P25-T1`…`P25-T5` all `done`, code review green, owner approved all
+three findings on 2026-11-19). **Gate checked:** `docs/tasks/task-graph.json` still carries the five done tasks
+unchanged; `docs/plan_review_P25.md` remains `APPROVED`; no phase structure was regenerated. Graph re-validated with
+`check_tasks.py`: **8 tasks validated, `execution_graph.json` rewritten** for the new structural hash (the next
+`advance` needs it).
+
+### What was added — three S tasks, one wave
+
+| Task | Escalation | Scope | Size | Depends on | Touches |
+|---|---|---|---|---|---|
+| **P25-T6** | **ESC-126** (should-fix, TASK_MANAGER) | Remove the dead import-time `QApplication` from `tests/test_p7_w4_streaming.py:39` and `tests/test_p7_w4_deferral.py:32`, give each a session-scoped autouse `_qt_app` fixture (Q-79's pattern), and add `tests/test_qt_app_import_invariant.py`: tree-wide module-scope AST scan + the escalated explicit collection order + a collected-case guard | S | none | the two suites + the new invariant suite |
+| **P25-T7** | **ESC-127** (nice-to-have, BUILD) | One candle whitespace predicate — `open is None or close is None` — stated once per side, both Python branches, `chart.js` delegating to the exported `envelope.js` predicate; discriminating parity fixtures | S | **P25-T4** | `ui/lwc_bridge.py`, `chart_assets/lwc/{envelope,chart}.js`, `envelope.test.js`, `tests/test_d69_d70_bridge_contract.py` |
+| **P25-T8** | **ESC-128** (nice-to-have, TASK_MANAGER) | One `usage.md` bullet for the amber partial marker on a forming week/month candle + a distinguishing half-sentence in the Event Markers note | S | **P25-T2** | `usage.md`, `tests/test_p25_usage_doc.py` |
+
+No size exception was used (rule cap and ~32-step exception both unused; each task is ~5–10 steps: one or two file
+edits, one test file, one verification run). No task exceeds the file count or the step target, so nothing was split
+further; all three are disjoint in files and run in **one wave**.
+
+**Edges, and why they are logical rather than file-level:**
+- `P25-T7 → P25-T4` is recorded even though T4 is already `done`: T7 does not merely overlap T4's files, it *assumes
+  T4's fold* (the skip-on-replace / delete-on-upsert behaviour and the AC4 parity harness). The edge documents the
+  assumption for any later re-read of the graph.
+- `P25-T8 → P25-T2` likewise: the doc bullet states T2's delivered marker semantics (AC-D67.1/2, the rollover
+  clear). It touches no file T2 touched.
+- `P25-T6` has no edge: it changes only test scaffolding and the import invariant; it assumes no phase contract. It
+  is not ordered after T4/T2 even though it edits files those tasks' exit conditions run — that is regression
+  coverage, not an assumed interface.
+
+### ESC-127 — rule chosen: **the page's stricter reading** (`open is None OR close is None`)
+
+Recorded here because the escalation left the direction to the implementer:
+
+- A candle needs **both** endpoints to be a bar; Python's close-only test would reconstruct
+  `(ts, None, 2.0, 0.5, 1.0)` — a malformed bar the page refuses to draw, i.e. exactly the "silently wrong data"
+  class D70 exists to close.
+- `AC-D70.2` makes **the page's merge the reference** the Python reconstruction must equal element-for-element; when
+  they disagree, the page wins by construction of the criterion, and `AC-D70.1`'s "a None-close row" is a subset of
+  the any-endpoint rule, not a competing rule.
+- No emitted shape changes: `ui/lwc_view.py::build_series_ops` nulls all four value slots together, so the stricter
+  predicate only rejects rows no producer can emit today (the escalation says the same).
+
+`P25-T7`'s parity fixture therefore carries **both** the ESC-127 op `{open: 1, close: None, high: 2.0, low: 0.5}`
+(the shape the prompt names) **and** its mirror `{open: None, close: 1.0, …}` — the mirror is the row that actually
+separates the two sides today, and the escalation's own measurement is what establishes that. The task's AC1 makes
+"one predicate per side" literal: `chart.js` may not keep a second copy, it delegates to
+`LwEnvelope.isWhitespaceRow` (the file already uses `window.LwEnvelope`, and `chart.html` loads `envelope.js`
+first).
+
+### ESC-128 — route chosen: **an explicit one-file doc task**, not `pending_doc_sync.md`
+
+`docs/pending_doc_sync.md` **does not exist** (Plan folded nothing this phase — the P25 review notes record it as
+absent), and the ownership table gives that file to Plan (folds) and quick (appends); Task Manager is not an owner
+and must not create an unowned coordination file. Handing the bullet to "the next Plan drafting pass" would leave a
+user-visible affordance undocumented at phase close — the finding would simply re-open. A single S task editing
+`usage.md` (plus one small content test) is the cheapest route that lands the wording **inside this phase**,
+is verifiable by test rather than by promise, and implies no production change. `doc_required: true` is set so the
+Code Reviewer's doc check applies.
+
+### Invariants preserved
+
+- `P25-T1`…`P25-T5`: substance, statuses, ACs, tests and `touches_files` untouched. `P25-T6` adds an invariant
+  suite rather than editing `tests/test_p25_fence.py`, so T5's suite stays the frozen phase fence.
+- `tests/test_lwc_render_smoke.py` is **not** in any `touches_files` (P28/R-07 territory); `P25-T6` reads it only
+  to reproduce the escalated order and its pack says "do not change".
+- No new production module, dependency, migration, wire version or op shape; no D67–D70 behaviour reopened. Sizes
+  S only, as required.
+- Pack prose vs ACs checked per task: every guarantee a pack states names its enforcing test — T6's invariant is
+  AC2's AST scan and AC3's collection regression, T7's "one predicate" is AC1's source check and its behaviour is
+  AC2/AC3, T8's wording requirements are AC1/AC2. No guarantee lives only in a comment.
+- Each of the three escalations is left `open` in `docs/code_review/escalations.json` — that file is Code Reviewer's;
+  the status flip is its call after verification.

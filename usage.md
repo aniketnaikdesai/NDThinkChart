@@ -156,7 +156,7 @@ until it reconnects.
 
 ### Event Markers (removed — Q-34, commit `1a30d41`)
 
-> The D38 earnings/dividend/split markers were removed; the chart shows no event markers.
+> The D38 earnings/dividend/split event markers were removed; the chart shows no event markers. The small amber dot above a forming `1 week` / `1 month` candle is a data-completeness marker — not an event marker.
 
 ### Volume-Burst Alerts & Symbol Search (Phase D39)
 - The search box sits in the watchlist header: type part of a ticker (requests at most ~once per 300ms, up to 16 matches as symbol/security-type/exchange); while disconnected the box is disabled
@@ -171,6 +171,7 @@ until it reconnects.
 
 ### Weekly & Monthly Timeframes (Phase D48)
 - The timeframe picker offers `1 week` (2 years of history) and `1 month` (10 years of history) after `1 day`; daily-and-coarser loads ignore the Ext Hours toggle
+- A forming `1 week` or `1 month` candle carries a small amber dot above it whenever the loaded history cannot cover the whole period — its open/high/low/close/volume are then the aggregate of the bars actually available; the dot disappears once the new period's data covers the period
 
 ### Add Studies
 1. Click **Studies…** button

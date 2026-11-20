@@ -151,11 +151,12 @@
     return rows;
   }
 
-  /* S-P25-6 (D70): a whitespace row is not a bar — one rule for both
-   * branches, mirroring Python's ``apply_ops_to_bars``. Candles test the
-   * value slots (open/close null), volume tests ``value``; a row whose
-   * slots are null is the Q-20 placeholder that renders as ``{time}`` only.
-   * On a replace it is skipped; on an upsert it removes that time. */
+  /* S-P25-6 (D70): the one whitespace predicate — a whitespace row is not a
+   * bar. Candles: ``open`` or ``close`` is null; volume: ``value`` is null.
+   * Stated once, here, and shared by ``mergeRows`` (the fold) and
+   * ``chart.js`` (the display/snapshot helpers), mirroring Python's
+   * ``ui/lwc_bridge.py::_candle_row_is_whitespace``. On a replace a
+   * whitespace row is skipped; on an upsert it removes that time. */
   function isWhitespaceRow(series, row) {
     if (!row) return true;
     if (series === "volume") {
@@ -206,5 +207,8 @@
     validateOp: validateOp,
     rowsOf: rowsOf,
     mergeRows: mergeRows,
+    /* S-P25-6: the fold's whitespace predicate is exported so chart.js uses
+     * this one definition instead of carrying a second copy (D70). */
+    isWhitespaceRow: isWhitespaceRow,
   };
 });

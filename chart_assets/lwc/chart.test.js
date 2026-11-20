@@ -750,6 +750,24 @@ describe("S-P25-6 whitespace parity through the real page (P25-T4)", () => {
     assert.deepEqual(rows[1], { time: T1 }, "as a {time} placeholder only");
   });
 
+  it("an open-null row is whitespace on both paths (the discriminating shape)", () => {
+    apply([{
+      op: "set_bars", series: "candles",
+      cols: candleCols([T0, T1, T2], [9.5, null, 11.5],
+        [11, null, 13], [9, null, 11], [10, 2.0, 12]),
+    }]);
+    assert.deepEqual(candleTimes(), [T0, T2],
+      "open null with a real close is not a bar in the replace fold");
+    const rows = libraryRows();
+    assert.deepEqual(rows[1], { time: T1 },
+      "the display keeps the hole as a {time} placeholder");
+
+    apply([{ op: "update_bar", series: "candles",
+      cols: candleCols([T0], [null], [null], [null], [2.0]) }]);
+    assert.deepEqual(candleTimes(), [T2],
+      "an open-null update removes the existing bar");
+  });
+
   it("replaying the same op list twice leaves the same series", () => {
     const ops = [
       {

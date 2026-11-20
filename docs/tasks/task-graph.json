@@ -717,7 +717,8 @@
         ],
         "needs_graphify": false,
         "size": "M"
-      }
+      },
+      "generation": 2
     },
     {
       "id": "P25-T5",
@@ -783,7 +784,7 @@
         "a fence that pins the requirements record and the phase's constants without pinning a count",
         "the phase's delta-scope record"
       ],
-      "status": "in_progress",
+      "status": "done",
       "size": "S",
       "context": {
         "read_files": [
@@ -835,6 +836,352 @@
         "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p25_fence.py -q",
         "memory_refs": [
           "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P25-T6",
+      "title": "ESC-126 \u2014 no import-time QApplication in the P7-W4 suites, and the invariant enforced tree-wide",
+      "description": "ESC-126 (Q-79 follow-up). tests/test_p7_w4_streaming.py:39 (`_APP = QApplication.instance() or QApplication([])`) and tests/test_p7_w4_deferral.py:32 (`APP = ...`) create a dead module-level QApplication at import; collecting either before tests/test_lwc_render_smoke.py reproduces its ImportError. Remove both import-time constructions and give each module a session-scoped autouse `_qt_app` fixture that creates the app at test time \u2014 the pattern Q-79 used in tests/test_d67_forming_candle.py (:66-78) \u2014 so the suite's widget construction still has an app without one existing at import. Add tests/test_qt_app_import_invariant.py: a static AST check that no module under tests/ constructs QApplication/QCoreApplication at module scope, a subprocess collection regression on the escalated explicit order (each P7-W4 suite before the smoke suite), and a guard that every test id the two files defined before the rework is still collected. Do not edit tests/test_lwc_render_smoke.py \u2014 its raw QtWebEngineWidgets import and ordering are P28/R-07 territory; do not delete or rename a case in either suite.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given tests/test_p7_w4_streaming.py and tests/test_p7_w4_deferral.py, When either module is imported, Then its module scope constructs neither QApplication nor QCoreApplication (no `_APP = QApplication.instance() or QApplication([])` / `APP = ...` line survives), and each module's tests obtain their QApplication at test time from a session-scoped autouse fixture (the Q-79 pattern in tests/test_d67_forming_candle.py), so the deferral suite's WatchlistPanel construction still succeeds.",
+        "Given every Python module under tests/, When its module-level statements are inspected without descending into function or class bodies, Then no module constructs a QApplication or QCoreApplication at import time \u2014 the static check fails while naming the file and line, and it catches a construction nested in a BooleanOp, ternary or module-level `if` as well as a direct assignment.",
+        "Given the escalated explicit collection order \u2014 tests/test_p7_w4_streaming.py followed by tests/test_lwc_render_smoke.py, and tests/test_p7_w4_deferral.py followed by tests/test_lwc_render_smoke.py, collected offscreen \u2014 Then collection succeeds in both orders and neither run reports the `QtWebEngineWidgets must be imported or Qt.AA_ShareOpenGLContexts must be set` ImportError at test_lwc_render_smoke.py.",
+        "Given the two suites as they stood before the rework, When they are collected after the change, Then every test id they defined before is still collected (the fix removes the import-time app and adds a fixture; it deletes, renames or weakens no case)."
+      ],
+      "tests": [
+        {
+          "test_id": "P25-T6-AC1",
+          "linked_acceptance_criterion": "Given tests/test_p7_w4_streaming.py and tests/test_p7_w4_deferral.py, When either module is imported, Then its module scope constructs neither QApplication nor QCoreApplication (no `_APP = QApplication.instance() or QApplication([])` / `APP = ...` line survives), and each module's tests obtain their QApplication at test time from a session-scoped autouse fixture (the Q-79 pattern in tests/test_d67_forming_candle.py), so the deferral suite's WatchlistPanel construction still succeeds.",
+          "type": "unit",
+          "description": "New tests/test_qt_app_import_invariant.py: parse each of the two files with ast and assert no module-level statement (descending into no def/class) contains a Call to QApplication/QCoreApplication; assert each file defines a `@pytest.fixture(scope=\"session\", autouse=True)` (named `_qt_app`) whose body calls QApplication. The two suites themselves are run by the task's test command (the deferral suite constructs a real WatchlistPanel, which needs the app).",
+          "expected_result": "Neither file's module body calls QApplication/QCoreApplication (before the fix both do, so the case is red), and both files carry the session-scoped autouse fixture that creates the app at test time; the two existing suites pass unchanged."
+        },
+        {
+          "test_id": "P25-T6-AC2",
+          "linked_acceptance_criterion": "Given every Python module under tests/, When its module-level statements are inspected without descending into function or class bodies, Then no module constructs a QApplication or QCoreApplication at import time \u2014 the static check fails while naming the file and line, and it catches a construction nested in a BooleanOp, ternary or module-level `if` as well as a direct assignment.",
+          "type": "unit",
+          "description": "Same new suite: walk tests/*.py, visit only module-level statements (skipping FunctionDef/AsyncFunctionDef/ClassDef subtrees), and collect every Call whose callee name is QApplication/QCoreApplication/QGuiApplication, including calls nested inside a BoolOp, IfExp or module-level `if`/`try` body. Assert the collected list is empty.",
+          "expected_result": "The scan returns an empty list on the phase tree; prepending `_APP = QApplication.instance() or QApplication([])` to any test module makes it fail with that file and line named."
+        },
+        {
+          "test_id": "P25-T6-AC3",
+          "linked_acceptance_criterion": "Given the escalated explicit collection order \u2014 tests/test_p7_w4_streaming.py followed by tests/test_lwc_render_smoke.py, and tests/test_p7_w4_deferral.py followed by tests/test_lwc_render_smoke.py, collected offscreen \u2014 Then collection succeeds in both orders and neither run reports the `QtWebEngineWidgets must be imported or Qt.AA_ShareOpenGLContexts must be set` ImportError at test_lwc_render_smoke.py.",
+          "type": "integration",
+          "description": "Same new suite: subprocess `[sys.executable, '-m', 'pytest', '--collect-only', '-q', <p7 file>, 'tests/test_lwc_render_smoke.py']` from the repo root with QT_QPA_PLATFORM=offscreen in the environment, once per P7-W4 file (timeout ~180 s).",
+          "expected_result": "Both subprocesses exit 0; neither stdout nor stderr contains 'ImportError' or 'must be imported or Qt.AA_ShareOpenGLContexts'. Before the fix both exit non-zero with that ImportError at tests/test_lwc_render_smoke.py (the ESC-126 repro)."
+        },
+        {
+          "test_id": "P25-T6-AC4",
+          "linked_acceptance_criterion": "Given the two suites as they stood before the rework, When they are collected after the change, Then every test id they defined before is still collected (the fix removes the import-time app and adds a fixture; it deletes, renames or weakens no case).",
+          "type": "integration",
+          "description": "Same new suite: subprocess `pytest --collect-only -q` on each of the two files (offscreen), parse the node ids it prints, and compare against the id list recorded in the test \u2014 the 13 streaming ids (test_p7_t07_t11_* , _t12_* , _t13_*) and the 7 deferral ids (test_t11_*, test_t12_*, test_t12_drive_*) taken from the pre-rework files.",
+          "expected_result": "Every recorded id is present in the collected output; removing or renaming a case makes the comparison fail and names the missing id."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p7_w4_streaming.py \u2014 dead module-level `_APP` removed, session-scoped autouse `_qt_app` fixture added",
+        "tests/test_p7_w4_deferral.py \u2014 dead module-level `APP` removed, session-scoped autouse `_qt_app` fixture added",
+        "tests/test_qt_app_import_invariant.py \u2014 the AST invariant check, the explicit-order collection regression and the case-list guard"
+      ],
+      "touches_files": [
+        "tests/test_p7_w4_streaming.py",
+        "tests/test_p7_w4_deferral.py",
+        "tests/test_qt_app_import_invariant.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ESC-126 (open, routed to TASK_MANAGER): the two dead module-level apps and the reproduced collection-order failure",
+        "tests/test_d67_forming_candle.py \u2014 Q-79's test-time fixture pattern"
+      ],
+      "outputs": [
+        "no test module constructs a QApplication at import time",
+        "an invariant suite that fails on a third case and on the escalated collection order"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p7_w4_streaming.py",
+            "lines": "20-45",
+            "why": "the module-level `_APP = QApplication.instance() or QApplication([])` at :39 to delete; the suite test-time app must come from a fixture (extend this module)"
+          },
+          {
+            "path": "tests/test_p7_w4_deferral.py",
+            "lines": "20-95",
+            "why": "the module-level `APP = ...` at :32 and the real `WatchlistPanel(` construction at :81 that needs a QApplication at test time \u2014 extend this module"
+          },
+          {
+            "path": "tests/test_d67_forming_candle.py",
+            "lines": "66-80",
+            "why": "read-only: Q-79's session-scoped autouse `_qt_app` fixture \u2014 the exact shape to copy (argv 'pytest' so Chromium does not hard-abort on an empty argv)"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "95-105",
+            "why": "read-only: the existing session `qapp` fixture the new module fixtures must not conflict with"
+          },
+          {
+            "path": "tests/test_lwc_render_smoke.py",
+            "lines": "650-680",
+            "why": "read-only: the raw QtWebEngineWidgets import whose ImportError the escalated order reproduces \u2014 do NOT change this file (P28/R-07 territory)"
+          }
+        ],
+        "contracts": [
+          {
+            "status": "new",
+            "module": "tests/test_p7_w4_streaming.py and tests/test_p7_w4_deferral.py",
+            "signature": "@pytest.fixture(scope=\"session\", autouse=True)\ndef _qt_app():\n    \"\"\"The session QApplication, created at test time (never at import).\"\"\"\n    app = QApplication.instance() or QApplication([\"pytest\"])\n    yield app"
+          },
+          {
+            "ref": "tests/conftest.py:qapp",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#Phase P25",
+        "requirement_ids": [],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_streaming.py tests/test_p7_w4_deferral.py tests/test_qt_app_import_invariant.py -q -m \"not webengine\"",
+        "memory_refs": [
+          "qt-testing",
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P25-T7",
+      "title": "ESC-127 \u2014 one candle whitespace predicate, shared by both branches on both sides, with a discriminating parity case",
+      "description": "ESC-127 (D70 follow-up). The whitespace rule is not literally one predicate: ui/lwc_bridge.py::apply_ops_to_bars tests only `close is None`, while chart_assets/lwc/envelope.js::isWhitespaceRow (and the duplicated copy at chart_assets/lwc/chart.js::isWhitespaceRow) tests `open is None OR close is None`. Adopt the page's stricter reading: a candle row IS whitespace iff `open is None or close is None` \u2014 a candle needs both endpoints to be a bar, AC-D70.2 makes the page's merge the reference the Python reconstruction must equal, and every producer today nulls all four value slots together (ui/lwc_view.py::build_series_ops), so no emitted shape changes. State it once per side: one module-level helper in ui/lwc_bridge.py called by BOTH apply_ops_to_bars branches; envelope.js exports isWhitespaceRow and uses it in mergeRows; chart.js's display fold keeps its function name but delegates to window.LwEnvelope.isWhitespaceRow with no second open/close comparison. Extend tests/test_d69_d70_bridge_contract.py's parity fixtures with the discriminating rows so Python and the real lwApplyOps/lwSnapshot() are compared on the shape that currently separates them, and add the fold's own unit case in chart_assets/lwc/envelope.test.js. Do not change ENVELOPE_VERSION, the op shapes, seriesRows/barRows, the volume predicate (`value is None`) or any other behaviour.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P25-T4"
+      ],
+      "acceptance_criteria": [
+        "Given the two sides, When the candle whitespace rule is read, Then it is stated once per side and shared by that side's branches: ui/lwc_bridge.py has ONE module-level predicate (e.g. `_candle_row_is_whitespace(o, c) -> bool`) called by both the set_bars and the update_bar branch of apply_ops_to_bars, and chart_assets/lwc/chart.js's display fold defines no second open/close null comparison \u2014 it delegates to envelope.js's exported predicate, which mergeRows also uses; the rule is `open is None or close is None` for candles and unchanged `value is None` for volume.",
+        "Given a candle row whose open is None and close is real, and the mirror row whose close is None and open is real, When it is delivered through apply_ops_to_bars as a row of set_bars or as an update_bar, Then neither delivery keeps a row for that timestamp \u2014 an update also removes an existing row for that ts \u2014 while a real neighbouring row is retained and the returned series stays ascending and deduped.",
+        "Given the discriminating rows and the ESC-127 op `{open: 1, close: None, high: 2.0, low: 0.5}`, When the same op lists are applied through the page's real lwApplyOps + window.lwSnapshot() in node, Then the page's candles equal apply_ops_to_bars element-for-element for every fixture, the whitespace timestamps are absent from both, and the library receives a {time} placeholder only \u2014 never a null-valued point \u2014 for both the update_bar and the set_bars delivery."
+      ],
+      "tests": [
+        {
+          "test_id": "P25-T7-AC1",
+          "linked_acceptance_criterion": "Given the two sides, When the candle whitespace rule is read, Then it is stated once per side and shared by that side's branches: ui/lwc_bridge.py has ONE module-level predicate (e.g. `_candle_row_is_whitespace(o, c) -> bool`) called by both the set_bars and the update_bar branch of apply_ops_to_bars, and chart_assets/lwc/chart.js's display fold defines no second open/close null comparison \u2014 it delegates to envelope.js's exported predicate, which mergeRows also uses; the rule is `open is None or close is None` for candles and unchanged `value is None` for volume.",
+          "type": "unit",
+          "description": "tests/test_d69_d70_bridge_contract.py gains a source-structure case: read ui/lwc_bridge.py, chart_assets/lwc/envelope.js and chart_assets/lwc/chart.js; assert the Python helper name is called from both apply_ops_to_bars branches and no bare `cols[\"close\"][0] is None` / `if c is not None` candle test survives; assert envelope.js lists isWhitespaceRow in its returned object and calls it from mergeRows; assert chart.js's isWhitespaceRow body calls LwEnvelope.isWhitespaceRow and contains no `open === null`/`close === null` comparison.",
+          "expected_result": "Each assertion holds on the changed tree; on the pre-change tree the chart.js duplicate and the Python close-only tests make the case fail, naming the site."
+        },
+        {
+          "test_id": "P25-T7-AC2",
+          "linked_acceptance_criterion": "Given a candle row whose open is None and close is real, and the mirror row whose close is None and open is real, When it is delivered through apply_ops_to_bars as a row of set_bars or as an update_bar, Then neither delivery keeps a row for that timestamp \u2014 an update also removes an existing row for that ts \u2014 while a real neighbouring row is retained and the returned series stays ascending and deduped.",
+          "type": "unit",
+          "description": "Same suite: build the open-null row and the close-null row (values 1.0 / 2.0 / 0.5 in the non-null slots); run each through set_bars (between two real bars) and through update_bar on top of a series that already contains that ts; reconstruct with apply_ops_to_bars.",
+          "expected_result": "For both rows and both deliveries the returned series contains no tuple for that ts, the two real neighbours are untouched, and the output is ascending with no duplicates; on the pre-change tree the open-null row survives as `(ts, None, 2.0, 0.5, 1.0)` and the case fails."
+        },
+        {
+          "test_id": "P25-T7-AC3",
+          "linked_acceptance_criterion": "Given the discriminating rows and the ESC-127 op `{open: 1, close: None, high: 2.0, low: 0.5}`, When the same op lists are applied through the page's real lwApplyOps + window.lwSnapshot() in node, Then the page's candles equal apply_ops_to_bars element-for-element for every fixture, the whitespace timestamps are absent from both, and the library receives a {time} placeholder only \u2014 never a null-valued point \u2014 for both the update_bar and the set_bars delivery.",
+          "type": "integration",
+          "description": "Extend tests/test_d69_d70_bridge_contract.py's existing node harness fixtures with: an update_bar carrying the open-null row and one carrying the ESC-127 close-null row on top of a seeded series, and a set_bars whose middle row is the open-null row; compare lwSnapshot()['candles'] with apply_ops_to_bars for each. chart_assets/lwc/envelope.test.js adds the fold's unit case: mergeRows skips the open-null row on a replace and deletes its time on an upsert.",
+          "expected_result": "Every fixture's page snapshot equals the Python reconstruction element-for-element, each whitespace ts is absent from both sides, no recorded library row holds a null value for the whitespace time, and the node fold case passes; the open-null fixtures fail on the pre-change tree (Python keeps the row, the page drops it)."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/lwc_bridge.py \u2014 one candle-whitespace predicate used by both apply_ops_to_bars branches, docstring stating the rule once",
+        "chart_assets/lwc/envelope.js \u2014 isWhitespaceRow exported and used by mergeRows as the single page-side predicate",
+        "chart_assets/lwc/chart.js \u2014 display fold delegates to LwEnvelope.isWhitespaceRow, no duplicated comparison",
+        "chart_assets/lwc/envelope.test.js \u2014 the fold's unit case for an open-null row",
+        "tests/test_d69_d70_bridge_contract.py \u2014 source-structure case, both-branch behaviour case and the extended node parity fixtures"
+      ],
+      "touches_files": [
+        "ui/lwc_bridge.py",
+        "chart_assets/lwc/envelope.js",
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/envelope.test.js",
+        "tests/test_d69_d70_bridge_contract.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ESC-127 (open, routed to BUILD): the measured asymmetry and the two candidate rules",
+        "P25-T4's whitespace fold (mergeRows skip/delete, apply_ops_to_bars close-only test)"
+      ],
+      "outputs": [
+        "one candle whitespace predicate, stated once per side and shared by both branches",
+        "parity fixtures that separate the two sides on a null-open row"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "250-300",
+            "why": "apply_ops_to_bars \u2014 the set_bars `if c is not None` filter and the update_bar close-only test to replace with one shared helper; extend this file"
+          },
+          {
+            "path": "chart_assets/lwc/envelope.js",
+            "lines": "150-215",
+            "why": "isWhitespaceRow, mergeRows and the returned-object map where the single predicate becomes exported; extend this file"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "455-505",
+            "why": "the duplicated isWhitespaceRow and its callers (seriesRows/barRows/snapshot) \u2014 replace the copy with a delegation; extend this file"
+          },
+          {
+            "path": "tests/test_d69_d70_bridge_contract.py",
+            "lines": "1-80",
+            "why": "the fixtures and helpers (_bar, _whitespace, candles_set_op/candle_update_op) the discriminating rows extend; extend this file"
+          },
+          {
+            "path": "tests/test_d69_d70_bridge_contract.py",
+            "lines": "281-500",
+            "why": "the _run_node harness and test_ac4_page_parity_for_whitespace_update_and_replace \u2014 where the new parity fixtures go"
+          },
+          {
+            "path": "chart_assets/lwc/envelope.test.js",
+            "lines": "1-40",
+            "why": "node --test conventions (require envelope.js) for the fold's own unit case; extend this file"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "1600-1630",
+            "why": "read-only: build_series_ops nulls all four value slots together, the evidence that no producer emits the mixed row"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/lwc_bridge.py:apply_ops_to_bars",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/envelope.js:mergeRows",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:isWhitespaceRow",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_bridge.py",
+            "signature": "def _candle_row_is_whitespace(o, c) -> bool:  # the ONE candle predicate: return o is None or c is None"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/envelope.js",
+            "signature": "isWhitespaceRow(series, row) -> bool: candles => row.open == null || row.close == null (null covers undefined); volume => row.value == null; also exported as LwEnvelope.isWhitespaceRow for chart.js"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/chart.js",
+            "signature": "function isWhitespaceRow(name, row) { return window.LwEnvelope.isWhitespaceRow(name, row); }  // delegate only, no second comparison"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#P25-03",
+        "requirement_ids": [
+          "AC-D70.1",
+          "AC-D70.2",
+          "R164"
+        ],
+        "test_command": "node --test chart_assets/lwc/ && QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d69_d70_bridge_contract.py -q",
+        "memory_refs": [
+          "lwc",
+          "qt-testing"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P25-T8",
+      "title": "ESC-128 \u2014 usage.md documents the amber partial marker on a forming week/month candle",
+      "description": "ESC-128 (D67 follow-up, routed to TASK_MANAGER for the route decision). D67 renders one amber series marker (chart_assets/lwc/chart.js PARTIAL_MARKER_COLOR '#fbbf24', aboveBar, circle) on the forming 1 week / 1 month candle whenever the period head is not covered; no user-facing doc mentions it. Route chosen: an explicit one-file doc task in this phase's rework (not a docs/pending_doc_sync.md entry): that file is absent and is Plan/quick-owned \u2014 Task Manager neither writes it nor creates it \u2014 while a single usage.md edit lands the wording now, inside the phase, and is verifiable. Edit two places only: one bullet under '### Weekly & Monthly Timeframes (Phase D48)' and the '### Event Markers (removed \u2014 Q-34, commit 1a30d41)' note. The bullet must say what the dot means (the forming candle's values are the aggregate of the bars actually available, because the loaded history does not cover the whole period), where it sits (a small amber dot above that forming candle), and when it goes away (once the new period's data covers the period). The Event Markers note must keep recording that the D38 earnings/dividend/split markers were removed and distinguish the amber dot as a data-completeness cue, not an event marker. No production file changes; do not restate or change D67-D70 behaviour, D67.3's priming rule or any other usage.md section.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P25-T2"
+      ],
+      "acceptance_criteria": [
+        "Given usage.md's '### Weekly & Monthly Timeframes (Phase D48)' section, When a reader opens it, Then one bullet names both timeframes, says the forming candle carries a small amber dot above it while the loaded history cannot cover the whole period (so its open/high/low/close/volume are the aggregate of the bars actually available), and says the dot disappears once the period's data is complete \u2014 stated as the project's user-facing behaviour, with no implementation detail and no other claim changed.",
+        "Given usage.md's '### Event Markers (removed \u2014 Q-34, commit 1a30d41)' note, When a reader opens it, Then it still records that the D38 earnings/dividend/split event markers were removed and now distinguishes the amber dot as a data-completeness marker rather than an event marker; the change is confined to usage.md and to these two spots."
+      ],
+      "tests": [
+        {
+          "test_id": "P25-T8-AC1",
+          "linked_acceptance_criterion": "Given usage.md's '### Weekly & Monthly Timeframes (Phase D48)' section, When a reader opens it, Then one bullet names both timeframes, says the forming candle carries a small amber dot above it while the loaded history cannot cover the whole period (so its open/high/low/close/volume are the aggregate of the bars actually available), and says the dot disappears once the period's data is complete \u2014 stated as the project's user-facing behaviour, with no implementation detail and no other claim changed.",
+          "type": "unit",
+          "description": "New tests/test_p25_usage_doc.py: slice usage.md from '### Weekly & Monthly Timeframes' to the next '### ' heading and assert, case-insensitively, that it mentions '1 week', '1 month', 'amber', 'forming', that the marker means the period's data is not complete (substrings 'cannot cover'/'not covered'/'partial' \u2014 any one), the aggregate-of-available-bars idea (substring 'aggregate' or 'bars actually'), and that it clears when covered ('disappear'/'clears'/'complete').",
+          "expected_result": "Every assertion holds on the edited usage.md and the test fails on the pre-change text (which mentions only history depth and the Ext Hours rule)."
+        },
+        {
+          "test_id": "P25-T8-AC2",
+          "linked_acceptance_criterion": "Given usage.md's '### Event Markers (removed \u2014 Q-34, commit 1a30d41)' note, When a reader opens it, Then it still records that the D38 earnings/dividend/split event markers were removed and now distinguishes the amber dot as a data-completeness marker rather than an event marker; the change is confined to usage.md and to these two spots.",
+          "type": "unit",
+          "description": "Same suite: slice the '### Event Markers' section to the next '### ' heading; assert it still contains 'D38', 'removed' and the earnings/dividend/split list, and that it now contains a distinction phrase ('not an event marker' or 'data-completeness'/'data completeness') plus 'amber'. Additionally assert the byte-level diff scope from the task record: only usage.md changed (recorded in the wave result, not asserted from git in-process).",
+          "expected_result": "The note keeps its removal record and adds the distinction; the phrase 'the chart shows no event markers' is either gone or explicitly qualified as 'no event markers' beside the amber dot; all assertions pass."
+        }
+      ],
+      "expected_artifacts": [
+        "usage.md \u2014 one bullet under '### Weekly & Monthly Timeframes (Phase D48)' and a distinguishing half-sentence in the '### Event Markers (removed)' note",
+        "tests/test_p25_usage_doc.py \u2014 the two content assertions"
+      ],
+      "touches_files": [
+        "usage.md",
+        "tests/test_p25_usage_doc.py"
+      ],
+      "doc_required": true,
+      "inputs": [
+        "ESC-128 (open, routed to TASK_MANAGER): the undocumented amber partial marker and the route question",
+        "P25-T2's delivered marker behaviour (AC-D67.1/AC-D67.2, AC-D67.3)"
+      ],
+      "outputs": [
+        "a user-facing explanation of the amber partial marker and when it clears",
+        "the Event Markers note no longer reads as if the chart draws no markers at all"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "usage.md",
+            "lines": "155-178",
+            "why": "the 'Event Markers (removed)' note at :157-159 and the '### Weekly & Monthly Timeframes (Phase D48)' section at :172-173 \u2014 the only two spots to edit"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "58-70",
+            "why": "read-only: PARTIAL_MARKER_COLOR '#fbbf24', position aboveBar, shape circle \u2014 the vocabulary the bullet must match"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1505-1545",
+            "why": "read-only: the one-marker surface (marker moves with the marked ts, cleared when the period is complete) so the wording states the real behaviour"
+          },
+          {
+            "path": "tests/test_p25_fence.py",
+            "lines": "1-60",
+            "why": "read-only: the phase's record-suite conventions, so the new doc test does not duplicate or contradict the fence"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#Phase P25",
+        "requirement_ids": [
+          "AC-D67.2",
+          "DG129"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p25_usage_doc.py -q",
+        "memory_refs": [
+          "docs"
         ],
         "needs_graphify": false,
         "size": "S"

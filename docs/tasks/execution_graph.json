@@ -19,6 +19,18 @@
     {
       "id": "P25-T5",
       "type": "Task"
+    },
+    {
+      "id": "P25-T6",
+      "type": "Task"
+    },
+    {
+      "id": "P25-T7",
+      "type": "Task"
+    },
+    {
+      "id": "P25-T8",
+      "type": "Task"
     }
   ],
   "edges": [
@@ -56,7 +68,17 @@
       "from": "P25-T4",
       "to": "P25-T5",
       "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P25-T4",
+      "to": "P25-T7",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P25-T2",
+      "to": "P25-T8",
+      "type": "DEPENDS_ON"
     }
   ],
-  "graph_struct_sha256": "a99225349bfcd4157ecf2a180276ed55e259e571dd175c8f0b57f8b472994d19"
+  "graph_struct_sha256": "6e1bd0fea9bb8d16106ca68b9163d39044857673e670f80cb4d7ca55349a1093"
 }

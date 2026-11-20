@@ -39,12 +39,15 @@ Behaviour:
 * **backpressure counters from day one** — ``counters()`` reports received /
   queued / coalesced / emitted / emissions / replays / queue-depth-max.
 * **whitespace placeholders** — a candle/volume column may hold ``None`` in a
-  value slot (never in ``ts``). The row is a whitespace point: it occupies one
-  index slot so a within-session hole renders as empty space
-  (AC-D21.4.4), and it is not a bar on either side (S-P25-6): the Python
-  reconstruction never writes it and removes that ``ts`` when an
-  ``update_bar`` names it, and ``chart_assets/lwc/chart.js`` sends ``{time}``
-  only to the series — never a null-valued point.
+  value slot (never in ``ts``). A candle row is a whitespace point exactly
+  when ``open`` or ``close`` is ``None``
+  (:func:`_candle_row_is_whitespace`), and a
+  volume row when ``value`` is ``None``. It occupies one index slot so a
+  within-session hole renders as empty space (AC-D21.4.4), and it is not a
+  bar on either side (S-P25-6): the Python reconstruction never writes it and
+  removes that ``ts`` when an ``update_bar`` names it, and
+  ``chart_assets/lwc/chart.js`` sends ``{time}`` only to the series — never a
+  null-valued point.
 * **arrival-ordered emission** — every staged op carries a monotonic
   sequence; ``flush`` emits data ops in that order, keeps only the last full
   replace (``set_bars`` / ``set_volume`` / ``clear``) per series and drops
@@ -240,18 +243,36 @@ def volume_set_op(bars) -> dict:
     }
 
 
+def _candle_row_is_whitespace(o, c) -> bool:
+    """The ONE candle whitespace predicate (S-P25-6, D70).
+
+    A candle row is a whitespace placeholder — not a bar (Q-20) — exactly
+    when ``open`` or ``close`` is ``None``. Both reconstruction branches in
+    :func:`apply_ops_to_bars` test this one function, and the page states the
+    same predicate exactly once
+    (``chart_assets/lwc/envelope.js::isWhitespaceRow``, which ``mergeRows``
+    and ``chart.js`` share), so the two sides cannot drift apart. The
+    stricter reading is deliberate: a placeholder nulls all four value slots
+    together, and a row missing either end cannot be a bar. This function is
+    the only place the candle rule is stated in Python — the branches must
+    call it, never compare a column themselves.
+    """
+    return o is None or c is None
+
+
 def apply_ops_to_bars(ops) -> list:
     """Reconstruct the candle series from an op list (replay-identity check).
 
     ``set_bars`` replaces, ``update_bar`` upserts by ``ts``, ``clear`` empties
     (volume ops are ignored — this is the candle-series reconstruction).
 
-    **One whitespace rule for both branches (S-P25-6).** A row whose
-    ``close`` is ``None`` is a whitespace placeholder, not a bar (Q-20): the
-    ``set_bars`` branch skips it, and an ``update_bar`` naming that ``ts``
-    removes any existing row for it and writes nothing. The two branches
-    therefore agree with each other and with the page's bar series
-    (``chart_assets/lwc/envelope.js``'s ``mergeRows`` and
+    **One whitespace rule for both branches (S-P25-6).**
+    :func:`_candle_row_is_whitespace` is the predicate: a candle row is
+    whitespace when ``open`` or ``close`` is ``None``. The ``set_bars`` branch
+    skips such a row; an ``update_bar`` naming that ``ts`` removes any
+    existing row for it and writes nothing.
+    The two branches therefore agree with each other and with the page's bar
+    series (``chart_assets/lwc/envelope.js``'s ``mergeRows`` and
     ``window.lwSnapshot()``), so the reconstruction equals what the chart
     renders.
 
@@ -277,18 +298,18 @@ def apply_ops_to_bars(ops) -> list:
             by_ts = {}
         elif kind == "set_bars":
             cols = op["cols"]
-            by_ts = {
-                ts: (ts, o, h, lo, c)
-                for ts, o, h, lo, c in zip(
-                    cols["ts"], cols["open"], cols["high"],
-                    cols["low"], cols["close"],
-                )
-                if c is not None
-            }
+            by_ts = {}
+            for ts, o, h, lo, c in zip(
+                cols["ts"], cols["open"], cols["high"],
+                cols["low"], cols["close"],
+            ):
+                if _candle_row_is_whitespace(o, c):
+                    continue
+                by_ts[ts] = (ts, o, h, lo, c)
         elif kind == "update_bar":
             cols = op["cols"]
             ts = cols["ts"][0]
-            if cols["close"][0] is None:
+            if _candle_row_is_whitespace(cols["open"][0], cols["close"][0]):
                 # S-P25-6: a whitespace update is not a bar — it removes the
                 # time it names (never a no-op write of a null-valued row).
                 by_ts.pop(ts, None)

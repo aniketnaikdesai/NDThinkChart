@@ -471,18 +471,15 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     });
   }
 
-  /* Q-20 whitespace: a row whose value slots are null is a placeholder, not
-   * a bar. `seriesRows` turns it into `{time}` only (the library's own
+  /* Q-20 whitespace: a placeholder row is not a bar. The predicate is stated
+   * exactly once, in ``envelope.js::isWhitespaceRow``, and shared with the
+   * fold (``mergeRows``) — never re-implemented here (S-P25-6, D70).
+   * `seriesRows` turns a whitespace row into `{time}` only (the library's own
    * whitespace point), so a within-session hole keeps its empty slots
    * (AC-D21.4.4); `barRows` drops it from the snapshot, which is the real
    * series the page reports and the volume pane prices. */
   function isWhitespaceRow(name, row) {
-    if (!row) return true;
-    if (name === "volume") {
-      return row.value === null || row.value === undefined;
-    }
-    return (row.open === null || row.open === undefined ||
-            row.close === null || row.close === undefined);
+    return window.LwEnvelope.isWhitespaceRow(name, row);
   }
 
   function seriesRows(name, rows) {
@@ -532,8 +529,8 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     // Line/area read the close leg of the shared candle snapshot.
     if ((mode === "line" || mode === "area") && snapshot.candles.length) {
       var rows = snapshot.candles.map(function (r) {
-        /* A missing close (never present in the snapshot) is a hole. */
-        return (r.close === null || r.close === undefined)
+        /* A whitespace row is a hole on the close leg too — one predicate. */
+        return isWhitespaceRow("candles", r)
           ? { time: r.time }
           : { time: r.time, value: r.close };
       });
