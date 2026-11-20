@@ -71,8 +71,17 @@ CLAIM_PHRASES = (
 # recorded 2026-11-04: the span is byte-identical between the pre-P16 HEAD
 # and the P16 worktree (the P16 requirements diff is purely additive there),
 # so this re-pins history without dropping any assertion.
+#
+# Re-pinned 2026-11-20 after the owner-approved requirements revision that
+# landed the RG-P29-1 partial-supersession notes inside this span (Journey 35
+# step 3 and AC-D40.4 — the two edits inside it). The same-date Q120 /
+# AC-D75.1 reword lands after \n### D53 and is therefore outside this pin; it
+# did not move the hash. Only this literal and this comment changed: every
+# marker assertion, the span-extraction expressions and the exact-equality
+# comparison below are byte-identical, so the fence still reddens on any
+# unauthorised change to this span.
 PROTECTED_SPAN_SHA256 = (
-    "2fe7b1ec62fa0e60c7292731e22569f616fdac95becbff8e00d4ee38cee0c139"
+    "ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a"
 )
 
 
@@ -430,3 +439,90 @@ def test_t34_history_markers_intact():
     assert (
         hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256
     ), "protected requirements history span changed"
+
+
+# ---------------------------------------------------------------------------
+# P28-T14 / AC-P28-03 — the re-pin must match the live span and carry its
+# authorising records, and the fence may never relax into a containment check
+# ---------------------------------------------------------------------------
+def test_p28_t14_pin_matches_live_span():
+    """The recorded pin equals the live span digest and both fences carry it."""
+    import pathlib
+    import re
+
+    expected = (
+        "ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a"
+    )
+    text = pathlib.Path("docs/requirements/requirements.md").read_text()
+    start = text.index("This is an existing repository.")
+    span = text[start : text.index("\n### D53 ")]
+    live = hashlib.sha256(span.encode()).hexdigest()
+    assert live == expected, (
+        f"live protected span digest {live} != recorded pin {expected}"
+    )
+    assert PROTECTED_SPAN_SHA256 == expected, (
+        f"tests/test_p14_cache_guard.py keeps {PROTECTED_SPAN_SHA256}, "
+        f"expected {expected} (live span digest {live})"
+    )
+    pin_re = re.compile(
+        r'PROTECTED_SPAN_SHA256 = \(\s*"([0-9a-f]{64})"\s*\)'
+    )
+    for rel in ("tests/test_p14_cache_guard.py", "tests/test_p15_surfacing.py"):
+        src = pathlib.Path(rel).read_text()
+        match = pin_re.search(src)
+        found = match.group(1) if match else "<missing>"
+        assert found == expected, (
+            f"{rel} pins {found}, expected {expected} "
+            f"(live span digest {live})"
+        )
+
+
+def test_p28_t14_repin_is_pin_only():
+    """Both fences keep the exact anchors/comparison; comments name the trail."""
+    import pathlib
+
+    fences = {
+        "tests/test_p14_cache_guard.py": "test_t34_history_markers_intact",
+        "tests/test_p15_surfacing.py": "test_t33_history_markers_intact",
+    }
+    anchors = (
+        'start = text.index("This is an existing repository.")',
+        'span = text[start : text.index("\\n### D53 ")]',
+        "hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256",
+    )
+    relaxed = (
+        "PROTECTED_SPAN_SHA256 " + "in span",
+        "span." + "startswith(PROTECTED_SPAN_SHA256)",
+    )
+    for rel, func in fences.items():
+        text = pathlib.Path(rel).read_text()
+        marker = f"def {func}("
+        body = text[text.index(marker):]
+        nxt = body.find("\ndef ", 1)
+        if nxt != -1:
+            body = body[:nxt]
+        for anchor in anchors:
+            assert anchor in body, f"{rel}: fence lost {anchor!r}"
+        for bad in relaxed:
+            assert bad not in body, f"{rel}: fence relaxed to {bad!r}"
+
+        # The audit trail lives in the comment block right above the pin.
+        idx = text.index("PROTECTED_SPAN_SHA256 = (")
+        block: list[str] = []
+        for line in reversed(text[:idx].splitlines()):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                block.append(line)
+            elif not stripped and block:
+                break
+            elif not stripped:
+                continue
+            else:
+                break
+        comment = "\n".join(reversed(block))
+        for token in ("RG-P29-1", "Q120", "AC-D75.1", "2026-11-20"):
+            assert token in comment, f"{rel}: pin comment omits {token}"
+        low = comment.lower()
+        assert "outside" in low or "after \\n### d53 " in low, (
+            f"{rel}: pin comment does not mark the Q120 edit outside this pin"
+        )

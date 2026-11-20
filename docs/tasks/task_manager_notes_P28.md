@@ -560,3 +560,49 @@ for the pipeline. (2) A verification result must never record `pass` for a case 
 the check by hand to know the content was sound. Any task whose `test_command` output contains a
 skip needs its result to state the executed count, not the verdict name — and a task whose entire
 deliverable is a guard should carry one self-check that asserts the *unchecked* state is loud.
+
+---
+
+## 2026-11-20 — re-pin task `P28-T14` (owner-authorised requirements re-pin)
+
+**Trigger.** T1–T13 `done`; the phase gate is otherwise clean, but the full suite fails on exactly
+two cases, both the same fence: `tests/test_p14_cache_guard.py::test_t34_history_markers_intact`
+and `tests/test_p15_surfacing.py::test_t33_history_markers_intact`. Every marker/presence assertion
+in both still passes; only `PROTECTED_SPAN_SHA256` differs. The owner approved two requirements
+edits on **2026-11-20**, both inside the pinned span, so the span digest moved
+`2fe7b1ec…` → `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a`
+(531306 bytes, span = `This is an existing repository.` → just before `\n### D53 `).
+
+**What changed in the graph.** One task, `P28-T14` (S, no dependencies, footprint exactly the two
+fence files). It re-pins the literal in BOTH files, rewrites each constant's comment to name the
+authorising record, and adds two guard tests in `test_p14_cache_guard.py` that (a) recompute the
+digest from `requirements.md` and assert both literals equal it, and (b) assert the pin-only shape
+of both fences — the two anchor expressions and `sha256(span.encode()).hexdigest() ==
+PROTECTED_SPAN_SHA256` verbatim, no `in`/`startswith` relaxation, and the comment tokens enforced.
+No production file and not `requirements.md` (Analyst-owned) is in the footprint.
+
+**Correction to the stated cause (matters for the record).** `AC-D75.1` / `Q120` sits at
+`requirements.md:7015`, *after* `### D53 ` (the span is lines 415–5445). It did **not** move the
+pin; only `RG-P29-1`'s two in-span notes did — `Journey 35` step 3 (line ~1138) and `AC-D40.4`
+(line ~3821). `P28-T14` encodes exactly that: the comment names both 2026-11-20 records, marks
+`RG-P29-1` as the one that moved the hash, and records the `Q120` reword as landing after `D53`
+and therefore outside this pin. Recording the true mapping matters — a comment that credits
+`Q120` would send the next auditor hunting a diff that is not in the span, and could license a
+needless re-pin later.
+
+**General rule (the reason this run is small).** A hash-pinned history span re-pins **when, and
+only when, an owner-approved requirements edit lands inside it** — never to make an unauthorised
+edit pass — and every re-pin names its authorising record (id + date) in the constant's comment.
+The re-pin changes the literal and the comment only: the span boundaries, the exact-equality
+comparison and every marker assertion stay byte-identical, so the fence still reddens if the span
+moves again without authorisation. This matches the precedent already in the file (the P16
+additive-diff re-pin of 2026-11-04).
+
+**Not in scope this run.** `ESC-137` is still listed `open` in `docs/code_review/escalations.json`
+although its fix shipped as `P28-T13` (commit `8e5516f`) and this notes file records it as
+delivered; closing the entry is Code Reviewer's call, and re-verification belongs to the phase
+gate, not to a pin repair. `P28-T14` touches nothing that `ESC-137`'s range predicate reads.
+
+**Check.** `check_tasks.py`: **OK — 14 tasks validated, `execution_graph.json` written**, 0 errors;
+remaining warnings are the pre-existing pure-output-file notices. `meta.status` =
+`READY_FOR_BUILD`; `P28-T14` is the only `not_started` task and is immediately dispatchable.

@@ -2536,6 +2536,156 @@
         "needs_graphify": false,
         "size": "S"
       }
+    },
+    {
+      "id": "P28-T14",
+      "title": "P28-03 - re-pin the protected requirements history hash after the owner-approved 2026-11-20 RG-P29-1 edit",
+      "description": "Update `PROTECTED_SPAN_SHA256` in both history-fence tests from `2fe7b1ec...` to `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a` - the sha256 of the requirements span from `This is an existing repository.` up to (not including) `\\n### D53 `, which moved when the owner-approved 2026-11-20 `RG-P29-1` partial-supersession notes landed inside it (Journey 35 step 3, `AC-D40.4`). Only the constant literal and its comment change: every marker/presence assertion, the span-extraction expressions and the exact-equality comparison stay byte-identical, so the fence still reddens on any unauthorised change to that span. No production file and not `docs/requirements/requirements.md` (Analyst-owned; its approved edits are already in the tree) is touched.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P28-03-S1",
+          "criterion": "Given `docs/requirements/requirements.md` as it stands (the owner-approved `RG-P29-1` notes of 2026-11-20 sit inside the span) and the protected span defined exactly as before - from `This is an existing repository.` up to, not including, `\\n### D53 ` - When either history fence runs, Then the span's sha256 is `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a`, `PROTECTED_SPAN_SHA256` is that value in BOTH `tests/test_p14_cache_guard.py` and `tests/test_p15_surfacing.py`, and both fence cases (`test_t34_history_markers_intact`, `test_t33_history_markers_intact`) pass."
+        },
+        {
+          "id": "AC-P28-03-S2",
+          "criterion": "Given the two fence files before this task, When the task's diff is reviewed, Then only the `PROTECTED_SPAN_SHA256` literal and its preceding comment block differ in each - the span-extraction lines (`start = text.index(\"This is an existing repository.\")`, `span = text[start : text.index(\"\\n### D53 \")]`), the exact-equality assertion `hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256`, and every marker/presence `assert` line are byte-identical - and neither file gains a membership/prefix comparison (`in`, `startswith`), so the pin still reddens if that span changes again without authorisation."
+        },
+        {
+          "id": "AC-P28-03-S3",
+          "criterion": "Given each `PROTECTED_SPAN_SHA256` definition, When its comment is read, Then it states that the pin moved on the owner-approved 2026-11-20 requirements revision and names the authorising records: `RG-P29-1` (the Journey 35 step 3 and `AC-D40.4` partial-supersession notes - the two edits inside this span) and the same-date `Q120` / `AC-D75.1` reword, recorded as landing after `### D53 ` and therefore OUTSIDE this pin so it did not move the hash; the date `2026-11-20` appears."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P28-T14-01",
+          "linked_acceptance_criterion": [
+            "AC-P28-03-S1"
+          ],
+          "type": "integration",
+          "description": "Run the two pre-existing fence cases on the current tree: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p15_surfacing.py::test_t33_history_markers_intact -q`.",
+          "expected_result": "`2 passed`, `0 failed`, no skip. RED before the edit (both failed on the hash comparison only, message `protected requirements history span changed`, every marker assertion before it already passing); GREEN after - so the only failing assertion was the pin."
+        },
+        {
+          "test_id": "P28-T14-02",
+          "linked_acceptance_criterion": [
+            "AC-P28-03-S1"
+          ],
+          "type": "unit",
+          "description": "A new guard test in tests/test_p14_cache_guard.py recomputes the digest independently - reads docs/requirements/requirements.md, slices from `This is an existing repository.` to `text.index(\"\\n### D53 \")`, sha256 - and asserts it equals the literal `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a` and that this same literal is present in both `tests/test_p14_cache_guard.py` and `tests/test_p15_surfacing.py`.",
+          "expected_result": "Passes on the shipped tree; it fails if either file keeps the old `2fe7b1ec...` pin or if the live span digest differs from the recorded literal, naming the file and both digests."
+        },
+        {
+          "test_id": "P28-T14-03",
+          "linked_acceptance_criterion": [
+            "AC-P28-03-S2"
+          ],
+          "type": "unit",
+          "description": "A new source-shape guard test in tests/test_p14_cache_guard.py reads both fence files and asserts, per file: the two span-extraction expressions appear verbatim, the comparison expression `hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256` appears verbatim, and no relaxed form (`PROTECTED_SPAN_SHA256 in span`, `span.startswith(PROTECTED_SPAN_SHA256)`) appears.",
+          "expected_result": "Passes; a widened/narrowed boundary (e.g. a different end anchor) or a containment/prefix comparison makes it fail, so the fence cannot be silently relaxed into a `contains` check."
+        },
+        {
+          "test_id": "P28-T14-04",
+          "linked_acceptance_criterion": [
+            "AC-P28-03-S2"
+          ],
+          "type": "manual",
+          "description": "Inspect `git diff HEAD -- tests/test_p14_cache_guard.py tests/test_p15_surfacing.py` (HEAD is the pre-task state; the tree is clean at dispatch).",
+          "expected_result": "Each file's diff is confined to the comment block above `PROTECTED_SPAN_SHA256` and the hex string itself; no removed or modified line contains `assert `, `text.index(`, `partition(`, `range(41, 53)` or the marker strings, and no new line other than the comment/literal (plus, in test_p14 only, the two appended guard-test functions)."
+        },
+        {
+          "test_id": "P28-T14-05",
+          "linked_acceptance_criterion": [
+            "AC-P28-03-S3"
+          ],
+          "type": "unit",
+          "description": "The comment-block guard test (same new test function family in tests/test_p14_cache_guard.py) takes the text immediately preceding each `PROTECTED_SPAN_SHA256 = (` in both files and asserts it contains `RG-P29-1`, `Q120`, `AC-D75.1` and `2026-11-20`, and that it marks the Q120 edit as outside this pin (the token `outside` or the phrase `after \\n### D53 `).",
+          "expected_result": "Passes with the shipped comments; fails if a future re-pin ships without naming its authorising record, so the audit trail is enforced rather than conventional."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p14_cache_guard.py - PROTECTED_SPAN_SHA256 re-pinned with the 2026-11-20 authorisation comment; two new guard tests (digest identity, pin-only shape/comment)",
+        "tests/test_p15_surfacing.py - PROTECTED_SPAN_SHA256 re-pinned with the same authorisation comment; fence and all other assertions untouched",
+        "the two history fences green"
+      ],
+      "touches_files": [
+        "tests/test_p14_cache_guard.py",
+        "tests/test_p15_surfacing.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "docs/requirements/requirements.md (read-only; already carries the owner-approved RG-P29-1 and Q120 edits)",
+        "the current PROTECTED_SPAN_SHA256 value 2fe7b1ec... in both fences"
+      ],
+      "outputs": [
+        "PROTECTED_SPAN_SHA256 = ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a in both fence files",
+        "guard tests P28-T14-02/03/05 in tests/test_p14_cache_guard.py"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "57-80",
+            "why": "edit: the PROTECTED_SPAN_SHA256 comment + literal are replaced; the two new guard tests are appended at the end of the file"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "405-432",
+            "why": "read-only in substance: the T34 fence's marker assertions, span extraction and hash comparison - every line here stays byte-identical"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "58-70",
+            "why": "edit: the PROTECTED_SPAN_SHA256 comment + literal are replaced with the same value and the same authorisation facts"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "424-438",
+            "why": "read-only in substance: the mirrored fence - marker assertions, span extraction and hash comparison stay byte-identical"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_p14_cache_guard.py:test_t34_history_markers_intact",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p15_surfacing.py:test_t33_history_markers_intact",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p14_cache_guard.py",
+            "signature": "PROTECTED_SPAN_SHA256 = (\"ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a\")  # identical literal in tests/test_p15_surfacing.py"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p14_cache_guard.py",
+            "signature": "def test_p28_t14_pin_matches_live_span() -> None:  # recomputes the digest from docs/requirements/requirements.md; asserts literal == live digest and present in both fence files"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p14_cache_guard.py",
+            "signature": "def test_p28_t14_repin_is_pin_only() -> None:  # both files keep the two anchor expressions and 'sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256'; no 'in'/'startswith' form; comment block names RG-P29-1, Q120, AC-D75.1, 2026-11-20 and marks Q120 outside the pin"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P28",
+        "plan_ref": "docs/plan.md#Phase P28",
+        "requirement_ids": [
+          "AC-D40.4",
+          "AC-D75.1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py tests/test_p15_surfacing.py -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
     }
   ]
 }

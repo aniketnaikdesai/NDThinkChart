@@ -64,8 +64,17 @@ CLAIM_PHRASES = (
 # sentence through the end of the D52 section (up to "\n### D53 ").
 # Top-of-file navigation/baseline blocks sit outside the pin by design.
 # Reproving it here shows no protected wording moved under P15 either.
+#
+# Re-pinned 2026-11-20 after the owner-approved requirements revision that
+# landed the RG-P29-1 partial-supersession notes inside this span (Journey 35
+# step 3 and AC-D40.4 — the two edits inside it). The same-date Q120 /
+# AC-D75.1 reword lands after \n### D53 and is therefore outside this pin; it
+# did not move the hash. Only this literal and this comment changed: every
+# marker assertion, the span-extraction expressions and the exact-equality
+# comparison below are byte-identical, so the fence still reddens on any
+# unauthorised change to this span.
 PROTECTED_SPAN_SHA256 = (
-    "2fe7b1ec62fa0e60c7292731e22569f616fdac95becbff8e00d4ee38cee0c139"
+    "ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a"
 )
 
 

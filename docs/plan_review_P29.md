@@ -1,12 +1,15 @@
 # Plan Review — Phase P29 (D96–D100): persisted state and alarm evaluation
 
-Plan-Section-SHA256: ef98484c6610060252cac0c8128107e073eb8fef04cd1c977be7136a62fc78ea
-Architecture-Section-SHA256: 86a741d532803dbc9853193a1fbbd6e9cfcb0b0d703f6b6e48fb771c4eb00205
+Plan-Section-SHA256: d5c357a73c611fb8aab755fbce9a4355d4f64e92a4141d82e0b40bf70a509010
+Architecture-Section-SHA256: fbec1591e8c1d0ceff4bf3417f1a93a146320a922f354cc0f51c0b60057bfd09
 
 **Pass type:** `retry_1_of_3` — targeted re-validation of RC-1…RC-4 (judged against source, not the revision
-note), then finalize. `plan_lint` PASS (0 failures, 0 warnings) per the preamble. Phase gate **open**
+note), then finalize; `plan_lint` PASS (0 failures, 0 warnings) per the preamble. Phase gate **open**
 (`docs/code_review/review_log_P28.md` = `REVIEW_COMPLETE`), no P29 provisional review exists, and the last
-full pass covered steps 1–9 — so this pass **activates**.
+full pass covered steps 1–9 — so that pass **activated**. A later `changes_required` invocation
+(2026-11-20) asked only for a targeted confirmation of the recorded `RG-P29-1` ruling; it found the
+substance correct, applied four wording fixes, and **left activation standing** — see
+§ *RG-P29-1 recorded ruling — targeted confirmation*.
 
 ---
 
@@ -15,9 +18,10 @@ full pass covered steps 1–9 — so this pass **activates**.
 **Status: APPROVED**
 
 `docs/plan.md` § P29 carries `Status: READY_FOR_TASK_MANAGER` (activated by this review). The canonical
-`docs/architecture.md` § P29 was validated in place, with **one editorial correction** recorded below
-(normalising a stale row to content the same section already states and this review already validated — no
-new architectural decision).
+`docs/architecture.md` § P29 was validated in place; corrections applied were **editorial only** — one stale
+Codebase-Summary row normalised to content the section already states, and (on the RG-P29-1 confirmation) the
+`[revises P4/D40]` bullet's open-ask framing replaced by the recorded ruling's location. No architectural
+decision was introduced; the two corrections are recorded below and in the confirmation section.
 
 ---
 
@@ -73,10 +77,11 @@ new architectural decision).
   The fix's own ripple was checked too — `pause_all`'s flag removal affects only the staged path, which
   re-seeds itself (`_start_monitoring` sets `None`), so `test_d25_4_alarm_added_while_disconnected` and
   `test_d40_3_alarm_created_mid_pause_stays_paused` pass unmodified and need no re-baseline.
-- **Requirements escalation** — `RG-P29-1` (`AC-D40.4` / Journey 35 step 3 vs `AC-D98.1`) remains open in
-  `docs/plan_notes.md` with the requirements analyst; `requirements.md` is unchanged (still
-  `READY_FOR_PLAN`), FI-P29-1 still describes it accurately, and it does not gate the build (P29 builds
-  `AC-D98.1`'s default; `AC-D98.3` not activated).
+- **Requirements escalation** — `RG-P29-1` was **addressed 2026-11-20** by the owner's ruling, recorded at
+  `AC-D40.4` (`requirements.md:3821-3823`) and Journey 35 step 3 (`:1138-1139`) as a two-clause partial
+  supersession by `AC-D98.1`; see the confirmation section below, which also records the wording fixes
+  applied to FI-P29-1 and to `architecture.md`'s `[revises P4/D40]` bullet. No requirement was reworded
+  beyond that note and no criterion was added.
 
 ---
 
@@ -106,6 +111,60 @@ inconsistency found in the cumulative files.
 
 ---
 
+## RG-P29-1 recorded ruling — targeted confirmation (2026-11-20)
+
+**Verdict: the ruling is recorded correctly, the plan's substantive statement matches it exactly, and
+activation stands.** Four wording spots were corrected (three in `plan.md` § P29, one in
+`architecture.md` § P29) to remove stale "open ask" framing and one false attribution — no wave, AC,
+deliverable, exit condition, frozen interface, assumption or flagged-issue decision changed. This was a
+targeted confirmation: the full method was not re-run.
+
+1. **Match to the record — PASS.** `requirements.md:3819-3823` appends "*[PARTIAL SUPERSESSION 2026-11-20
+   — RG-P29-1: the **no gap accounting** and **`prev_price`-untouched** clauses are superseded in part by
+   `AC-D98.1` … The surviving clauses — **no paused badge, no pause flags** — stand verbatim. No new
+   criterion; nothing else in this criterion is reworded.]*"; `:1137-1139` appends the same note to
+   Journey 35 step 3 ("no gap accounting" superseded; "no pause UI, fast reconnect, no paused state"
+   stands). P29's FI-P29-1 names exactly those two clauses, as a **partial** supersession by `AC-D98.1`,
+   keeps the badge/flag clauses verbatim, and claims neither more (no AC-D40.4 withdrawal, no broader
+   reopening) nor less (both clauses named, not just gap accounting). It now also cites the note's line
+   ranges and states that the `AC-D40.*` Non-Goals bullet (`:7420`) is requirements-owned and unchanged.
+2. **Nothing else moved — PASS.** Verified by structure, not by the note: five wave headers with unchanged
+   titles and sizes (M/S/M/M/S), five exit conditions (P29-01 still names the four group-dialog suites;
+   P29-03 still names G6 owner-run and unclaimed), AP-P29-7's five-reads text, the D98 suite's cases (a)–(h)
+   including the cold-start (g) and inert-duplicate (h) cases, FI-P29-2 / FI-P29-3, the traceability table
+   and the frozen-interface entries. No AC row, deliverable, assumption or flagged-issue *decision* moved.
+3. **Status and lint — PASS.** `docs/plan.md` § P29 still ends `Status: READY_FOR_TASK_MANAGER` (line
+   8914); `plan_lint.py --phase P29` → `LINT PASS … 0 failure(s), 0 warning(s)`.
+4. **Placement is right; the wording was not — corrected.** Keeping the claim inside FI-P29-1 (rather than
+   a plan-side Non-Goals list) is the correct container: the Phase P29 Non-Goals are requirements-owned
+   (`requirements.md:7418-7423`) and Plan must not edit them. But as left, the item could be read as
+   **open** — the lead still said "asks for the supersession to be recorded (blocking for the record, not
+   for the build)" and "Suggested direction" still read as an ask — and one clause asserted "P29's
+   Non-Goals **now read** …", which was false: `requirements.md:7420` still reads "No reopening of
+   `AC-D25.*` …, `AC-D40.*` …, or `AC-D21.9`" with no qualifier. Smallest fix applied (editorial; every
+   statement verifiable, no decision introduced):
+   - **FI-P29-1 lead** → "… contradicted each other; resolved 2026-11-20 by the recorded partial
+     supersession `RG-P29-1`, with P29 following the later, phase-governing criterion."
+   - **FI-P29-1 body** → the "Non-Goals now read" sentence replaced by the record: note ranges
+     `:3821-3823` and `:1138-1139`; Non-Goals bullet `:7420` requirements-owned and **not amended**;
+     "P29's scope is unchanged by it".
+   - **FI-P29-1 "Suggested direction"** → "**applied 2026-11-20**".
+   - **`architecture.md`'s `[revises P4/D40]` bullet** → "for the Validator/Requirements Analyst to record
+     as a supersession" replaced by "recorded 2026-11-20 (`RG-P29-1`) at `AC-D40.4` (`:3821-3823`) and at
+     Journey 35 step 3, and cross-referenced in FI-P29-1".
+   The revision-notes bullet that described the old FI wording was synchronised to describe the actual
+   edit. `docs/plan_notes.md` RG-P29-1 is `addressed 2026-11-20` and was left untouched.
+5. **P29-03's re-baseline of `test_d40_4_transient_drop_no_pause_ui` — fully authorised.** Its three
+   flipped assertions each encode a superseded clause and nothing else: `_pause_start == {}` →
+   `SYM_A` in `_outage_start` at the drop (**gap accounting**); `last_chart_price == before` →
+   `is None` (**`prev_price` untouched**); no "unmonitored" line → a line naming the symbol and the
+   interval (**gap reported**, `AC-D98.1`'s "over both disconnect classifications"). The five kept
+   assertions (classification `None`, `_tws_paused` False, red badge, `is_paused` False,
+   `monitoring_paused` False) are exactly the surviving clauses the note preserves. Nothing in that case
+   is re-baselined beyond the recorded ruling.
+
+---
+
 ## Final Decision
 
 **Status: APPROVED**
@@ -113,6 +172,8 @@ inconsistency found in the cumulative files.
 - `docs/plan.md` § P29 → `Status: READY_FOR_TASK_MANAGER` (flipped by this review; the only activation).
 - `docs/architecture.md` § P29 validated in place, with the one editorial correction above.
 - `docs/plan_review_P29.md` this file; section stamps re-taken for this cycle.
-- `RG-P29-1` stays open with the requirements analyst and does not gate the build; `docs/plan_notes.md`
-  untouched by this pass.
-- Task Manager may proceed. No other agent is invoked from here.
+- `RG-P29-1` is **addressed 2026-11-20** (owner ruling recorded at `AC-D40.4` and Journey 35 step 3; the
+  Phase P29 Non-Goals bullet is requirements-owned and unchanged); `docs/plan_notes.md` untouched by this
+  pass. The P29-03 re-baseline of `tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui`
+  is fully authorised by that record.
+- **Activation stands.** Task Manager may proceed. No other agent is invoked from here.
