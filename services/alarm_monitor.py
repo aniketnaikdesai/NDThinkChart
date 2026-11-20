@@ -44,12 +44,16 @@ class AlarmMonitor:
         # host: MainWindow (duck-typed) — get_or_create_session(),
         # _sessions, _teardown_session(), status_bar.
         self._host = host
-        # D40: TWS-gone pause state. _pause_start maps symbol →
-        # pause-start epoch for per-symbol gap accounting; _paused is
-        # the global flag new headless monitors check in
-        # _start_monitoring.
+        # D40/P29: outage state. _outage_start maps symbol → the epoch its
+        # unmonitored interval began — one interval per symbol, whatever
+        # the drop's classification (gap accounting). _outage_active means
+        # "a drop interrupted a live session since the last resume"; it is
+        # set ONLY by begin_outage() and cleared ONLY by resume_all(), and
+        # it gates the resume re-seed. _paused is the TWS-gone pause flag
+        # new headless monitors check in _start_monitoring.
         self._paused: bool = False
-        self._pause_start: dict[str, float] = {}
+        self._outage_start: dict[str, float] = {}
+        self._outage_active: bool = False
 
     # ── Reconciliation ──────────────────────────────────────────────
 
@@ -173,14 +177,36 @@ class AlarmMonitor:
                 return True
         return False
 
+    def begin_outage(self) -> None:
+        """Record the start of every alarmed symbol's unmonitored interval.
+
+        Called on every transport drop, before the drop is classified.
+        A drop with no session is **not** an outage: on an ordinary
+        launch no session exists before the first handshake, so a failed
+        or pre-handshake attempt on an "app started before TWS" launch
+        arms nothing, and the first successful handshake keeps its
+        1m-cache seed (AR-P29-9).
+        """
+        if not self._host._sessions:
+            return
+        self._outage_active = True
+        now = time.time()
+        for symbol, session in list(self._host._sessions.items()):
+            if self._session_has_live_alarms(session):
+                self._outage_start.setdefault(symbol, now)
+
     def pause_all(self) -> None:
         """D40.2: TWS is gone — pause evaluation for every alarmed symbol.
 
-        Records pause-start per symbol (gap accounting) and sets the
-        per-session ``monitoring_paused`` flag that the evaluation path
-        checks: no evaluation, no triggers, no phantom risk while
+        Records the unmonitored interval in the same per-symbol ledger
+        ``begin_outage`` writes (``setdefault`` no-ops where the drop
+        already recorded it; it covers alarms created mid-pause) and sets
+        the per-session ``monitoring_paused`` flag that the evaluation
+        path checks: no evaluation, no triggers, no phantom risk while
         paused. Sessions keep their subscriptions bookkeeping; the D27
-        replay re-issues them on resume.
+        replay re-issues them on resume. The pause flags are TWS-gone
+        only: this method does **not** set ``_outage_active`` — a pause
+        with no recorded drop cannot arm a re-seed.
         """
         now = time.time()
         self._paused = True
@@ -188,7 +214,7 @@ class AlarmMonitor:
         for symbol, session in list(self._host._sessions.items()):
             if not self._session_has_live_alarms(session):
                 continue
-            self._pause_start.setdefault(symbol, now)
+            self._outage_start.setdefault(symbol, now)
             session.monitoring_paused = True
             count += 1
         _LOG.info(
@@ -196,25 +222,29 @@ class AlarmMonitor:
         )
 
     def resume_all(self) -> list[tuple[str, float, float]]:
-        """D40.3: TWS is back — clear pause flags, re-seed, return gaps.
+        """TWS is back — clear outage flags and return the intervals.
 
-        Returns ``[(symbol, pause_start, pause_end)]`` for the gap
-        report. Every session's ``prev_price`` is re-seeded to None so
-        the first post-resume bar seeds WITHOUT evaluation (the
-        AC-D25.3 first-tick-no-eval guard) — no phantom triggers on
-        resume, even if the price crossed an alarm level during the
-        unmonitored gap. The caller runs the D27 subscription replay
-        first and ``reconcile()`` after; reconcile-created sessions are
-        re-seeded here too.
+        Called on every reconnect. A reconnect that follows an outage
+        re-seeds every session (first tick seeds, no evaluation —
+        AC-D25.3) and the unmonitored interval is reported; a first
+        connect follows no outage and changes no baseline. Returns
+        ``[(symbol, start, end)]`` for the gap report. The re-seed covers
+        reconcile-created sessions too; the caller runs ``reconcile()``
+        first.
         """
+        resuming_from_outage = self._outage_active
         now = time.time()
-        gaps = [(s, t0, now) for s, t0 in self._pause_start.items()]
-        self._pause_start.clear()
+        gaps = [(s, t0, now) for s, t0 in self._outage_start.items()]
+        self._outage_start.clear()
         self._paused = False
+        self._outage_active = False
         for session in list(self._host._sessions.values()):
             session.monitoring_paused = False
-            # AC-D25.3: first tick seeds, no evaluation.
-            session.last_chart_price = None
+            if resuming_from_outage:
+                # AC-D25.3/AC-D98.1: first tick seeds, no evaluation —
+                # only when the session survived an outage, so a first
+                # connect keeps D25.2's 1m-cache seed.
+                session.last_chart_price = None
             # D40: finish subscribes that were staged while TWS was gone
             # (reconcile skips these sessions as already monitored).
             if getattr(session, "_monitor_subscribe_pending", False):
@@ -271,7 +301,7 @@ class AlarmMonitor:
             # subscribe pending; resume_all() finishes it on the way
             # back up (reconcile would otherwise skip this session as
             # already monitored, stranding it with no RT feed).
-            self._pause_start.setdefault(session.symbol, time.time())
+            self._outage_start.setdefault(session.symbol, time.time())
             session.monitoring_paused = True
             session.last_chart_price = None
             session.aggregator_for("1m")

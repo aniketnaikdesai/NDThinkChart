@@ -196,7 +196,7 @@ def test_d40_1_pause_on_tws_close(monkeypatch, qapp):
         assert win.alarm_monitor.is_paused is True
         assert session_a.monitoring_paused is True
         assert session_b.monitoring_paused is True
-        assert set(win.alarm_monitor._pause_start) == {SYM_A, SYM_B}
+        assert set(win.alarm_monitor._outage_start) == {SYM_A, SYM_B}
 
         # No evaluation while paused: drive a bar straight through the
         # alarm level — nothing may trigger.
@@ -361,7 +361,7 @@ def test_d40_3_gap_accounting_per_symbol(monkeypatch, qapp):
 
         _go_live(win)
         win.ib_client.connectionClosed()
-        starts = dict(win.alarm_monitor._pause_start)
+        starts = dict(win.alarm_monitor._outage_start)
         assert set(starts) == {SYM_A, SYM_B}
 
         win._replay_subscriptions = lambda: None
@@ -372,7 +372,7 @@ def test_d40_3_gap_accounting_per_symbol(monkeypatch, qapp):
         assert "unmonitored" in msg
         assert SYM_A in msg and SYM_B in msg
         # Pause bookkeeping cleared after the report.
-        assert win.alarm_monitor._pause_start == {}
+        assert win.alarm_monitor._outage_start == {}
     finally:
         _clear(SYM_A)
         _clear(SYM_B)
@@ -399,7 +399,7 @@ def test_d40_3_alarm_created_mid_pause_stays_paused(monkeypatch, qapp):
         session_b = win._sessions[SYM_B]
         assert session_b.monitoring_paused is True
         assert session_b._monitor_subscribe_pending is True
-        assert SYM_B in win.alarm_monitor._pause_start
+        assert SYM_B in win.alarm_monitor._outage_start
 
         # Resume finishes the staged subscribe (rt_manager.subscribe is
         # the D25 stub handing out reqIds).
@@ -421,14 +421,25 @@ def test_d40_3_alarm_created_mid_pause_stays_paused(monkeypatch, qapp):
 
 
 def test_d40_4_transient_drop_no_pause_ui(monkeypatch, qapp):
-    """AC-D40.4: a non-TWS-gone disconnect keeps the fast path — no
-    paused badge, no pause flags, no gap accounting."""
+    """AC-D98.1 (named re-baseline, RG-P29-1 / FI-P29-1).
+
+    A non-TWS-gone disconnect keeps the fast path — no TWS_GONE
+    classification, no paused badge, no pause flags. AC-D40.4's "no gap
+    accounting" and "reconnect leaves prev_price untouched" clauses are
+    superseded in part by AC-D98.1: the drop now records the alarmed
+    symbol's unmonitored interval, the first post-reconnect tick seeds
+    with no evaluation, and the interval is reported. AC-D40.4's badge
+    and flag clauses stand and are asserted unchanged. The old ``:445``
+    assertion (``_outage_start == {}`` at the drop) becomes "SYM_A is
+    recorded at the drop"; the ledger is cleared after the resume.
+    """
     win = _make_window(monkeypatch, qapp)
     try:
         _clear(SYM_A)
         _add_alarm(SYM_A, 100.5)
         win.alarm_monitor.reconcile()
         session = win._sessions[SYM_A]
+        session.last_chart_price = 99.0
 
         _go_live(win)
         # A drop that is NOT a server close: classification stays None.
@@ -442,15 +453,40 @@ def test_d40_4_transient_drop_no_pause_ui(monkeypatch, qapp):
         assert win.conn_badge.text() == "● Disconnected"
         assert win.alarm_monitor.is_paused is False
         assert session.monitoring_paused is False
-        assert win.alarm_monitor._pause_start == {}
+        # AC-D98.1: the interval is recorded even though the pause UI is not.
+        assert SYM_A in win.alarm_monitor._outage_start
+        assert win.alarm_monitor._outage_active is True
 
-        # Reconnect: no resume bookkeeping, no gap message.
+        # Reconnect: one resume path — re-seeded and the interval reported.
         win._replay_subscriptions = lambda: None
-        before = session.last_chart_price
+        win.toast.show_message = lambda msg: None
         win.ib_client.nextValidId(1)
         qapp.processEvents()
-        assert session.last_chart_price == before
-        assert "unmonitored" not in win.status_bar.currentMessage()
+        assert session.last_chart_price is None
+        assert win.alarm_monitor._outage_start == {}
+        assert win.alarm_monitor._outage_active is False
+        msg = win.status_bar.currentMessage()
+        assert "unmonitored" in msg and SYM_A in msg
+
+        # AC-D98.2: the seed tick neither evaluates nor fires; a tick at
+        # or below the level does not fire; the next strictly-beyond tick
+        # fires exactly once.
+        session._on_aggregated_bar(
+            Bar(SYM_A, TF_1M, BASE_TS, 101.0, 103.0, 100.0, 102.0, 100.0),
+            True,
+        )
+        above = [a for a in session.alarms if a.direction == "cross_above"]
+        assert above and all(a.triggered is False for a in above)
+        session._on_aggregated_bar(
+            Bar(SYM_A, TF_1M, BASE_TS + 60, 102.0, 102.2, 99.8, 100.0, 100.0),
+            True,
+        )
+        assert all(a.triggered is False for a in above)
+        session._on_aggregated_bar(
+            Bar(SYM_A, TF_1M, BASE_TS + 120, 100.0, 101.5, 99.9, 101.0, 100.0),
+            True,
+        )
+        assert above[0].triggered is True
     finally:
         _clear(SYM_A)
         win.close()

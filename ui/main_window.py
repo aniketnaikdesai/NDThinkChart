@@ -1879,10 +1879,6 @@ class MainWindow(QMainWindow):
         # that reset is what re-arms anything — no timer carries over.
         self._rt_retry_timer.stop()
         self._ibkr_connected = True
-        # D40.3: capture the resume-before-clear — a TWS-gone pause needs
-        # the reconcile + gap report below; a transient drop must not
-        # get them (40.4).
-        _resuming_from_pause = self._tws_paused
         self._tws_paused = False
         self.watchlist_panel.set_add_enabled(True)
         # D39.1: search box enabled on connect.
@@ -1903,23 +1899,13 @@ class MainWindow(QMainWindow):
         self._attach_deferred_rt_feeds()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
-        # D40.3: resume from a TWS-gone pause — the D27 replay above
-        # already re-issued subscriptions. When resuming from pause,
-        # reconcile FIRST so sessions created for active alarms take the
-        # staged path (last_chart_price=None while _paused is still True —
-        # no phantom triggers on resume), then resume_all() clears pause
-        # flags, re-seeds every session (including staged ones) with the
-        # first-tick-no-eval guard, and finishes pending subscribes.
-        # (Reviewer B1, D40: the old order let reconcile-created sessions
-        # take the normal path with a stale cache seed and phantom-fire.)
-        # Gap accounting is surfaced last so it stays visible.
-        if _resuming_from_pause:
-            self.alarm_monitor.reconcile()
-            _gaps = self.alarm_monitor.resume_all()
-        else:
-            # D25: reconcile headless alarm monitors on (re)connect.
-            self.alarm_monitor.reconcile()
-            _gaps = []
+        # AC-D98.1: all outages resume the same way — reconcile first so
+        # sessions created for active alarms exist, then re-seed every
+        # session (first tick seeds, no evaluation) and collect the
+        # intervals. A first connect follows no outage, so resume_all()
+        # leaves D25.2's 1m-cache seed alone.
+        self.alarm_monitor.reconcile()
+        _gaps = self.alarm_monitor.resume_all()
         if _gaps:
             self.status_bar.showMessage(
                 self.alarm_monitor.format_gap_report(_gaps), 30000
@@ -2985,6 +2971,10 @@ class MainWindow(QMainWindow):
 
     def _on_disconnected(self):
         self._ibkr_connected = False
+        # AC-D98.1: a drop while a session exists opens an unmonitored
+        # interval; a failed pre-handshake attempt does not (AR-P29-9).
+        # The classification decides the UI, not the baseline.
+        self.alarm_monitor.begin_outage()
         # P26/D71: invalidate a pending replay deferral. A callback scheduled
         # for this connection must not fire against a dead transport or a
         # later generation; the next connect schedules its own pass.

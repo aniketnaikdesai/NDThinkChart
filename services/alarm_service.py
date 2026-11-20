@@ -41,6 +41,14 @@ def evaluate_alarms(
 ) -> list[Alarm]:
     """
     Return active, untriggered alarms crossed between prev_price and curr_price.
+
+    A level is *touched* when the sampled price equals it, and *crossed* when
+    the previous sample is at or before the level and the current sample is
+    strictly beyond it in the alarm's direction: ``prev <= level < curr`` for
+    ``cross_above`` and ``prev >= level > curr`` for ``cross_below``. The
+    previous-side boundary is inclusive (a touch arms); the current-side
+    boundary is exclusive (sitting on the level never fires). A touch is
+    derived from ``prev`` and never stored (DG133).
     """
     if prev_price is None or curr_price <= 0:
         return []
@@ -52,8 +60,8 @@ def evaluate_alarms(
         if not alarm.active or alarm.triggered:
             continue
 
-        crossed_above = prev_price < alarm.price <= curr_price
-        crossed_below = prev_price > alarm.price >= curr_price
+        crossed_above = prev_price <= alarm.price < curr_price
+        crossed_below = prev_price >= alarm.price > curr_price
 
         if alarm.direction == "cross_above" and crossed_above:
             triggered.append(alarm)

@@ -60,13 +60,32 @@ class DrawingStore:
 
     @staticmethod
     def update_group(group_id: int, **fields) -> None:
-        if not fields:
-            return
+        """Update the group's four mutable fields.
+
+        The boolean columns coerce a bool to int; a bool supplied for a text
+        column is rejected, never silently stored as 1; an unknown field is
+        rejected before any SQL (D100 / AC-D100.1). The statement's columns,
+        placeholders and values all derive from the same filtered pair list,
+        so a mismatch between them is unrepresentable.
+        """
         allowed = {"name", "color", "visible", "locked"}
-        assigns = [f"{k}=?" for k in fields if k in allowed]
-        if not assigns:
+        unknown = sorted(set(fields) - allowed)
+        if unknown:
+            raise ValueError(
+                f"update_group: unknown field(s): {', '.join(unknown)}"
+            )
+        pairs = [(key, value) for key, value in fields.items() if key in allowed]
+        if not pairs:
             return
-        values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
+        values = []
+        for key, value in pairs:
+            if key in ("visible", "locked"):
+                values.append(int(value) if isinstance(value, bool) else value)
+            elif isinstance(value, bool):
+                raise ValueError(f"update_group: {key} expects a string, got bool")
+            else:
+                values.append(value)
+        assigns = [f"{key}=?" for key, _ in pairs]
         cursor = db.conn.cursor()
         cursor.execute(
             f"UPDATE drawing_groups SET {', '.join(assigns)} WHERE id=?",

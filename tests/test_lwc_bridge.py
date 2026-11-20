@@ -152,6 +152,11 @@ class TestBatchShape:
         assert all(isinstance(v, list) for v in cols.values())
 
     def test_queue_until_ready_holds_pre_ready_ops(self):
+        """DG134: the page-ready transition is the one delivery path.
+
+        Ops accepted before ready are logged and queued for the counters; the
+        transition delivers them from ``_op_log`` — never beside it.
+        """
         b = LB.LwBridge()
         seen = []
         b.opsEmitted.connect(seen.append)
@@ -160,9 +165,9 @@ class TestBatchShape:
         assert seen == [], "nothing may cross before ready"
         assert b.counters()["queued"] == 2
         assert b.counters()["queue_depth_max"] == 2
-        b.set_ready(True)
-        env = b.flush()
+        env = b.handle_page_ready()
         assert env is not None and len(env["ops"]) == 2
+        assert len(seen) == 1, "one envelope, delivered once"
         assert b.counters()["received"] == 2
 
     def test_live_coalesce_bounds_tick_crossing(self):

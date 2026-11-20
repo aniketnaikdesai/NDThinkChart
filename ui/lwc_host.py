@@ -353,7 +353,7 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
             # fires before ``QWebChannel``'s JS half is set up, so a replay
             # emitted now has no listener and the bars never reach the page.
             # The page calls the bridge's ``pageReady()`` slot once it has
-            # subscribed to ``opsJson``; that slot owns the drain + replay.
+            # subscribed to ``opsJson``; that slot owns the replay.
             _LOG.debug(
                 "page load finished; waiting for chart.js to call pageReady()"
             )

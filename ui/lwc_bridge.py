@@ -18,12 +18,15 @@ or order surface is touched from here).
 
 Behaviour:
 
-* **queue-until-ready** — ops accepted before the page signals ready are
-  held in order and drained on ``set_ready(True)``; nothing is dropped.
-  Readiness is the **page's** word (Q-19/S3d): ``chart.js`` calls the
-  ``pageReady()`` slot after its QWebChannel subscription exists, because
-  ``loadFinished`` fires before that subscription and a replay from there had
-  no listener.
+* **queue-until-ready** — ops accepted before the page is ready are logged
+  and queued for the backpressure counters; a page-ready transition discards
+  the staging buffers and delivers the full log once, because the log already
+  contains them. The log is the single full-state source; a transition
+  delivers each accepted op at most once; a queued op is subsumed by the log,
+  never emitted beside it. Readiness is the **page's** word (Q-19/S3d):
+  ``chart.js`` calls the ``pageReady()`` slot after its QWebChannel
+  subscription exists, because ``loadFinished`` fires before that
+  subscription and a replay from there had no listener.
 * **two payloads per crossing** — ``opsEmitted(dict)`` for Python consumers
   and ``opsJson(str)`` for the page (Q-19/S3c: a dict reaches a JS slot as a
   Python ``repr``, not JSON). The JSON is compact and ``allow_nan=False``.
@@ -33,9 +36,9 @@ Behaviour:
   (tests drive it); a ``QTimer`` single-shot is armed as well whenever a Qt
   event loop exists, so production never waits on a manual flush.
 * **replay after ``renderProcessTerminated``** — the full op log (every op
-  ever accepted, in order) is re-emitted once the fresh page is ready; the
-  JS side applies it idempotently, so the re-rendered series has no
-  duplicated or lost bars.
+  ever accepted, in order) is re-emitted exactly once per page-ready
+  transition (recovery included); the JS side applies it idempotently, so
+  the re-rendered series has no duplicated or lost bars.
 * **backpressure counters from day one** — ``counters()`` reports received /
   queued / coalesced / emitted / emissions / replays / queue-depth-max.
 * **whitespace placeholders** — a candle/volume column may hold ``None`` in a
@@ -65,7 +68,7 @@ dict/``repr`` ambiguity exists in either direction. Each slot re-emits a
 ============================ ============================ =======================
 page call                    payload keys                 bridge signal
 ============================ ============================ =======================
-``pageReady()``              —                            (drain + replay)
+``pageReady()``              —                            (replay)
 ``focusReleased()``          —                            ``pageFocusReleased``
 ``drawingCommitted()``       kind, points/price, color    ``pageDrawingCommitted``
 ``drawingUpdated()``         id, payload, color           ``pageDrawingUpdated``
@@ -402,14 +405,13 @@ class LwBridge(QObject):
         return self._ready
 
     def set_ready(self, ready: bool) -> None:
-        """Mark the page ready (or not). Draining the held queue on True."""
+        """Mark the page ready (or not).
+
+        A readiness **transition** is :meth:`handle_page_ready`'s job: it
+        replays the log, which is the single delivery source. This method
+        emits nothing — it only sets the flag.
+        """
         self._ready = bool(ready)
-        if self._ready and self._queued:
-            held, self._queued = self._queued, []
-            self._stage(held)
-        # Channel ops queued while not ready are covered by the full-log
-        # replay in ``handle_page_ready`` (the page-ready transition), so
-        # nothing is emitted twice here.
 
     # ── send path ──────────────────────────────────────────────────────
 
@@ -581,7 +583,7 @@ class LwBridge(QObject):
 
     @pyqtSlot()
     def pageReady(self) -> None:
-        """The page's QWebChannel half is subscribed; drain and replay now.
+        """The page's QWebChannel half is subscribed; replay the full log now.
 
         ``QWebEngineView.loadFinished`` fires before ``QWebChannel``'s JS
         setup completes, so replaying from :meth:`_on_load_finished` raced an
@@ -689,30 +691,32 @@ class LwBridge(QObject):
         self.set_ready(False)
 
     def handle_page_ready(self):
-        """Fresh page signalled ready: drain, then replay the full op log.
+        """A page-ready transition is a full-log replay — nothing else.
 
+        Every accepted op is already in ``_op_log`` (``send_ops`` logs before
+        it queues or stages), so the staging buffers are discarded, not
+        drained, and each op crosses exactly once per transition (DG134).
         Returns the replay envelope (``None`` when the log is empty).
         """
+        self._queued.clear()
+        self._outbox.clear()
+        self._live_buf.clear()
         self.set_ready(True)
-        pending = self.flush()  # drain anything staged before the crash first
-        envelopes = [pending] if pending else []
+        # One replay per transition, counted even when the log is empty so a
+        # transition is always observable in ``counters()``.
+        self._counters["replays"] += 1
         bar_env = None
         if self._op_log:
-            env = {"v": ENVELOPE_VERSION, "ops": list(self._op_log)}
-            self._emit(env)
+            bar_env = {"v": ENVELOPE_VERSION, "ops": list(self._op_log)}
+            self._emit(bar_env)
             self._counters["emitted"] += len(self._op_log)
             self._counters["emissions"] += 1
-            self._counters["replays"] += 1
             self.replayFinished.emit(len(self._op_log))
-            envelopes.append(env)
-            bar_env = env
         # Q-31: after the bar replay, replay every non-bar channel's full
         # log. These envelopes are replace-all by contract, so a repeat is
         # idempotent — the same guarantee the bar replay has.
         self._replay_channels()
-        if bar_env is not None:
-            return bar_env
-        return envelopes[0] if envelopes else None
+        return bar_env
 
     def _replay_channels(self) -> None:
         """Replay every channel's full log; count one replay per channel.

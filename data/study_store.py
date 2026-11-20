@@ -95,21 +95,28 @@ class StudyStore:
 
     @staticmethod
     def save(symbol: str, studies: Iterable[dict]) -> None:
-        cursor = db.conn.cursor()
-        cursor.execute("DELETE FROM studies WHERE symbol=?", (symbol,))
-        cursor.executemany(
-            """
-            INSERT INTO studies (symbol, type, enabled, params)
-            VALUES (?, ?, ?, ?)
-            """,
-            [
-                (
-                    symbol,
-                    study["type"],
-                    1 if study.get("enabled") else 0,
-                    json.dumps(deepcopy(study.get("params", {}))),
-                )
-                for study in studies
-            ],
-        )
-        db.conn.commit()
+        """Replace the symbol's stored studies with ``studies``.
+
+        The rows are serialized before the connection is touched, and the
+        replace is one transaction — a failure leaves the stored set exactly
+        as it was and no transaction pending (D96 / AC-D96.1). The original
+        ``TypeError``/``IntegrityError``/``OperationalError`` surfaces
+        unwrapped.
+        """
+        rows = [
+            (
+                symbol,
+                study["type"],
+                1 if study.get("enabled") else 0,
+                json.dumps(deepcopy(study.get("params", {}))),
+            )
+            for study in studies
+        ]
+        with db.conn:
+            cursor = db.conn.cursor()
+            cursor.execute("DELETE FROM studies WHERE symbol=?", (symbol,))
+            cursor.executemany(
+                "INSERT INTO studies (symbol, type, enabled, params) "
+                "VALUES (?, ?, ?, ?)",
+                rows,
+            )
