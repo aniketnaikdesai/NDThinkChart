@@ -252,3 +252,153 @@ and neither reuses an invariant already escalated in this phase (this is P29's f
 Full-suite verdict stands: **pass**, exit 0, 227.52 s (`docs/code_review/test_verification.json`).
 
 Status: REVIEW_COMPLETE
+
+---
+
+# P29 rework verification (`f7a8be4`) — ESC-138 / ESC-139 closed, and the P29-T6 hermetic connect guard
+
+**Pass:** rework verification, phase-final follow-up. Not a fresh tier decision — each item was re-derived on the
+live tree, not taken from the rework's report. **Tree:** `f7a8be4` (two commits since the build):
+`7b32e02` (P29 docs corrections + P30 plan approval) and `f7a8be4` (P29-T6). The mechanical precheck on disk
+predates the rework, so I checked the delta myself rather than claiming its coverage.
+**Verification:** `test_verification.json` — **pass**, exit 0, 257.77 s, no timeout, with **TWS genuinely
+listening** (`lsof -nP -iTCP:7496` → `JavaApplication 1283 … *:7496 (LISTEN)`, confirmed again during this pass).
+
+## 1. ESC-138 — the guide now describes D98 as shipped, without internals
+
+`usage.md:172` is one bullet: *"Resume never triggers alarms by itself, and this holds for every drop, brief or
+long: on reconnect the first tick for each symbol only re-seeds the price and nothing is evaluated on it, the gap
+is reported as an unmonitored interval on the status bar (as above), and an alarm fires only once a later live
+price crosses its level; a brief intraday drop still reconnects in the background with no pause badge."*
+
+Checked clause by clause **against the code, not the prose**:
+
+| clause | what ships |
+|---|---|
+| "first tick … only re-seeds … nothing evaluated" | `resume_all` captures `resuming_from_outage` and sets `session.last_chart_price = None` for **every** session only when a drop was recorded (`services/alarm_monitor.py:235,243`); the tick then seeds (AC-D25.3 / AC-D98.1) |
+| "every drop, brief or long" | `_on_disconnected` calls `begin_outage()` **before** the TWS_GONE/other classification (`ui/main_window.py:2977`), and `_on_connected` is one `reconcile()` → `resume_all()` path (`:1907-1908`) |
+| "gap … unmonitored interval on the status bar" | `format_gap_report` over the `_gaps` returned by `resume_all` — the unchanged owner-approved formatter |
+| "fires only once a later live price crosses" | the D97 rule, `prev <= level < curr` / mirrored (`services/alarm_service.py:63-64`) |
+| "brief drop … no pause badge" | the pause flags stay TWS-gone-only (AC-D98.1; `test_d40_4` still asserts the badge/flags) |
+
+**No internals named:** no function, class, flag or field appears — "re-seeds" is the guide's own pre-existing
+wording (it was in the superseded line too). **Inode:** `ls -li` gives `70268344` for both `usage.md` and
+`USAGE.md`, same size (16327) and mtime — still one inode, so the single edit covers both names.
+**One residual, judged not a defect:** AR-P29-9's unsignalled poll-recovery drop (a half-dead socket that heals on
+the first attempt, so `connectionClosed()` never fires) is not re-seeded, so "every drop" is true of every drop
+the app **signals** and the user can see; the residual was accepted in the task and is invisible by construction.
+**ESC-138 → addressed.**
+
+## 2. ESC-139 — the record can no longer be mistaken for a live test
+
+`docs/codebase-map.md:649` now reads: *"…::test_exactly_on_alert_price_above_counts (P29-T2 renamed it to
+`test_arrival_on_the_level_is_a_touch_not_a_cross` — 9.5 → 10.0 is a touch, 10.0 → 10.01 fires; the retired id
+stays listed because `tests/test_p29_fence.py`'s `REBASELINED_CASES` pins this literal), …"*.
+
+Both facts hold: the retired literal is present (so the fence is not reddened) **and** the live id with its exact
+semantics is named. The parenthetical states *why* the retired id is still listed and *why* it must stay, so a
+reader cannot mistake it for a live test — the ambiguity I reported ("a reader following it finds nothing") is
+closed by disambiguation rather than by deletion. **No fence edit was made**: `git diff dcfdd60..f7a8be4 --
+tests/` contains only `tests/conftest.py` and the new guard suite, and I ran `tests/test_p29_fence.py` → **13/13
+pass**. **Residual, now stated in the record itself:** the fence still pins the retired literal, so a future
+cleanup of that note must update `REBASELINED_CASES` in the same change; because the note says exactly that where
+the next editor will read it, escalating the coupling a second time would be churn. **ESC-139 → addressed.**
+
+## 3. P29-T6 — the hermetic connect guard (the reason the gate runs again)
+
+The rework adds one session-scoped autouse fixture (`tests/conftest.py:161`) and one self-check module
+(`tests/test_p29_hermetic_connect_guard.py`, 3 cases — P29-T6-01 plus the two-parameter precedence case), no
+production change. My checks:
+
+**(a) It is the socket layer, and that is the whole point.** The fixture replaces
+`ibapi.connection.Connection.connect` with a raiser; `EClient.connect` allocates `Connection(...)` and then calls
+`self.conn.connect()`, so the raise lands inside EClient's own `except socket.error` → `wrapper.error(…, 502,
+"Couldn't connect to TWS")` → `self.disconnect()` → `wrapper.connectionClosed()` → `reset()` → `conn = None`,
+`DISCONNECTED`. I read the pinned `ibapi` 9.81.1.post1 source to confirm that branch, and `iba_client.connect`
+(`ibkr/client.py`) sets `ConnectionState.CONNECTING` **before** `super().connect(...)` — which is precisely why an
+`EClient.connect` no-op would be wrong: it would leave `IBApiClient` stuck in **CONNECTING** with no 502, no
+`connectionClosed()` and no reset, i.e. a third environment no green run has ever occupied, and the window's
+disconnect handling would never run during construction. Raising at the socket layer instead drives the real
+refused-connect path end to end, which is exactly what every prior green run did with TWS stopped.
+
+**(b) A test's own patch wins; the guard returns.** The guard writes the **base-class** attribute, so a test that
+patches `EClient.connect` (as `test_d87_d93_client_lifecycle.py` does) or `IBApiClient.connect` (as
+`test_d98_outage_baseline.py::_make_window` does) replaces a different attribute and is effective immediately;
+`monkeypatch` restores the value it saw (the guard) on exit. `test_a_test_own_patch_wins_and_the_guard_returns`
+proves both sites — recorder receives the call, **no** 502 is emitted inside the patch — and then a fresh real
+`EClient` is refused again with `conn is None` and `DISCONNECTED`. The fixture's `finally` restores the real
+function at session end.
+
+**(c) The four connect-asserting suites are byte-identical.** `git hash-object` against `git show dcfdd60:<path>`
+for `test_d27_reconnect.py`, `test_d87_d93_client_lifecycle.py`, `test_d98_outage_baseline.py`,
+`test_ibkr_handshake_gate.py` → four `IDENTICAL`. Run together with the guard suite: **32 passed**. (I also
+re-ran the five P29 suites + fence under the guard: **49 passed**.)
+
+**(d) No skip, no deselection, no pytest config change.** `pytest.ini` is absent from the rework diff; the only
+`skip` token in the new module is the sentence "Nothing here is skipped or relaxed"; the verify command is the
+pre-existing standard `-q -m 'not webengine'` (the same five gated cases as before, excluded by marker, not by a
+new skip). The reworks's claim is accurate.
+
+**Could the guard hide a real connect-path bug?** Not in any path the suite ever covered, and I can be specific
+about the boundary. Before this change the suite's connect behaviour depended on the machine: with TWS down the
+refused path ran (what the assertions were written for); with TWS up the socket opened and the ibapi reader thread
+then **hung `threading._shutdown`** — so the success path never produced a passing assertion either way. The guard
+turns "sometimes refused, sometimes hangs" into "always refused", deterministically, and it makes the refused
+branch (502 → disconnect → connectionClosed → reset → state) load-bearing for every `MainWindow` construction, so
+a regression **in that branch** now fails loudly across dozens of tests. Two honest residuals:
+(i) a defect that only manifests **after a successful socket connect** (greeting parse, `EReader` startup,
+`nextValidId` promotion) cannot be caught by the suite — it was never caught by it, and it is the owner's live run
+(G6 / normal app use) that covers it; (ii) there is no opt-out: the real function is captured in the fixture's
+closure and not exported, and patching `socket.socket` cannot help because the guard sits above it — a future test
+that genuinely needs a real socket must edit `tests/conftest.py`. Neither hides a shipped bug; (ii) is a
+maintainability sharp edge worth knowing, not a defect to fix now. Nothing here is "worse than the disease": the
+disease was a suite that silently required the backend to be **down**.
+
+## 4. Scope of the rework, and the standing duties
+
+Per-commit attribution (the handoff's "nothing else moved" checked commit by commit, not on the range):
+
+- `f7a8be4` — `tests/conftest.py`, `tests/test_p29_hermetic_connect_guard.py`, `docs/memory.md`,
+  `docs/tasks/{task-graph,execution_graph}.json`, `docs/tasks/task_manager_notes_P29.md`. **No production path**
+  (`git diff --name-only dcfdd60..f7a8be4 -- config/ data/ services/ ui/ ibkr/ main.py` is empty), no dependency
+  file, no `data/db.py` schema, no settings key.
+- `7b32e02` — docs only: `usage.md`, `docs/codebase-map.md`, my own `escalations.json`/`review_log_P29.md`
+  (swept in), plus the **P30** plan artifacts (`docs/plan.md`, `docs/architecture.md`,
+  `docs/plan_review_P30.md`) that belong to the approved P30 plan. Bundling a plan approval with a P29 doc-fix
+  commit is the `git add -A` hygiene pattern already in `docs/memory.md`; it changed no P29 content and I am
+  noting it, not escalating it.
+
+Standing duties still hold: **G6** owner-run and unclaimed (the guard suite makes no live claim; the D98 and fence
+docstrings still say so; the range's only G6 mentions are my own log text); **no new module/dependency/migration/
+settings key** (the only new file is a test module); **`docs/requirements/**` untouched by the build**
+(`git diff --name-only dcfdd60..f7a8be4 -- docs/requirements/` empty). The mock-endpoint invariant is untouched by
+this rework (no production line added; the guard is a test-layer injector, not a production fake).
+
+## 5. One finding, orchestrator-owned — `docs/memory.md` records the wrong mechanism
+
+`docs/memory.md:289` (appended in `f7a8be4`) ends: *"The durable fix is an autouse conftest fixture that stubs
+`EClient.connect`; the general rule is that an offscreen suite must never depend on the BACKEND BEING DOWN."* The
+diagnosis and the general rule are right, but the mechanism is wrong: the shipped guard replaces
+`ibapi.connection.Connection.connect` (`tests/conftest.py:161`), and an `EClient.connect` no-op is the shape this
+task's AC-P29-06-GUARD and design note **explicitly rejected** (it leaves `IBApiClient` in CONNECTING with no 502
+— see §3(a), which I confirmed from `ibkr/client.py`). This matters because `docs/memory.md` is read as established
+fact by every agent and is marked "don't rediscover or contradict": a future worker could "restore" the rejected
+no-op shape and cite memory for it. **No entry was added to `escalations.json`:** the schema routes only to
+`BUILD` / `TASK_MANAGER` / `PLAN` / `REQUIREMENTS`, and `docs/memory.md` is user-primary / Orchestrator-append —
+routing it to BUILD would violate file ownership, and I will not fabricate an invalid route. Owner: **the
+Orchestrator**; the sentence should read "replaces `ibapi.connection.Connection.connect` with a raiser so EClient's
+own 502 → disconnect → connectionClosed → reset path runs (a no-op on `EClient.connect` is NOT equivalent)". It is
+a one-clause factual correction, not a gate blocker.
+
+## 6. Close-out
+
+| id | route | verdict |
+|---|---|---|
+| ESC-138 | TASK_MANAGER | **addressed** — `usage.md:172` states every clause of D98 as shipped, names no internals, one inode with `USAGE.md` |
+| ESC-139 | BUILD | **addressed** — the map note names the live case and says why the retired literal stays; fence unchanged and 13/13 green |
+
+`escalations.json`: 134 entries, **zero open**. No `PRE-*` entry outstanding. Full suite **pass**, exit 0,
+257.77 s, with TWS listening. **P29 is gate-ready to close**, subject only to the Orchestrator correcting the one
+`memory.md` clause in §5.
+
+Status: REVIEW_COMPLETE

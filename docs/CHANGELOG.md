@@ -769,3 +769,36 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - 7d93819 Q-79: drop the dead module-level QApplication in the forming-candle suite (import-order fix)
 - 76713af P25 build: period base + forming-candle marker, pop-out hold latches, arrival-ordered flush, one whitespace rule
 - 08cade8 P25: plan approved (D67-D70 silent-wrong-data); Batch-38 requirements recorded as phases P25-P30
+## P29 — 2026-11-20
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P29-T2 — evaluate_alarms now uses one crossing rule (prev <= level < curr / prev >= level > curr) with the rule in its docstring; the touch-vs-cross case is re-baselined and the D97/Journey 79 edge cases added.
+- P29-T1 — D96+D100: StudyStore.save serializes rows before touching the connection and replaces inside ˋwith db.conn:ˋ (no trailing commit, exceptions unwrapped); DrawingStore.update_group rejects unknown fields before a cursor exists and derives assigns/values from one filtered pair list with field-keyed bool coercion; new 14-case suite tests/test_d96_d100_store_atomicity.py green plus the 57 exit-condition store/dialog tests unchanged.
+- P29-T3 — D98: begin_outage() gated on the session predicate with _outage_start as the one ledger and _outage_active set only there, resume_all re-seeds only after a recorded outage, MainWindow records before classification and runs one reconcile()/resume_all() path (_go_live untouched), four D40 renames plus the one named test_d40_4 re-baseline, and a new 10-case tests/test_d98_outage_baseline.py (test 06's untouched-seed clause is covered as the no-session-at-drop case; a session present at a recorded drop is still re-seeded per AC-D98.1).
+- P29-T4 — P29-04 / D99 finalized: the page-ready transition discards _queued/_outbox/_live_buf and delivers the never-cleared _op_log once plus one channel replay; set_ready is a flag setter that emits nothing; contract stated in the module/pageReady docstrings and the pageReady table row. Verified green with the webengine marker exclusion (28 passed, 3 deselected; nine companion suites 94 passed, 2 deselected).
+- P29-T5 — ESC-139 satisfied by Plan's map amendment: docs/codebase-map.md now names both the retired id and the live test_arrival_on_the_level_is_a_touch_not_a_cross, every fence assertion holds, so tests/test_p29_fence.py needed no edit; ˋpytest -q tests/test_p29_fence.py -m 'not webengine'ˋ is green with 13 executed, 13 passed (exit 0).
+- P29-T6 — Hermetic socket-layer IBKR connect guard (session-scoped autouse fixture in tests/conftest.py) plus tests/test_p29_hermetic_connect_guard.py; with TWS listening the full offscreen suite self-terminates in 260 s and the four connect suites pass unmodified (29 passed)
+
+### Recent commits (unscoped)
+- f7a8be4 P29 build: hermetic connect guard so the suite cannot depend on TWS being down (P29-T6)
+- 7b32e02 P29 docs: describe the brief-drop re-seed and name the renamed D97 case (ESC-138/139); P30 plan approved
+- dcfdd60 P29 build: atomic store writes, crossing rule, session-gated outage baseline, log-only page delivery (D96-D100)
+- 3b92ce6 P28 close-out: changelog, review log, ESC-137 addressed
+- 2bb9a62 P28 rework: re-pin the requirements history hash to the owner-approved RG-P29-1 span (ESC-137 close-out)
+- 8e5516f P28 rework: anchor the seam-shape gate at the phase tip so it always runs (ESC-137)
+- b7914c3 P28 rework: AST usage scan for the dead replay, readiness guard on RT errors, seam completion + shape gate (ESC-133/134/135/136)
+- e7ac594 P29: plan approved (persisted writes atomic, alarm crossing rule, outage gate, page-ready ordering)
+- 1404877 P28 build: readiness gate + deferred attach, stream budget, window ownership, startup survivability, instance lock, honest description (D84-D95)
+- e88f96b P28: plan approved after two revision rounds (drop owes the attach, prime-clear fourth site, seam)
+- ef04c5a P27 close-out: changelog, review log, escalations addressed
+- 5096b78 P27 rework: comment states the live stamp sites, guard covers every swept double, AC-D81.2 qualified (ESC-130/131/132)
+- 0ff7964 P27 build: planner request identity, confined window rule, reachable prime retry, gate-before-stamp, refund retirement (D77-D83)
+- 8fdc27f P27: plan approved after RC-1..RC-3 revision (present_days confinement, P17 supersession, 615s bound)
+- 623809e Q-80: freeze the clock for the deferred-prime retry tests (removes a 5s-per-5min wall-clock flake)
+- d56a97f P26 close-out: ESC-129 verified addressed, changelog, review log
+- bda354f P26 rework: empty batch reservation reserves nothing; batch-of-one contract documented (ESC-129)
+- 70b16f2 P26 build: transactional reconnect replay, cap-parked wave lifecycle, retry surrender, generation-scoped ledgers (D71-D76)
+- 4975efa P26: plan approved (D71-D76 reconnect replay + wave lifecycle)
+- 629be4a P25 close-out: changelog, review log, escalations addressed
