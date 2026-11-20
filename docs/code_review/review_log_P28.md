@@ -258,3 +258,91 @@ This is routed to TASK_MANAGER (`ESC-137`, `nice-to-have`): the AC, not the code
 | ESC-137 | TASK_MANAGER | **open (new)** — the phase bound is already false; the case skipped for the whole final tree |
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Final verification pass — ESC-137 close-out (`8e5516f`, `2bb9a62`)
+
+**Pass type:** phase-final verification → **full pass**.
+**Scope:** `precheck.json` names **P28-T13** and **P28-T14** — the two tasks that landed since the last marker.
+**Tree:** `2bb9a62` on `8e5516f` on `b7914c3` on `e7ac594` on the build `1404877`; phase base `ef04c5a`. Working tree clean.
+**Inputs:** `precheck.json` (1 stale `fail_fast`, 1 `escalation_updates`); `test_verification.json` (**pass**, exit 0, 218.34 s, generated **01:03:29 — after the last commit at 00:59:48** and after `build_log.md` at 00:59:42); `build_log.md` waves 446/448; the two archived results; `task-graph.json` P28-T12/T13/T14; `escalations.json` (132 entries, 1 open: ESC-137).
+**Result: ESC-137 holds — flipped to `addressed`. Zero open escalations remain; P28 is gate-ready to close.** Four non-blocking record drifts are recorded in §7 with no action routed (§7 states why), and §4 answers the three guard questions with mutation evidence rather than inspection.
+
+## 1. `PRE-023` is the same sweep artefact as `PRE-023`–`026` last pass — not a defect, not filed
+
+`precheck.json` was generated at 05:59:42, after `8e5516f` (05:52:38) had already committed T13's working tree, so it sees `tests/test_p28_seam_diff_shape.py` as "no change". The file **is** committed and carries exactly the claimed edit: `git diff --stat b7914c3 8e5516f -- tests/test_p28_seam_diff_shape.py` = `86+/55-`, and T13's `files_changed` names it alone. No `PRE-*` entry exists in `escalations.json` (precheck's list was not appended), so entry point C had nothing to close there.
+
+## 2. ESC-137 — holds: the case executes, the anchor is the phase tip, and the loud-failure path works
+
+**Executed, not skipped.** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_p28_seam_diff_shape.py -rA` → **25 passed, 0 skipped, 0 failed** (21 parametrized members + 4 self-checks, every id listed `PASSED`). The skip surface is gone: `_phase_subjects`, `_in_phase`, `PHASE_CLOSED_REASON` and the `in_phase` fixture are deleted, and the only `skip` mentions left in the file are prose. The last pass's finding — a `pass` recorded for 21 skipped cases — is now a genuinely executed 21/21.
+
+**Anchor.** `_phase_range_end()` resolves to **`2bb9a62b82cea56c77ad67fc41c9a2780c0fa692`**, not `b7914c3`. This is correct under `AC-P28-02-S7` ("the NEWEST commit … whose subject starts with `P28`"): `2bb9a62`'s subject begins `P28 rework: re-pin …`, so it is in the family and is newer. The handoff's expectation of `b7914c3` (and T13's result/`AC-P28-02-S8`'s parenthetical "(`b7914c3` on the current tree)") predate T14's commit — record drift #4 in §7. What matters is that the range covers the phase's final **content**: the last commit to touch any audited member is `b7914c3`, and `8e5516f`/`2bb9a62` touch no audited suite.
+
+**Loud failure, never a skip.** With `_git` stubbed to a log containing only `P29: …` and `Q-81 quick fix`, `_phase_tip` returns `None` and `_phase_range_end()` raises `AssertionError: no P28 commit in ef04c5a..HEAD: the phase diff has no endpoint, so the audited seam set cannot be checked (never skip — a missing anchor must fail loudly)`.
+
+**A later-phase subject cannot move it.** `_phase_tip([("e7ac594","P29: plan approved"), p28, older]) == _phase_tip([p28, older]) == "b7914c3"`; an all-P28 list takes its newest entry. Both are asserted by `test_p28_seam_anchor_ignores_a_later_phase_commit`.
+
+**Shape rule unrelaxed.** `SEAM_RE`, `_violations`, `AUDITED_SEAMS` and `DECLARED_REMOVALS` are byte-identical to `b7914c3` (`git diff` shows no hunk touching them). Re-measured against the live anchor: 21 members, **20 read `1 0`** and `tests/test_p7_w4_streaming.py` reads **`1 20`** — no numstat mismatches. A second seam line still reddens: `_violations([seam, seam], [])` → `expected exactly 1 added line, found 2`, and a second seam beside an unrelated addition reddens too; the shipped `test_p28_seam_detector_flags_a_second_added_seam_line` asserts exactly that.
+
+## 3. The requirements re-pin (`2bb9a62`) — the pin moved for the recorded reason and nothing else moved with it
+
+**The pin is the live span.** Span = `This is an existing repository.` → `text.index("\n### D53 ")` (lines 415–5445). Live digest `ffa6ff6f470f9175c8b5e813e7feed33e84185e9d80faec52e14367608c1ff3a`, present in **both** fences (p14:83, p15:76) and in the guard's independent recomputation.
+
+**It moved only because the owner-approved notes landed inside it.** Diffing the span at `b7914c3` against the span at HEAD yields exactly **two additive hunks, no removals**: `+2` at Journey 35 step 3 (line 1138, the RG-P29-1 note) and `+4` at `AC-D40.4` (line 3821, the RG-P29-1 note) — 5025 → 5031 lines, matching the recorded 531306 span bytes. The pre-edit span's digest is exactly the retired pin `2fe7b1ec…`, so the pin moved for that cause and no other. Every other requirements hunk in `8e5516f` (banner Q119, D53/Q78–80, P15/Q81–83, P25, P26/AC-D75.1, A243) is **outside** the span.
+
+**No marker assertion, boundary or comparison changed.** The only removed lines in either fence are the two old hex literals (`git diff … | grep '^-'`). Both fences still read `start = text.index("This is an existing repository.")`, `span = text[start : text.index("\n### D53 ")]`, and `hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256` — **exact equality**, no `in`/`startswith` anywhere on the pin. Both fence cases pass (`test_t34_history_markers_intact`, `test_t33_history_markers_intact`), as do all 16 cases in the two files.
+
+**No false audit trail.** `AC-D75.1` (the Q120 reword) is at **`requirements.md:7015`**, after the `### D53 ` heading at **`:5446`** — outside the span, and `AC-D75.1` was not touched by the re-pin. Both comments say precisely that: "*The same-date Q120 / AC-D75.1 reword lands after `\n### D53 ` and is therefore outside this pin; it did not move the hash*", and credit *"(Journey 35 step 3 and AC-D40.4 — the two edits inside it)"* — which my span diff confirms is exactly two. The Task Manager's correction of the orchestrator's stated cause (`task_manager_notes_P28.md`) is accurate on every count I could check: the reword's line, the span's line range (415–5445), and the span's byte size (531306).
+
+## 4. The three T14 guard tests — none vacuous; (b) is narrower than its prose says
+
+I ran the shipped guard functions against mutated inputs (patching `Path.read_text`, never editing a tracked file) to see each one fire:
+
+| mutation | guard | result |
+|---|---|---|
+| p15 pin reverted to `2fe7b1ec…` | `test_p28_t14_pin_matches_live_span` | **fails**, naming the file and both digests |
+| the 8-line re-pin comment block removed | `test_p28_t14_repin_is_pin_only` | **fails**: `pin comment omits RG-P29-1` |
+| `==` → `PROTECTED_SPAN_SHA256 in <digest>` | `test_p28_t14_repin_is_pin_only` | **fails**: `fence lost '… == PROTECTED_SPAN_SHA256'` |
+| end anchor dropped (`span = text[start:]`) | `test_p28_t14_repin_is_pin_only` | **fails**: `fence lost '… text.index("\n### D53 ")'` |
+| assertion line commented out, text kept | `test_p28_t14_repin_is_pin_only` | **passes** (substring survives) |
+| span edited + both pins re-pinned, comment left stale | `test_p28_t14_repin_is_pin_only` | **passes** |
+
+- **(a) a pin that disagrees with the live span — prevented.** The guard recomputes the digest from `requirements.md` and compares it to the literal *and* to both fence files' literals, so a disagreement in either file fails with the live digest named. The two fences' own exact-equality cases back it up.
+- **(b) a re-pin shipping without its authorising record named — partially.** It fails a re-pin with **no** audit block, or one missing `RG-P29-1`/`Q120`/`AC-D75.1`/the date (row 2). It does **not** fail a re-pin that edits only the hex and leaves the old block in place (last row) — the tokens are still there, so "a *future* re-pin … names *its* authorising record" is not what is enforced; what is enforced is "an audit block naming **this** re-pin exists". `AC-P28-03-S3` — the actual contract — asks only for that content, so the AC holds; the over-broad sentence is T14-05's `expected_result` (and the worker's build-log line "comment guards that fail a re-pin without its record"). Record drift #2 in §7.
+- **(c) a relaxation of the exact-equality comparison — prevented for the comparison itself.** Both containment/prefix forms and a changed boundary fail (rows 3–4); the anchor requires the full `hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256` line verbatim, so a truncated-digest or `in`-based comparison cannot ship. The one way past it is deleting/silencing the assertion while leaving its text (row 5) — but that is not a relaxation of the comparison, and `test_p28_t14_pin_matches_live_span` independently fails on any span change, so the span stays protected regardless.
+
+## 5. Nothing else moved, and the standing duties still hold
+
+**Scope of the two commits.** `8e5516f`: `tests/test_p28_seam_diff_shape.py` (T13) + `docs/requirements/requirements.md`, `docs/requirements/open_questions.md` (the owner-approved Analyst amendment), `docs/plan.md`, `docs/plan_notes.md`, `docs/architecture.md` (Plan's RG-P29-1 update), `docs/tasks/task-graph.json` + `execution_graph.json` + `task_manager_notes_P28.md` (Task Manager's T13 record), and `docs/code_review/review_log_P28.md` + `escalations.json` (my previous pass, swept in uncommitted — its diff contains only my four flips and ESC-137, so nobody edited my files). `2bb9a62`: the two fences (T14) + `docs/plan_review_P29.md` (the Validator's targeted confirmation) + the T14 graph/notes record. No other test or production file moved.
+
+**Production, deps, schema, settings.** The only production file changed since the build commit is `ui/main_window.py` (45+/5-, the ESC-135 guard reviewed last pass); `8e5516f`/`2bb9a62` touch no production code. No dependency file, no `data/db.py` schema, no `config/settings.py` key, no new module — `config/instance_lock.py` remains the phase's only new module.
+
+**G5.** Owner-run and never claimed: the only occurrences in `tests/` are `tests/test_p28_fence.py:41`'s docstring stating exactly that (plus an unrelated DG57 reference in `test_d25_alarm_monitor.py`). No new case asserts a process exit or dock icon.
+
+**Mock-endpoint scan.** The two commits add no production line at all, so the standing scan is trivially clean; the new tests use `subprocess` against `git` and read files — no mocked/faked endpoint, client, service or harness.
+
+**`docs/requirements/**`.** Edited only in the Analyst-owned, owner-approved 2026-11-20 amendment: additive `[AMENDED 2026-11-20]` banners, `ANSWERED` entries for Q78–Q83/Q119/Q120, assumption-row confirmations, and two `PARTIAL SUPERSESSION` notes. One criterion was reworded — `AC-D75.1`'s last clause — and it is declared in the P26 heading banner and tied to the owner's Q120 answer (confirmed, not changed: `AP-P26-5` and the built graph already read that way). Nothing else in the record was rewritten, and no new criterion was added.
+
+## 6. The P29 plan amendment matches the recorded ruling
+
+`RG-P29-1` is `addressed 2026-11-20` in `plan_notes.md` with the ruling spelled out; `requirements.md` carries the two in-span notes; `plan.md` § P29 carries the `RG-P29-1` bullet and an FI-P29-1 rewritten from "asks for the supersession" to "resolved"; `architecture.md`'s `[revises P4/D40]` bullet was corrected from "for the Validator to record" to where it *is* recorded. `plan_review_P29.md`'s targeted confirmation verifies the same five points independently and records that the Phase P29 Non-Goals bullet (`requirements.md:7420`) is requirements-owned and **not** amended — so nothing beyond the two-clause partial supersession was reopened, and the record does not claim otherwise (a false "Non-Goals now read…" sentence was caught and replaced). The shipped T14 comment mirrors that mapping exactly. **Consistent.**
+
+## 7. Non-blocking record drifts (no action routed — reasons stated)
+
+1. **T13's description promised a case that is not there.** Item 4 asked for `test_p28_seam_anchor_fails_loudly_without_a_phase_commit` covering *both* "`None`" and "the range resolution raises"; the shipped `test_p28_seam_anchor_ignores_a_later_phase_commit` covers only `_phase_tip(...) is None`. The raise path exists and works (§2, verified directly), and `AC-P28-02-S9` permits "`None` / raises", so the contract holds; only the promised second half is untested.
+2. **T14-05's `expected_result` is broader than the test** (§4(b)): "fails if a future re-pin ships without naming its authorising record" holds for a missing block, not for a stale one. Suggested wording when the graph is next touched: "fails if the audit block is absent or does not name this re-pin's records".
+3. **T12's `context.contracts` still declares the deleted `_in_phase`** (`task-graph.json:2375`, "→ the case skips with the named reason") and its test description still says "the in-phase predicate must return False" — superseded by T13, and `AC-P28-02-S5` correctly points at `AC-P28-02-S7`. A done task's context is a historical record, so this cannot mislead a build; it is note-keeping.
+4. **`AC-P28-02-S8`'s parenthetical "(`b7914c3` on the current tree)"** is stale — the anchor is `2bb9a62` (§2). The rule text is right; only the illustration is dated. This is the one that already misled the handoff, which expected `b7914c3`.
+
+None of these hides a defect in a deliverable, none contradicts an acceptance criterion, and none is a product/test behaviour. The class ("a task record must describe what shipped") is the ESC-136 invariant; the Task Manager has now fixed that class twice, so I am recording these for their next graph touch rather than pausing the phase gate for four wording edits. Also noted, not new: `8e5516f` is the third `git add -A` sweep (other agents' work committed under a P28 rework subject); it is already a Known Gotcha in `docs/memory.md` and did not alter any content.
+
+## 8. Close-out
+
+| id | route | verdict |
+|---|---|---|
+| ESC-137 | TASK_MANAGER | **addressed** — the case executes 21/21 with 0 skips, the anchor is the newest P28 commit (`2bb9a62`), a no-P28 range raises a named `AssertionError` instead of skipping, a later-phase subject cannot move the endpoint, and the shape rule is byte-identical with the second-seam check added |
+
+`escalations.json`: 132 entries, **0 open**. Full suite green (exit 0, 218.34 s) on the current tree.
+
+Status: REVIEW_COMPLETE

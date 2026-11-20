@@ -725,3 +725,47 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - db21672 P23 rework: restore the install guard (ESC-124); surface the IB chain error code and stop claiming no-0DTE on failure (Q-74)
 - 39856b0 P23 cleanup: delete 18 test-only symbols, wire AC-D65.4 into evaluate(), harden the residue gate (ESC-121/122), live-TWS acceptance record
 - c04cc03 Q-73: usage docs cover the D65 badge, STALE/freeze and no-0DTE empty state
+## P28 — 2026-11-20
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P28-T1 — D87/D93: connectionClosed now schedules the existing backoff in every state while TWS_GONE stays inside was_connected; close() sets DISCONNECTED directly and resets classification/attempt/log-delay without emitting disconnected; connect() disarms a pending reconnect before super().connect. New suite tests/test_d87_d93_client_lifecycle.py (6 cases).
+- P28-T2 — Rework ESC-133: P28-T2-05 now proves the dead RealtimeBarsManager.replay_all has no code use via a symbol-aware AST scan (attribute access on a realtime-manager receiver, bare name, class/owning-module definition; strings, comments, docstrings and SubscriptionManager.replay_all exempt), with a two-sided snippet self-check; fence untouched, full task suite green (31 passed).
+- P28-T8 — D86/D94 startup survivability (import-safe settings parse, skip-the-drop-and-start with one notice, window import + notice loop in main()) plus the one declared re-baseline of test_migrate_schema_aborts_drop_when_backup_fails to the skip-and-start contract (AC-D86.1); task suite and the full D65 backup suite green.
+- P28-T3 — Verified and finalized the prior attempt's harness seam: one ˋ_transport_ready = lambda: Trueˋ line in each of the six named suites' attach sites; all six suites green, no assertion changed.
+- P28-T4 — Added the P28 harness seam ˋwin._transport_ready = lambda: Trueˋ to the window factory of all six group-2 suites; one added line per file, no assertion, fixture or case shape changed; all six suites green with the landed readiness gate.
+- P28-T5 — Added the harness seam ˋwin._transport_ready = lambda: Trueˋ in all five suites' window factories (test_p13_restore beside its existing ˋ_ibkr_connected = Trueˋ); diff is five added lines, no assertion or fixture changed, all 17 cases green.
+- P28-T9 — D95 single-instance guard: new config/instance_lock.py (QLockFile keyed on the resolved DB path, setStaleLockTime(0) PID-based staleness, refusal naming pid/host), main() acquires it after check_live_port and before the DB/window import (refusal dialog + return 1, unlock in finally), with a new two-process test suite.
+- P28-T6 — ESC-135: transport-gated guards make the terminal state structurally unreachable while disconnected — no attempt spent and no status line on a post-drop error storm; T6-10 regression case added.
+- P28-T7 — D85/D91: closeEvent closes pop-outs first under per-window guards, _discard_popout (None-tolerant) makes both open sites one transaction, and test_p13_attach.py's harness gains the single win._transport_ready seam line (4 cases green with a real RT hold).
+- P28-T10 — Repair pass: re-baselined the one retired-phrase assertion in tests/test_d86_d94_startup.py::test_paper_port_still_refused_through_the_same_dialog to the D92 honest wording (read-only market-data client / places no orders / configured port); all other assertions byte-identical and the task's five-file suite green
+- P28-T11 — P28 fence finalised: tests/test_p28_fence.py green (13 passed) pinning the requirements record's D41-D83 per-id presence plus #### D84-D95, Journeys 74-77, AC-D1.1-AC-D83.2 plus AC-D84.1-AC-D95.3, A1-A234 plus A235-A240, R1-R174 plus R175-R180 and the Current Tech Stack section, and the module-read pins off live source; the delta vs ef04c5a is a subset of the phase allowlist (0 names outside) and G5 is recorded as owner-run and not claimed.
+- P28-T12 — P28-02c: one seam line in each of test_p13_hold_probe/test_d41_removal/test_p7_w2_prime (1+/0- each against ef04c5a, 10 cases green) plus tests/test_p28_seam_diff_shape.py, a 21-member diff-shape gate with the declared test_p7_w4_streaming retirement, three detector self-checks and a P28-bounded skip
+- P28-T13 — Re-anchored the P28 diff-shape gate at the newest P28 commit in ef04c5a..HEAD (b7914c3 here) via a pure _phase_tip/_phase_range_end that raises instead of skipping; deleted _phase_subjects, _in_phase, PHASE_CLOSED_REASON and the in_phase fixture; kept the 21-member shape rule verbatim and added anchor + second-seam self-checks.
+- P28-T14 — Re-pinned PROTECTED_SPAN_SHA256 in both history fences to ffa6ff6f... with an RG-P29-1/2026-11-20 audit-trail comment, and added live-span/pin-only/comment guards that fail a re-pin without its record.
+
+### User-facing / documented-behavior changes (doc_required)
+- P28-T10
+
+### Recent commits (unscoped)
+- 2bb9a62 P28 rework: re-pin the requirements history hash to the owner-approved RG-P29-1 span (ESC-137 close-out)
+- 8e5516f P28 rework: anchor the seam-shape gate at the phase tip so it always runs (ESC-137)
+- b7914c3 P28 rework: AST usage scan for the dead replay, readiness guard on RT errors, seam completion + shape gate (ESC-133/134/135/136)
+- e7ac594 P29: plan approved (persisted writes atomic, alarm crossing rule, outage gate, page-ready ordering)
+- 1404877 P28 build: readiness gate + deferred attach, stream budget, window ownership, startup survivability, instance lock, honest description (D84-D95)
+- e88f96b P28: plan approved after two revision rounds (drop owes the attach, prime-clear fourth site, seam)
+- ef04c5a P27 close-out: changelog, review log, escalations addressed
+- 5096b78 P27 rework: comment states the live stamp sites, guard covers every swept double, AC-D81.2 qualified (ESC-130/131/132)
+- 0ff7964 P27 build: planner request identity, confined window rule, reachable prime retry, gate-before-stamp, refund retirement (D77-D83)
+- 8fdc27f P27: plan approved after RC-1..RC-3 revision (present_days confinement, P17 supersession, 615s bound)
+- 623809e Q-80: freeze the clock for the deferred-prime retry tests (removes a 5s-per-5min wall-clock flake)
+- d56a97f P26 close-out: ESC-129 verified addressed, changelog, review log
+- bda354f P26 rework: empty batch reservation reserves nothing; batch-of-one contract documented (ESC-129)
+- 70b16f2 P26 build: transactional reconnect replay, cap-parked wave lifecycle, retry surrender, generation-scoped ledgers (D71-D76)
+- 4975efa P26: plan approved (D71-D76 reconnect replay + wave lifecycle)
+- 629be4a P25 close-out: changelog, review log, escalations addressed
+- a22ecf6 P25 rework: single-sourced whitespace predicate, import-time QApplication invariant, partial-marker docs (ESC-126/127/128)
+- 7d93819 Q-79: drop the dead module-level QApplication in the forming-candle suite (import-order fix)
+- 76713af P25 build: period base + forming-candle marker, pop-out hold latches, arrival-ordered flush, one whitespace rule
+- 08cade8 P25: plan approved (D67-D70 silent-wrong-data); Batch-38 requirements recorded as phases P25-P30
