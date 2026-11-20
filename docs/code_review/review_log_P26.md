@@ -113,4 +113,72 @@ Per the rules I did **not** re-run the suite: `test_verification.json` (verdict 
 - **1 new entry opened:** `ESC-129` (P26-T1 → BUILD, `quality`, `nice-to-have`), stamped by `escalate.py`.
 - Nothing was flipped to `addressed` (no open entry existed to verify).
 
+---
+
+# Pass 2 — ESC-129 verification (P26-T1 rework, commit `bda354f`)
+
+**Pass type / scope:** re-review of the one escalation the phase-final pass left open, incremental scope **P26-T1 only** (`precheck.json`: 1 task, 0 `fail_fast`, `files_verified` = `ibkr/pacing.py` + `tests/test_d71_replay_transaction.py`, `footprint_flags: []`, `overlaps: []`).
+**Tier:** the mechanical light-pass conditions all hold (every scoped test passes per `test_verification.json`; footprints verified, no violations or overlaps; result coherent; P26-T1 is size M; `ibkr/pacing.py` is claimed by no other task). I nevertheless read the fix diff line-by-line and re-ran the measurements myself, because closing an escalation is entry-C work and the owning agent's say-so is never proof. No light-pass allowance was used to skip a duty — the B.6 scan was re-run on the commit's new production lines even though the phase-final pass already covered the phase.
+**Inputs:** `precheck.json` (0 open-escalation entries reported, `escalation_updates` names ESC-129 `changed_since_last_review: true`), `test_verification.json` (**pass, exit 0, 212.19 s**, newer than `build_log.md` — ground truth for the suite), archived result `wave406_P26-T1.json`, the commit `bda354f`, `task-graph.json` P26-T1, `docs/requirements/requirements.md` D71 block, `docs/plan.md` P27 (for the flake note below).
+
+**Result: ESC-129 verified — the fix holds. 0 findings, 0 open escalations.** No new escalation opened; nothing blocked.
+
+---
+
+## 1. ESC-129 — verified on the live tree, adversarially
+
+`ibkr/pacing.py::generic_batch` now opens with `units = int(count); if units <= 0: yield; return` **before** the wait check, the `_batch_remaining` assignment and the `try/finally`. The `n >= 1` branch is otherwise byte-identical; `throttle` has no hunk at all in the commit; `reset_for_tests` still zeroes the counter (`pacing.py:300`). Both docstrings now state the empty case (body runs, nothing reserved, exit stamp skipped) and say plainly that a batch of one admits its single send by design.
+
+Every measurement below was re-run by me against the real class **and** against the pre-fix module loaded out-of-tree from `git show bda354f^:ibkr/pacing.py` as a second importable module in the same process — so each result has a red/green pair, not a claim.
+
+| # | check | pre-fix (`bda354f^`) | live tree |
+|---|---|---|---|
+| 1 | **empty reservation, exit stamp** — `generic_batch(0)` on an open gate | stamp **fires** (`body_end 1795140895.253937` → `after_exit …253938`) | stamp **does not fire** (identical clock) |
+| 2 | **empty reservation, throttled manager** — `_last_req_time = time.time()`, `throttle()` inside `generic_batch(0)` | clock delta **+0.000007 s** (the phantom 20 ms stamp); `throttle()` REFUSED `wait=0.020` | clock delta **+0.000000 s**; REFUSED `wait=0.020` — no send admitted, gate decides |
+| 3 | **negative count** `generic_batch(-2)` | same phantom stamp | untouched; body runs; gate decides |
+| 4 | **RT-only replay** — real `SubscriptionManager.replay_all`, real `PacingManager`, fake RT manager (the ESC-129 repro) | `_last_req_time` stamped by the empty batch → next `throttle()` refused | `replay_all → [(101, 5000)]`, `generic_n = 0`, clock **0.0 → 0.0**, next `throttle()` **ADMITTED** |
+| 5 | **empty batch still entered on purpose** — instrumented `generic_batch` during that replay | `[0]` | `[0]` — `test_d71_replay_transaction.py:440`'s `pacing.batch_counts == [0]` pin is untouched and still meaningful |
+| 6 | **`reset_for_tests` clears the counter** — counter set to 5, then reset | cleared (pre-existing) | cleared: `_batch_remaining` 5 → 0 |
+| 7 | **n-of-n contract, n = 1, 2, 3** — cold gate, n `throttle()` calls, then a manual `record_request_slot()` and an (n+1)th | reserved = n inside; n admitted; leftover 0; **(n+1)th REFUSED** `wait=0.020`; counter 0 after; post-batch `throttle()` REFUSED | **identical, field for field** |
+| 8 | **cold window still fail-closed** — `generic_batch(3)` with the interval unelapsed | refused from `__enter__` (`wait=0.040`), body never runs | identical |
+
+Two properties I checked because the new guard changes control flow, both in the fix's favour: an **exception inside an empty batch** still propagates and now leaves the clock untouched (pre-fix stamped it); and **nesting an empty batch inside an open reservation** no longer clobbers the outer counter (outer 3 → **3** post-fix, 3 → **0** pre-fix — a latent hole that existed only because the empty path shared the clearing `finally`; nothing in production nests batches).
+
+**The docstring contract.** `generic_batch(1)` admitting one send ungated is now stated as intent, not implied, and it matches AC5's wording exactly ("an open generic batch of n … all n calls return without sleeping; an (n+1)th call … falls through to the unchanged minimum-interval gate"). Behaviour for n = 1 is unchanged from before the fix (row 7), which is what "AC's contract unchanged" requires.
+
+**The three new regression tests pin the contract, and two of them discriminate.** I ran them against the pre-fix module without touching the tree: `test_P26_T1_empty_reservation_spends_nothing_and_stamps_nothing` → **FAIL** (`AssertionError`, the exit-stamp assertion) and `test_P26_T1_rt_only_pass_leaves_the_generic_clock_untouched` → **FAIL** (`PacingExceeded` — the very defect) pre-fix, both PASS live. `test_P26_T1_batch_of_one_admits_its_single_send_by_design` passes on **both**, and that is correct rather than weak: it pins a contract the fix deliberately did not change (cold gate, n admitted, over-spend falls through to the gate, gate authoritative after the batch), so it can only ever be a stability guard, and the behaviour it guards is the one the handoff asked to keep frozen. Suite: `tests/test_d71_replay_transaction.py` **10 passed**.
+
+**Production caveat, stated so it is not mistaken for a residue:** an RT-only replay still stamps `_last_req_time` when the RT manager is `RealtimeBarsManager` itself, because `subscribe` → `record_realtime_slot` stamps on a request that really crossed the wire. That is correct bookkeeping, not the phantom stamp this finding named — measured both ways (fake RT manager: delta 0; production-shaped RT: one stamp, `rt_stamps=1`).
+
+## 2. Standing duties
+
+| duty | result |
+|---|---|
+| **Mock-endpoint containment** (non-optional) | **Clean.** The commit's 23 added production lines in `ibkr/pacing.py` contain no `mock|fake|stub|simulat` crossed with `endpoint|client|service|server|api|harness`; `pacing.py` imports no test double. |
+| **User-facing docs** | **No finding.** The change is an internal pacing helper's contract and docstrings; no CLI/API/config/user workflow changes. `precheck.json`'s candidates (`usage.md`, `USAGE.txt`, `docs/`, the P25 usage-doc test) are all `touched: false`, which is the right outcome here — none of them documents pacing internals, and nothing they say became false. |
+| **Pack-prose spot-check** (sampled T1 = first task in the phase; pack unchanged — `task-graph.json` is not in `bda354f`) | No contradiction **with the ACs** and no guarantee without an enforcing test; the prior pass's read of T1/T2/T4 stands. One drift recorded as an observation below (§3.3), not an escalation: the pack's mechanism sentence still describes the pre-fix empty path. |
+| **Repeat-invariant** | No prior finding on this invariant other than ESC-129 itself, which is now addressed — nothing to re-route, and no third-patch situation exists. |
+| **Owner gates G3/G4** | Still **not run and not claimed** by this pass. They are live-TWS actions (a real reconnect; a four-minute park); this pass is offscreen plus the consumed suite verdict. |
+
+## 3. Examined and deliberately not escalated
+
+1. **`AC-D71.5` is an in-phase label, not a requirements id.** `requirements.md` defines only `AC-D71.1`–`AC-D71.3`; the contract the new docstrings cite is P26-T1's **AC5** in `task-graph.json` (and the `test_d71_replay_transaction.py:355` comment used the same label before this commit, as did my own ESC-129 text). The claim's substance is correct and pinned; only the label is not resolvable in `docs/requirements/`. A later pass writing an AC-id fence over code citations would find it, so the correction (`P26-T1 AC5`, or drop the id) is worth making whenever `pacing.py` is next touched — not worth a rework cycle now.
+2. **New tests set the wall clock directly** (`_last_req_time = time.time()`, then assert the next call is refused — a 20 ms assertion window). Inherited house pattern: the pre-existing `test_P26_T1_AC5_…` (line 375) does exactly the same, and the calls are adjacent statements, so this needs a ~20 ms stall between them — a different order of fragility from §4 below, and not something to re-baseline on a documentation pass.
+3. **Task pack prose drift.** P26-T1's description still says `generic_batch` "sets `_batch_remaining = int(count)` … and in `finally` … calls `record_request_slot()`" unconditionally, which is now true only for `n >= 1`. The ACs never required the empty-path stamp, so this is not a pack-vs-AC contradiction; packs are historical once a phase closes. Recorded so nobody reuses that sentence as a spec.
+4. **`int(count)` now applied before the wait computation** — a no-op for every integer caller (`generic_n = len(pending) - rt_n`; all tests). Only a non-integral float would see a different wait, and the parameter is typed `int`.
+
+## 4. The `test_d28_3_historical_pacing.py` prime-aggregator red — I agree, and it is not P26's
+
+**I agree it should be filed as a test-quality finding** — pre-existing, not P26's, and I did not fix it (per instructions).
+
+- **Mechanism, verified in the code:** the two tests (`tests/test_d28_3_historical_pacing.py:396` `test_prime_aggregator_defers_once_on_pacing`, `:427` `test_prime_aggregator_fails_open_when_retry_also_paced`) drive the first prime with a **frozen** `now_ts` of `1_700_000_000`, then invoke the captured retry callback, which is `_on_prime_retry` — and that re-enters `prime_aggregator` with `int(time.time())` (`ui/ticker_session.py:1899`). Real-clock period start for `"5 mins"` is the 5-minute boundary, so when the callback lands in the first 5 s of a period, `span_s < 5` takes the documented "at a period boundary: nothing to prime" return (`:1766`) → `_fail_open_prime` runs and **no second attempt is made**. lines 410-421 then fail on `len(attempts) == 2` / `_prime_req_id` / `prime_completions == []`; the second test (line 435 onward) fails on the same `len(attempts) == 2`. Both tests execute seconds apart, so they redden **together** — 5 s out of every 300 s, ≈ 1.7 % of runs. This run's suite verdict (exit 0, 212.19 s) is consistent with missing the window.
+- **Why it is a test defect, not a product defect:** returning `False` and failing open at a period boundary is the documented, intended outcome (`prime_aggregator`'s own docstring and the `S-P25-1/S-P25-3` comment). The tests assert a deterministic outcome while letting the retry read the ambient clock; freezing the clock for the retry path (the initial call already is) makes them deterministic.
+- **Owner, and a scheduling constraint.** The change itself is a **test-only edit → BUILD**. It cannot ride inside **P27-02** (D78): that task's exit condition requires `tests/test_d28_3_historical_pacing.py` green **unchanged** and its *Do not* list forbids touching `_on_prime_retry` (`docs/plan.md:7872-7876`). So it needs its own small task — schedule it via **TASK_MANAGER** in P27 (or later), either as a standalone test-quality task alongside P27-02 or after P27-02 lands, when that "unchanged" constraint expires. Severity if filed: **should-fix** — it costs a spurious full-suite red plus a rework cycle at ~1.7 % per run, but it corrupts no data and hides no behaviour.
+
+## 5. Escalation close-out
+
+- `escalations.json` parsed after the close-out: **124 entries, 0 open**.
+- **ESC-129 → `addressed`.** Re-verified above, not on the worker's word: the two original repros are now green, the empty batch no longer stamps, the RT-only replay leaves the clock at `0.0` and the next `throttle()` is admitted, `reset_for_tests` still clears the counter, the n-of-n contract and the `batch_counts == [0]` pin are unchanged, and the two new discriminating tests are red against the pre-fix module. `opened` left intact; `verified` appended.
+- No new entry opened, no `PRE-*` entry was open.
+
 Status: REVIEW_COMPLETE

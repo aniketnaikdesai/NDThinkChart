@@ -877,3 +877,44 @@ of `AC-D65.9` — write the assertion against the **tracked** value
 no name wider than its column), never a rendered-width echo (ESC-057 / D44 precedent).
 
 **Escalation:** ESCALATED_TO_REQUIREMENTS — **addressed 2026-11-17** (A201; `AC-D65.9`/`AC-D65.11` amended).
+
+## RG-P27-1 — `AC-D77.1`'s "union of the plans' covered intervals equals the union of the input spans" is unsatisfiable before and after P27
+
+**Requirement/Journey:** `AC-D77.1` (final clause), repeated as Journey 71's postcondition
+("the union of requested intervals equals the union of missing spans"); related prose: D77
+*Expected behaviour* ("The **union** of requested intervals is unchanged — nothing is dropped,
+nothing extra is fetched") and P27 *Constraints* ("The set of covered intervals is identical
+before and after D77; only the request count changes").
+
+**Problem:** the final clause of `AC-D77.1` asserts literal set equality between plan coverage
+and input-span coverage. That is false today, before any P27 edit, for the ordinary case: a
+plan's coverage is one configured `duration` ending at its anchor, so a span shorter than one
+configured duration is fetched as one request that reaches far *before* the span start.
+Measured on the unmodified tree at `70b16f2`:
+`plan_requests([MissingSpan(0, 3*86400)], "5 mins")` → one plan
+`("19700104-00:00:00", "30 D")`, i.e. plan coverage 30 days for a 3-day span; `chunk_seconds`
+= 2 592 000 vs `span_seconds` = 259 200. The same holds for every intraday timeframe
+(30 D / 60 D) and is inherent to `TIMEFRAME_CONFIG`'s fixed durations, which P27's Frozen
+Interfaces pin verbatim.
+
+**Why it cannot be satisfied as currently written:** only a planner that truncates the oldest
+chunk (an IBKR duration smaller than the configured one, or a partial first request) could
+produce exact equality — a different chunking model, excluded by P27's Non-Goals and by the
+frozen `TIMEFRAME_CONFIG`. Plan's AP-P27-2 therefore asserts the enforceable reading
+("identical before and after, and containing every input span"), which the prose in D77 and in
+P27's Constraints does state. The `AC`'s own measurable ("interval-union comparison against an
+independently computed set") cannot be literal equality and pass.
+
+**Suggested Direction:** reword `AC-D77.1`'s last clause to "the union of the plans' coverage
+is **unchanged by the change** and **contains every input span** (each plan covers one
+configured duration ending at its `endDateTime` anchor — the accepted chunk-granularity
+over-fetch the cache PK makes idempotent)", and apply the same wording to Journey 71's
+postcondition. Alternatively state the chunk-granularity exception explicitly in D77's
+*Expected behaviour*. Either way the assertions stay: identity multiset has no duplicate;
+coverage identical before/after; containment; the coinciding-span request-count drop.
+
+**Status:** open — non-blocking for the architecture (P27's plan asserts the enforceable half
+and records the reading as `FI-P27-1` / `AP-P27-2`; nothing in the phase depends on the
+literal equality).
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS

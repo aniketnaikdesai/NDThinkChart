@@ -661,3 +661,34 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - 337221e Q-72: CI parity gate reads the archived matrix path
 - 153c317 Archive reference docs; D65 amended per owner review (Q-71)
 - 99bd362 Archive review logs, plan reviews and probe records (Q-68..Q-70)
+## P26 — 2026-11-20
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P26-T1 — ESC-129 rework: generic_batch with count <= 0 is now a no-op body that reserves nothing and skips the interval stamp, so an empty reservation is not spendable and an RT-only replay no longer defers the next send; the count <= 1 docstrings now state that a batch of one admits its single send by design (AC-D71.5's n-of-n contract unchanged). New regression tests pin both behaviours; all 5 P26-T1 tests and the seven named pre-existing suites pass unchanged.
+- P26-T2 — D72/D75/D76: the cap yield parks the wave (bound settled once nothing is in flight, queue survives an identical reload and resumes oldest-first, a stalled member or a disconnect still strands exactly once); a readiness episode arms the bound once, announces once and ends through a bounded finalise naming the transport.
+- P26-T3 — D73/D74: one _surrender_chunk_bars helper now serves both retry paths (162 branch surrenders before re-queue), the cancel ledger is generation-tagged and pruned to the current+previous generation at each wave start, _backfill_failed_req_ids resets per wave, and MainWindow's superseded tags live in a two-batch window; new suite tests/test_d73_d74_retry_ledger.py covers all four criteria.
+- P26-T4 — P26 fence suite added (11 tests): presence-per-id requirements markers (D41-D70 headings, D71-D76 entries, Journeys 68-70, AC/A/R ranges, existing-repo marker, Current Tech Stack) and the six module-read pins; delta diff vs 629be4a is inside the phase allowlist; full offscreen suite green; G3/G4 listed as owner-run, not claimed.
+
+### Recent commits (unscoped)
+- bda354f P26 rework: empty batch reservation reserves nothing; batch-of-one contract documented (ESC-129)
+- 70b16f2 P26 build: transactional reconnect replay, cap-parked wave lifecycle, retry surrender, generation-scoped ledgers (D71-D76)
+- 4975efa P26: plan approved (D71-D76 reconnect replay + wave lifecycle)
+- 629be4a P25 close-out: changelog, review log, escalations addressed
+- a22ecf6 P25 rework: single-sourced whitespace predicate, import-time QApplication invariant, partial-marker docs (ESC-126/127/128)
+- 7d93819 Q-79: drop the dead module-level QApplication in the forming-candle suite (import-order fix)
+- 76713af P25 build: period base + forming-candle marker, pop-out hold latches, arrival-ordered flush, one whitespace rule
+- 08cade8 P25: plan approved (D67-D70 silent-wrong-data); Batch-38 requirements recorded as phases P25-P30
+- 94d6119 Q-76/77/78: expiry renders Nov19, silence bound scales with chunk shape, ResizeObserver work coalesced
+- 9418a54 P24 close-out: changelog, review log, PRE-021 addressed
+- 246e5df P24: PCS per-side offsets + reversed row order (D66); fixtures re-derived, delta fence
+- f9bb73c P24: requirements + plan approved (D66 PCS ordering delta); ESC-123/124/125 closed; acceptance record names db21672
+- db21672 P23 rework: restore the install guard (ESC-124); surface the IB chain error code and stop claiming no-0DTE on failure (Q-74)
+- 39856b0 P23 cleanup: delete 18 test-only symbols, wire AC-D65.4 into evaluate(), harden the residue gate (ESC-121/122), live-TWS acceptance record
+- c04cc03 Q-73: usage docs cover the D65 badge, STALE/freeze and no-0DTE empty state
+- a6800b2 P23 T17: residue gate censuses class methods with cited framework exemptions
+- c2fc2af P23 T16: engine-owned reset_session, live toggle_off, no constructor re-entry
+- bb5d540 P23 rework: ESC-116 contract re-point, ESC-117 OFF/cutoff session reset, ESC-118 dead alias + allowlist tighten
+- 82b82fd P23 build: Option Spreads panel, chain/greeks, engine, live wiring, Portfolio stack removal, schema drop (10 waves)
+- 4bb01e9 P23: plan approved after owner review (10 waves, RC-1..RC-16)

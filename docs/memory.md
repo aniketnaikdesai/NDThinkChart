@@ -268,3 +268,8 @@
 **Category:** Known Gotcha
 **Finding:** `build_wave.py advance` checks `touches_files` overlap only against tasks selected in the *current* advance, not against tasks left `in_progress` by an earlier wave. A held-back task therefore gets republished on the next advance while the worker it was held for is still running, so two workers can be dispatched onto the same file. Reset such a task (`build_wave.py reset --keep-halt <id>`) and let it re-dispatch only after the overlapping worker's result consolidates.
 **Source:** P23-T22 vs P23-T23 (shared `services/option_spread_engine.py`)
+
+### 2026-11-19 — discovered during Build (P26 verification)
+**Category:** Known Gotcha
+**Finding:** `tests/test_d28_3_historical_pacing.py::test_prime_aggregator_defers_once_on_pacing` and `::test_prime_aggregator_fails_open_when_retry_also_paced` fail whenever the wall clock is within 5 s of a 5-minute boundary. `_on_prime_retry` re-enters `prime_aggregator` with `now_ts = int(time.time())`, and the prime returns False when `span_s < 5` ("at a period boundary: nothing to prime"), so the retry never issues and `attempts` stays at 1. Pre-existing flake, ~1.7% of runs, independent of the code under change; reproduces reliably by starting the run at a boundary + <5 s. A red full-suite run on exactly these two tests is not evidence of a regression — re-run or check the clock before treating it as one.
+**Source:** P26 full-suite verification (commit `bda354f`)
