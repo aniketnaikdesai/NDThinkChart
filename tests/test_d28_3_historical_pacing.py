@@ -358,6 +358,39 @@ def test_rapid_symbol_switching_no_162_storm(monkeypatch, qapp):
 
 # ── Q-3: deferred aggregator priming ─────────────────────────────────
 
+# Q-80: ``_on_prime_retry`` re-enters ``prime_aggregator`` with
+# ``int(time.time())`` and a 5-minute prime returns False when ``span_s < 5``,
+# so a real clock landing in the first 5 s of a period would redden both
+# retry tests (~1.7% of runs). This instant is mid-period for '5 mins'
+# (span 260 s after the 1_699_999_800 boundary).
+_PRIME_RETRY_NOW_TS = 1_700_000_060
+
+
+class _FrozenClock:
+    """Stand-in for the ``time`` module with a fixed ``time.time()``."""
+
+    def __init__(self, ts):
+        self._ts = ts
+
+    def time(self):
+        return self._ts
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+def _freeze_ticker_session_clock(monkeypatch):
+    """Q-80: pin the ticker_session module's clock for the retry path.
+
+    Only the module reference is patched (production code is untouched), so
+    ``_on_prime_retry`` re-enters ``prime_aggregator`` at a deterministic
+    mid-period instant regardless of wall clock.
+    """
+    import ui.ticker_session as ts_mod
+    monkeypatch.setattr(ts_mod, "time", _FrozenClock(_PRIME_RETRY_NOW_TS))
+    return ts_mod
+
+
 def _deferred_prime_setup(monkeypatch, qapp, waiter):
     """Session + md stub whose priming requests are pacing-limited per ``waiter``.
 
@@ -365,7 +398,8 @@ def _deferred_prime_setup(monkeypatch, qapp, waiter):
     ``waiter`` is called with the attempt count and may raise PacingExceeded.
     """
     from ibkr.contracts import get_contract_for_symbol
-    import ui.ticker_session as ts_mod
+
+    ts_mod = _freeze_ticker_session_clock(monkeypatch)
 
     fake = _FakeHistClient()
     host, session = _make_session(qapp, fake)
