@@ -566,7 +566,7 @@ def test_ac6_seam_main_window_wall_now_is_late_bound(monkeypatch, qapp):
     monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
     from ibkr import pacing as pacing_mod
 
-    monkeypatch.setattr(pacing_mod.pacing_manager, "throttle", lambda: None)
+    monkeypatch.setattr(pacing_mod.pacing_manager, "throttle", lambda *, stamp=True: None)
     from ui.main_window import MainWindow
 
     win = MainWindow()

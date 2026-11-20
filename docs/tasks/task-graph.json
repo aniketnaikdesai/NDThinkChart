@@ -1,504 +1,335 @@
 {
   "meta": {
-    "phase": "P26",
-    "plan_ref": "docs/plan.md#Phase P26",
-    "architecture_ref": "docs/architecture.md#Phase P26",
-    "requirements_ref": "docs/requirements/requirements.md#Phase P26",
-    "notes": "docs/tasks/task_manager_notes_P26.md",
-    "baseline_commit": "629be4a",
+    "phase": "P27",
+    "plan_ref": "docs/plan.md#Phase P27",
+    "architecture_ref": "docs/architecture.md#Phase P27",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P27",
+    "notes": "docs/tasks/task_manager_notes_P27.md",
+    "baseline_commit": "623809e",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P26-T1",
-      "title": "D71 \u2014 the reconnect replay is one transaction over a union budget and retires every line it supersedes",
-      "description": "Make replay_all what its docstring already claims. ibkr/pacing.py gains generic_wait_for_batch(count) -> float (0.0 when count <= 1, else max(0.0, (count - 1) * (1.0 / settings.MAX_REQ_PER_SEC) - (now - self._last_req_time)) under the lock) and generic_batch(count), a contextlib.contextmanager that re-checks the wait and raises PacingExceeded(wait) from inside __enter__ (so the body never runs), sets _batch_remaining = int(count), and in finally clears it and calls record_request_slot(); throttle() gains one branch before the clock read that decrements _batch_remaining and returns, and reset_for_tests clears the counter. ibkr/subscription_manager.py gains _cancel_hooks / set_cancel_hook and replay_all becomes three phases: one union pre-check (rt_n = the RT_BARS entries, generic_n = len(pending) - rt_n, one PacingExceeded(max(rt_wait, generic_wait)) before any mutation), then every pending entry's reissue() in registry order inside `with pacing_manager.generic_batch(generic_n):` with a full unwind on any raise, then rebind + retire the old id through the entry's own resolver + move the registry key. ui/main_window.py installs the two resolvers beside `self.sub_manager = SubscriptionManager()` (RT_BARS -> _unregister_req_id(old) + rt_manager.unsubscribe(old); OPTION_LEGS -> _option_req_ids.pop(old, None) + md_manager.cancel_mkt_data(old)) and makes _replay_subscriptions' deferral replaceable with an epoch (self._replay_serial, read via getattr) in front of the same single QTimer.singleShot(int(e.wait_seconds * 1000), ...). The generic gate is the 20 ms minimum-interval gate derived from MAX_REQ_PER_SEC = 50 and RT sends never touch it, so generic_n = len(pending) - rt_n is exact; S0_TICKS is declared but nothing in production registers under it, so it contributes nothing to the union and the arithmetic stays correct if a hook is ever added. subscribe's frozen signature, its four test doubles and the _Entry field set are untouched.",
+      "id": "P27-T1",
+      "title": "P27-01 \u2014 Planner identity de-duplication, the empty-span guard and one window rule (D77, D82, D83)",
+      "description": "In services/backfill_service.py make plan_requests emit one plan per request identity (endDateTime, duration, bar_size) and none for a span with no positive length, and make _bar_level_missing_spans use half-open [start, end) window membership (a window capped by now keeps t <= now_ts) with one gap_threshold = period * 1.5 for the leading, internal and trailing edges. present_days is NOT changed \u2014 its equity membership stays window_start <= ts <= window_end and its futures branch and signature stay byte-identical; only its docstring gains the statement of that predicate and why it is inclusive at the close. New pure suite tests/test_d77_d82_d83_planner_identity.py; the existing planner/day-presence/history suites must stay green unchanged, including both 1 day params of tests/test_history_backfill.py::test_t40_t04_chunked_multi_request_continuity \u2014 a red assertion in the D16/D42 suites is a stop-and-escalate, never a re-baseline.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given a subscription registry holding entries of more than one type (one RT_BARS entry plus two OPTION_LEGS entries, each carrying reissue/rebind) and a pacing manager whose generic gate will refuse after the first send, When one replay pass runs, Then zero reissues are attempted and the registry is unchanged, exactly one retry is scheduled for the reported wait, and after that wait a single pass reissues every entry exactly once, in registration order.",
-        "Given the same fixtures and a replay that completes, When the pass returns, Then the number of live subscriptions equals the pre-replay number, every old reqId was retired exactly once through its own type's resolver, and no new reqId is registered twice; a second replay from the settled state reproduces the same live count, the same per-id retire counts and the same new-id set.",
-        "Given a replay whose reissue phase raises after at least one entry has been reissued, When the pass unwinds, Then every reqId issued during that phase is retired, each successful entry's routing is rebound to its old reqId, the registry is identical to its pre-pass state (no old line was cancelled), and the exception propagates to the caller.",
-        "Given a replay with both budgets open throughout, When the pass runs, Then it returns the same [(old_req_id, new_req_id)] pairs in the same order as the pre-change pass, performs exactly one rebind per entry, and the pre-existing replay suites stay green with no assertion re-baselined.",
-        "Given PacingManager and an open generic batch of n, When throttle() is called n times, Then all n calls return without sleeping; an (n+1)th call inside the batch falls through to the unchanged minimum-interval gate and raises PacingExceeded when the interval has not genuinely elapsed; a throttle() call after the batch has closed behaves exactly as before; and reset_for_tests() clears the reservation so it can never admit a later send."
+        {
+          "id": "AC-D77.1",
+          "criterion": "Given any set of spans produced by find_missing_spans, When plan_requests runs, Then no two plans share (endDateTime, duration, bar_size), and the plans' coverage is unchanged by the change and contains every input span (chunk-granularity over-fetch is stated in D77 and idempotent through the cache primary key)."
+        },
+        {
+          "id": "AC-D77.2",
+          "criterion": "Given the same input, Then every interval that was covered before the change is still covered \u2014 a fixture where the floor span starts earlier than the presence span still fetches the earlier part."
+        },
+        {
+          "id": "AC-D77.3",
+          "criterion": "Given a coinciding-span scenario, Then exactly one request is spent where the pre-change planner spent two, and the per-load cap is charged once."
+        },
+        {
+          "id": "AC-D82.1",
+          "criterion": "Given a bar timestamped exactly at a session's end, When the planner runs, Then the bar is counted in exactly one window (never two) and no span is emitted for the boundary instant."
+        },
+        {
+          "id": "AC-D82.2",
+          "criterion": "Given a trailing hole of 1.0 period and of 1.7/2.0 periods, When the planner runs, Then the 1.0-period hole is not reported and the 1.7- and 2.0-period holes are; the module docstring and the code state the same number (1.5 bar periods)."
+        },
+        {
+          "id": "AC-D83.1",
+          "criterion": "Given a span whose end equals its start, When plan_requests runs, Then it emits no plan for it, and a list containing only such spans yields an empty plan list."
+        },
+        {
+          "id": "AC-P27-01-7",
+          "criterion": "Given a ten-trading-day '1 day' cache whose bars are stamped at the session close (16:00 ET), When present_days runs under either mode and find_missing_spans runs with now at the last close, Then all ten days are present and no span is produced, a test-local half-open variant of the same predicate returns 0 of 10 on the same series, an intraday out-of-mode day is still absent, and present_days' signature, equity membership expression and futures branch are unchanged."
+        }
       ],
       "tests": [
         {
-          "test_id": "P26-T1-AC1",
-          "linked_acceptance_criterion": "Given a subscription registry holding entries of more than one type (one RT_BARS entry plus two OPTION_LEGS entries, each carrying reissue/rebind) and a pacing manager whose generic gate will refuse after the first send, When one replay pass runs, Then zero reissues are attempted and the registry is unchanged, exactly one retry is scheduled for the reported wait, and after that wait a single pass reissues every entry exactly once, in registration order.",
+          "test_id": "P27-T1-01",
+          "linked_acceptance_criterion": [
+            "AC-D77.1",
+            "AC-D77.3"
+          ],
           "type": "unit",
-          "description": "Fake pacing object exposing realtime_wait_for_slots + generic_wait_for_batch/generic_batch, a fake md_manager counting req_mkt_data/cancel_mkt_data per id, a fake rt_manager counting subscribe/unsubscribe, and a registry with one RT_BARS entry plus two OPTION_LEGS entries whose reissue/rebind call those fakes. Refuse the generic batch, then admit it and run the scheduled callback.",
-          "expected_result": "Refused: zero req_mkt_data and zero rt subscribe calls, the registry's entries unchanged, exactly one scheduled deferral whose delay equals the reported wait_seconds, and no PacingExceeded leaving the pass. Admitted: exactly three reissue calls in registration order and one pass only."
+          "description": "Build Journey 71's out-of-mode fixture (ETH-cached bars, RTH load with min_sessions=30) and a hand-built two-span list whose spans share end_ts; run plan_requests on both and compare the identity multiset and the plan count with the pre-change rule's count.",
+          "expected_result": "No repeated (endDateTime, duration, bar_size) identity in either fixture; the shared anchor yields exactly one plan; the coinciding-span fixture's plan count is exactly the pre-change count minus the number of duplicated identities."
         },
         {
-          "test_id": "P26-T1-AC2",
-          "linked_acceptance_criterion": "Given the same fixtures and a replay that completes, When the pass returns, Then the number of live subscriptions equals the pre-replay number, every old reqId was retired exactly once through its own type's resolver, and no new reqId is registered twice; a second replay from the settled state reproduces the same live count, the same per-id retire counts and the same new-id set.",
+          "test_id": "P27-T1-02",
+          "linked_acceptance_criterion": [
+            "AC-D77.2",
+            "AC-D77.1"
+          ],
           "type": "unit",
-          "description": "Run one completing pass over the mixed registry, then a second pass from the settled state, counting live ids in the registry map and per-id cancel calls on both fakes.",
-          "expected_result": "Live entry count after the pass equals the pre-pass count; each old id appears exactly once in its fake's cancel log; no new id appears twice in the registry; the second pass repeats the same counts and the same new-id set."
+          "description": "Partially overlapping pair where the floor span starts earlier than the presence span. The test derives the expected anchor set from the input spans with its own chunk arithmetic (the pre-change rule, independent of the implementation), then asserts each expected anchor is planned exactly once, the floor span's earlier part is still covered, and every input span is contained in the union of planned intervals.",
+          "expected_result": "Every independently derived anchor is present exactly once; the earlier part of the floor span is still fetched; coverage before the change is reproduced and every input span is contained in the plans' coverage."
         },
         {
-          "test_id": "P26-T1-AC3",
-          "linked_acceptance_criterion": "Given a replay whose reissue phase raises after at least one entry has been reissued, When the pass unwinds, Then every reqId issued during that phase is retired, each successful entry's routing is rebound to its old reqId, the registry is identical to its pre-pass state (no old line was cancelled), and the exception propagates to the caller.",
+          "test_id": "P27-T1-03",
+          "linked_acceptance_criterion": [
+            "AC-D77.1"
+          ],
           "type": "unit",
-          "description": "Make the second entry's reissue raise IBKRNotReady after the first entry has already been reissued, and catch the propagating exception in the test.",
-          "expected_result": "The first entry's new id is retired, both entries' routing is rebound to their old ids, the old-id cancel log is empty, the registry equals its pre-pass snapshot, and IBKRNotReady propagates out of replay_all."
+          "description": "Two spans sharing the same end instant but carrying different configured durations/bar sizes (two different timeframes' plans side by side) are passed to plan_requests.",
+          "expected_result": "Two plans are emitted \u2014 the identity key is all three fields (endDateTime, duration, bar_size), so an anchor/duration difference is not de-duplicated away."
         },
         {
-          "test_id": "P26-T1-AC4",
-          "linked_acceptance_criterion": "Given a replay with both budgets open throughout, When the pass runs, Then it returns the same [(old_req_id, new_req_id)] pairs in the same order as the pre-change pass, performs exactly one rebind per entry, and the pre-existing replay suites stay green with no assertion re-baselined.",
-          "type": "integration",
-          "description": "With both budgets open, compare the returned pair list and rebind count against the pre-change shape, then run the named pre-existing replay suites unchanged: tests/test_d28_pacing.py, tests/test_p7_w4_streaming.py, tests/test_p7_w4_deferral.py, tests/test_d65_option_stream.py, tests/test_d27_reconnect.py, tests/test_d40_tws_lifecycle.py, tests/test_d24_popouts.py.",
-          "expected_result": "Same [(old, new)] pairs in the same order, one rebind per entry, one pass; the seven suites pass with no assertion edited."
+          "test_id": "P27-T1-04",
+          "linked_acceptance_criterion": [
+            "AC-D83.1"
+          ],
+          "type": "unit",
+          "description": "plan_requests([MissingSpan(t, t)], tf) and plan_requests([MissingSpan(t, t), MissingSpan(u, u)], tf) with a non-negative-span control case.",
+          "expected_result": "A zero-length span emits no plan, a list of only zero-length spans yields [], and the control case still plans its request."
         },
         {
-          "test_id": "P26-T1-AC5",
-          "linked_acceptance_criterion": "Given PacingManager and an open generic batch of n, When throttle() is called n times, Then all n calls return without sleeping; an (n+1)th call inside the batch falls through to the unchanged minimum-interval gate and raises PacingExceeded when the interval has not genuinely elapsed; a throttle() call after the batch has closed behaves exactly as before; and reset_for_tests() clears the reservation so it can never admit a later send.",
+          "test_id": "P27-T1-05",
+          "linked_acceptance_criterion": [
+            "AC-D82.1"
+          ],
           "type": "unit",
-          "description": "Drive a real PacingManager: open generic_batch(3), call throttle() three times, then a fourth inside the batch, then one after the block, then reset_for_tests and one more.",
-          "expected_result": "The first three throttle() calls return; the fourth raises PacingExceeded while the interval has not elapsed; the post-batch call behaves exactly as the pre-change gate; after reset_for_tests() the reservation is gone and the next call is gated normally."
+          "description": "A complete 5 mins RTH session (bars through 15:55 ET), plus a bar stamped exactly at the session end (16:00 ET) and the next session's first bar, run through the bar-level gap pass under RTH.",
+          "expected_result": "The closing window accounts the 15:55 bar last (the 16:00 bar is not counted in it), no span is emitted for the boundary instant, and every counted instant appears in exactly one window's accounting."
+        },
+        {
+          "test_id": "P27-T1-06",
+          "linked_acceptance_criterion": [
+            "AC-D82.2"
+          ],
+          "type": "unit",
+          "description": "Three trailing-hole fixtures above the planner's last accounted bar: 1.0 period, 1.7 periods and 2.0 periods; read the threshold number the module docstring states and compare it with the value the fixtures bracket.",
+          "expected_result": "The 1.0-period hole yields no span; the 1.7-period and 2.0-period holes each yield one span; the docstring states 1.5 bar periods, the same number the two fixtures bracket."
+        },
+        {
+          "test_id": "P27-T1-07",
+          "linked_acceptance_criterion": [
+            "AC-P27-01-7"
+          ],
+          "type": "unit",
+          "description": "A ten-trading-day '1 day' cache whose bars are stamped 16:00 ET (the tree's own daily fixture convention), read by present_days under ext_hours False and True and by find_missing_spans with now at the last close; plus a test-local half-open variant of the same predicate computed inside the test (not imported from the module), an intraday pre/post-only day under RTH, and an intraday series whose only bar sits exactly at the mode's window end.",
+          "expected_result": "present_days returns all ten days under both modes; find_missing_spans returns []; the test-local half-open variant returns 0 of 10 on the same series; the intraday out-of-mode day is absent; the intraday close-instant bar's day is present."
+        },
+        {
+          "test_id": "P27-T1-08",
+          "linked_acceptance_criterion": [
+            "AC-D77.3",
+            "AC-D77.1"
+          ],
+          "type": "unit",
+          "description": "Journey 71's edges through find_missing_spans plus plan_requests: a partial floor (cache covering only part of the floor window), an empty cache with the floor enabled, and a cache holding exactly one in-mode bar.",
+          "expected_result": "The partial floor still plans its earlier part; the empty cache with the floor enabled produces one plan (not two coerced from coinciding spans); the single-in-mode-bar cache produces no bar-level span."
         }
       ],
       "expected_artifacts": [
-        "ibkr/pacing.py \u2014 generic_wait_for_batch(count), the generic_batch(count) reservation (raising from __enter__, clearing and stamping in finally), throttle()'s one reservation branch, reset_for_tests clearing _batch_remaining",
-        "ibkr/subscription_manager.py \u2014 _cancel_hooks / set_cancel_hook, replay_all's union pre-check -> one generic_batch reissue phase with a full unwind -> rebind/retire/move-key, and a restated class docstring",
-        "ui/main_window.py \u2014 the two set_cancel_hook registrations beside SubscriptionManager() and an epoch-guarded _replay_subscriptions deferral keeping the one QTimer.singleShot shape",
-        "tests/test_d71_replay_transaction.py \u2014 the new suite"
+        "services/backfill_service.py \u2014 plan_requests' local seen set + the end_ts <= start_ts guard, _bar_level_missing_spans' half-open membership and single trailing threshold, and the module / _bar_level_missing_spans / present_days docstring statements",
+        "tests/test_d77_d82_d83_planner_identity.py \u2014 the eight cases (a)\u2013(h) above"
       ],
       "touches_files": [
-        "ibkr/pacing.py",
-        "ibkr/subscription_manager.py",
-        "ui/main_window.py",
-        "tests/test_d71_replay_transaction.py"
+        "services/backfill_service.py",
+        "tests/test_d77_d82_d83_planner_identity.py"
       ],
       "doc_required": false,
       "inputs": [
-        "the pre-pass registry contents and the two pacing budgets",
-        "ibkr/market_data.py's req_mkt_data / cancel_mkt_data and ibkr/realtime_bars.py's subscribe / unsubscribe as the two cancel paths"
+        "S-P27-1, S-P27-2, AR-P27-1/AR-P27-2/AR-P27-3/AR-P27-9",
+        "the frozen signatures and constants in docs/architecture.md \u00a7 Phase P27 \u00a7 Frozen Interfaces",
+        "AP-P27-2 (AC-D77.1 asserted literally) and AP-P27-3 (the 1.5-period threshold and the presence boundary)"
       ],
       "outputs": [
-        "one replay pass that is zero-or-all over the union budget",
-        "a per-type retire resolver installed once by the window",
-        "one replaceable deferral instead of stacked retries"
+        "one plan per (endDateTime, duration, bar_size); no plan for a span with no positive length",
+        "half-open window membership with the now cap inclusive, one 1.5-period threshold for all three edges",
+        "present_days unchanged apart from its docstring statement"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ibkr/subscription_manager.py",
-            "lines": "35-140",
-            "why": "edit: the four tags, _Entry, subscribe (signature frozen) and replay_all \u2014 the body this task rewrites into three phases"
-          },
-          {
-            "path": "ibkr/pacing.py",
+            "path": "services/backfill_service.py",
             "lines": [
-              "1-95",
-              "200-230"
+              "85-120",
+              "195-260",
+              "470-600"
             ],
-            "why": "edit: PacingExceeded, PacingManager.__init__ / throttle / reset_for_tests \u2014 the gate the batch reservation sits beside"
+            "why": "edit: MissingSpan/RequestPlan, present_days (docstring statement only), _bar_level_missing_spans and plan_requests"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": [
-              "780-815",
-              "2029-2075",
-              "2334-2425"
-            ],
-            "why": "edit: the sub_manager creation site (resolver installation), _replay_subscriptions, and the option reissue/rebind hooks"
+            "path": "tests/test_history_backfill.py",
+            "lines": "95-120",
+            "why": "read-only: the tree's daily fixture convention \u2014 '1 day' bars stamped at 16:00 ET, which case (h) must mirror; do not change this file"
           },
           {
-            "path": "tests/test_p7_w4_streaming.py",
-            "lines": "570-620",
-            "why": "read-only: pins the deferral's one QTimer.singleShot(2000) call \u2014 keep that shape, do not change this file"
+            "path": "tests/test_backfill_service.py",
+            "lines": "320-345",
+            "why": "read-only: the isolated-interpreter Qt-free case that pins the planner's purity \u2014 must stay green unchanged"
           },
           {
-            "path": "tests/test_d28_pacing.py",
-            "lines": "140-190",
-            "why": "read-only: the RT-only replay case that must stay green unchanged (generic_n is 0 there) \u2014 do not change it"
+            "path": "tests/test_d42_day_presence.py",
+            "lines": "55-95",
+            "why": "read-only: the existing day-presence and out-of-mode fixture conventions; a red case here is an escalation, never a re-baseline"
           },
           {
-            "path": "tests/test_d65_option_stream.py",
-            "lines": "625-675",
-            "why": "read-only: asserts include_types is exactly {RT_BARS, S0_TICKS, OPTION_LEGS} \u2014 that set is frozen"
+            "path": "tests/test_d27_backfill_granularity.py",
+            "why": "read-only: pins the 1.5-period interior rule, chunk anchors and provenance \u2014 must stay green unchanged",
+            "lines": "1-40"
           }
         ],
         "contracts": [
           {
-            "ref": "ibkr/subscription_manager.py:subscribe",
+            "ref": "services/backfill_service.py:plan_requests",
             "status": "existing"
           },
           {
-            "ref": "ibkr/subscription_manager.py:replay_all",
+            "ref": "services/backfill_service.py:present_days",
             "status": "existing"
           },
           {
-            "ref": "ibkr/pacing.py:throttle",
+            "ref": "services/backfill_service.py:find_missing_spans",
             "status": "existing"
           },
           {
-            "ref": "ibkr/pacing.py:realtime_wait_for_slots",
+            "ref": "services/backfill_service.py:bar_period_seconds",
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:req_mkt_data",
+            "ref": "services/backfill_service.py:floor_bar_budget",
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:cancel_mkt_data",
+            "ref": "services/backfill_service.py:MissingSpan",
             "status": "existing"
           },
           {
-            "ref": "ibkr/realtime_bars.py:unsubscribe",
+            "ref": "services/backfill_service.py:RequestPlan",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_option_reissue_leg",
+            "ref": "services/backfill_service.py:TRAILING_BAR_GRANULARITY_DAYS",
             "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "ibkr/pacing.py",
-            "signature": "def generic_wait_for_batch(self, count: int) -> float:  # 0.0 when count <= 1, else max(0.0, (count - 1) * (1.0 / settings.MAX_REQ_PER_SEC) - (now - self._last_req_time))"
-          },
-          {
-            "status": "new",
-            "module": "ibkr/pacing.py",
-            "signature": "@contextlib.contextmanager\ndef generic_batch(self, count: int):  # re-check the wait and raise PacingExceeded before the body runs; set _batch_remaining = int(count); finally clears it and calls record_request_slot()"
-          },
-          {
-            "status": "new",
-            "module": "ibkr/subscription_manager.py",
-            "signature": "def set_cancel_hook(self, req_type: str, fn: Callable[[int], None]) -> None:  # stored in self._cancel_hooks: dict[str, Callable[[int], None]]"
-          },
-          {
-            "status": "new",
-            "module": "ui/main_window.py",
-            "signature": "installed once beside self.sub_manager = SubscriptionManager(): RT_BARS -> self._unregister_req_id(old) + self.rt_manager.unsubscribe(old); OPTION_LEGS -> self._option_req_ids.pop(old, None) + self.md_manager.cancel_mkt_data(old)  # both best-effort"
-          },
-          {
-            "status": "new",
-            "module": "ui/main_window.py",
-            "signature": "def _replay_subscriptions(self):  # unchanged shape: one replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS}) and one QTimer.singleShot(int(e.wait_seconds * 1000), <epoch-guarded callback>); self._replay_serial: int"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P26",
-        "plan_ref": "docs/plan.md#P26-01",
+        "architecture_ref": "docs/architecture.md#Phase P27",
+        "plan_ref": "docs/plan.md#P27-01",
         "requirement_ids": [
-          "AC-D71.1",
-          "AC-D71.2",
-          "AC-D71.3",
-          "A225",
-          "A226",
-          "R165",
-          "DG131"
+          "AC-D77.1",
+          "AC-D77.2",
+          "AC-D77.3",
+          "AC-D82.1",
+          "AC-D82.2",
+          "AC-D83.1",
+          "AC-D16.9"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d71_replay_transaction.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d77_d82_d83_planner_identity.py tests/test_backfill_service.py tests/test_d42_day_presence.py tests/test_d27_backfill_granularity.py -q",
         "memory_refs": [
-          "pacing"
+          "backfill",
+          "offscreen"
         ],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P26-T2",
-      "title": "D72 + D75 + D76 \u2014 a cap-parked wave is a healthy, resumable state and a readiness loop stays bounded",
-      "description": "One lifecycle, three faces. ui/ticker_session.py gains _wave_parked and _settle_parked_wave() (disarm the watchdog and stop _wave_continue_timer when _wave_parked and not self._history_req_ids; return whether it settled); the cap branch of _issue_wave_chunks sets _wave_parked = True after the unchanged status message and calls the settle step (it normally does not settle \u2014 members are in flight), and on_historical_data_end / on_historical_error call it before their _wave_may_complete() checks, so the bound is released at end/error/162/strand/disconnect settle time and only when the last in-flight member ends. _wave_parked is cleared by queue_wave_plans, _cancel_history_requests and _finalize_history_wave. _issue_wave_chunks' single except (PacingExceeded, IBKRNotReady) splits: PacingExceeded keeps _schedule_wave_continuation(wait); IBKRNotReady sets _wave_deferral_reason = \"IBKR not ready\", arms the watchdog only if not self._history_wave_timer.isActive() (base bound, no wait), surfaces one status line per episode (_wave_not_ready_announced), and starts the continuation at the unchanged 1 s fallback without re-arming; same split in _retry_silent_chunk. _schedule_wave_continuation gains one keyword-only transport_not_ready: bool = False so the default path is byte-identical. ui/main_window.py: _on_session_history_wave_timeout returns without stranding when session._wave_parked and not session._history_req_ids (the guard lives in the timeout handler ONLY \u2014 _finalize_stranded_history_wave stays unchanged so a disconnect still strands and drops the parked queue), and passes \"IBKR not ready\" when the session's _wave_deferral_reason names the transport, else \"Historical backfill timed out\"; _load_chart_resolved's coalesce gate widens to (bool(_history_req_ids) or bool(_wave_plan_queue)) and same triple, and for a parked session the coalesce branch resets _wave_issued_this_load = 0, clears _wave_parked, re-arms the watchdog, calls _issue_wave_chunks() and refreshes the indicator while leaving the queue's identity intact (no list(...) copy, no clear, no re-plan); an in-flight coalesce keeps today's no-op; set_backfill_state gains one derived marker word `parked` from a _backfill_parked latch set by _refresh_backfill_indicator as session._wave_parked and not session._history_req_ids and cleared in clear_backfill_indicator \u2014 signature, keys and idle line unchanged. The bound formula, both window fractions, per_load_historical_cap() and the D54 expiry block are untouched.",
+      "id": "P27-T2",
+      "title": "P27-02 \u2014 D78: the prime's backstop is armed for the retry's own deadline",
+      "description": "In ui/ticker_session.py add module constants _PRIME_BACKSTOP_MS = 15_000 and _PRIME_RETRY_GRACE_MS = 1_000 and the helper _prime_backstop_ms(retry_ms) returning max(_PRIME_BACKSTOP_MS, retry_ms + _PRIME_RETRY_GRACE_MS). In prime_aggregator's PacingExceeded branch compute retry_ms = max(1000, int(wait_s * 1000)) once, pass that same value to the one QTimer.singleShot (call shape unchanged) and start _prime_timer at _prime_backstop_ms(retry_ms); the issued-prime branch keeps the flat 15_000, and the surrounding comment states that the backstop covers the retry's deferral and the answer to an issued prime. _on_prime_timeout, _on_prime_retry, _fail_open_prime and prepare_load are not changed, no timer or settings key is added, and no pacing constant is retuned \u2014 the quantified worst case is AC-D78.3's 'reported wait plus the backstop' branch, not a new stall.",
       "agent": "build_worker",
       "task_type": "build",
-      "dependencies": [
-        "P26-T1"
-      ],
+      "dependencies": [],
       "acceptance_criteria": [
-        "Given a wave whose every issued member has ended and which stopped issuing at the per-load cap, When the clock advances past twice the watchdog bound, Then no stranded finalise occurs, _wave_plan_queue is intact (same length, same objects), the D53 indicator reports the parked/queued state, no timeout shortfall is recorded, and the watchdog timer is not active.",
-        "Given a cap-yielded wave with an in-flight member that never answers and no queue progress, When the watchdog bound elapses, Then the wave is finalised exactly once with the stranded reason and the AC-D16.4 shortfall line, and the queue is dropped exactly as before the change.",
-        "Given a parked wave, When the identical chart is loaded again, Then the oldest queued plan is issued first and the indicator leaves the parked state, the watchdog is re-armed for the resumed work, and the total number of requests issued across both loads stays inside the budget the pacing manager allows.",
-        "Given a session with queued plans and no in-flight ids for the current triple, When the identical triple is loaded, Then no cancel occurs, the plan queue keeps its identity and contents, _pending_prefetch survives, and no duplicate or extra request is issued for the parked plans beyond the queued plans themselves.",
-        "Given a parked wave and a load of a different symbol, timeframe or mode, When the load path runs, Then the existing cancel path runs, the generation advances, and the old queue is cleared.",
-        "Given a client that reports not-ready indefinitely, When the bound's worth of time passes, Then the wave ends through a bounded path \u2014 one finalise with a surfaced reason that names the transport, or one surfaced message after a bounded retry budget \u2014 and the retry count is bounded by the bound rather than growing with elapsed time; the bound is armed once per episode, never re-armed on the fixed short tick.",
-        "Given not-ready for two seconds and then readiness, When the wave continues, Then it issues as soon as readiness lands with one continuation at a time, and the watchdog arm arguments are the base bound for the deferral the episode actually covers.",
-        "Given a parked wave and a disconnect, When the disconnect path settles the wave, Then the parked queue is dropped and the wave is finalised exactly once \u2014 the parked guard exists only in the watchdog timeout handler, so the disconnect strand path is unchanged."
+        {
+          "id": "AC-D78.1",
+          "criterion": "Given a pacing refusal with wait > 15 s and a fake clock, When the clock reaches the reported wait, Then the prime issues a request \u2014 the deferral backstop never pre-empts the retry, so at 15 s and at wait-minus-epsilon the retry is still pending and nothing was attached."
+        },
+        {
+          "id": "AC-D78.2",
+          "criterion": "Given a prime that is issued and never answers, When the backstop elapses, Then the live feed attaches exactly once and no second request follows; a retry that is itself refused fails open once with no further attempt."
+        },
+        {
+          "id": "AC-D78.3",
+          "criterion": "Given any pacing refusal, Then the time from refusal to an issued prime or a fail-open attach is bounded by the reported wait plus the backstop and is never unbounded, including the historical-wait ceiling (wait=600 \u2192 deferral backstop 601_000 ms, refusal-to-attach at most 616 s)."
+        },
+        {
+          "id": "AC-P27-02-4",
+          "criterion": "Given a wait at or below 14 s, Then the deferral backstop is exactly 15_000 ms (today's value preserved), a wait of exactly 15 s arms 16_000 ms so the retry fires first, and no pacing constant is retuned and no settings key is added."
+        }
       ],
       "tests": [
         {
-          "test_id": "P26-T2-AC1",
-          "linked_acceptance_criterion": "Given a wave whose every issued member has ended and which stopped issuing at the per-load cap, When the clock advances past twice the watchdog bound, Then no stranded finalise occurs, _wave_plan_queue is intact (same length, same objects), the D53 indicator reports the parked/queued state, no timeout shortfall is recorded, and the watchdog timer is not active.",
+          "test_id": "P27-T2-01",
+          "linked_acceptance_criterion": [
+            "AC-D78.1"
+          ],
           "type": "unit",
-          "description": "Clock-controlled host (_now_ts, the session's timers driven directly) and a stub md_manager recording issue order: queue more plans than per_load_historical_cap(), drive every issued chunk to its end, then advance the clock past twice the bound and read the finalise spy, the queue length, the timer's isActive() and the indicator text.",
-          "expected_result": "The finalise spy is never called; _wave_plan_queue has the same length and objects; _history_wave_timer.isActive() is False; the indicator text contains 'parked'; no timeout shortfall line was rendered."
+          "description": "Fake clock/host with a stub md_manager counting req_historical_data calls and a historical_wait_seconds stub returning 40 s; run prime_aggregator, then advance the clock to 15 s, to wait-minus-epsilon and to the wait.",
+          "expected_result": "_prime_retry_pending is True and _prime_timer.interval() == 41_000 after the refusal; at 15 s and at wait-minus-epsilon nothing was attached and the retry is still pending; at 40 s the retry runs and _prime_req_id is set."
         },
         {
-          "test_id": "P26-T2-AC2",
-          "linked_acceptance_criterion": "Given a cap-yielded wave with an in-flight member that never answers and no queue progress, When the watchdog bound elapses, Then the wave is finalised exactly once with the stranded reason and the AC-D16.4 shortfall line, and the queue is dropped exactly as before the change.",
+          "test_id": "P27-T2-02",
+          "linked_acceptance_criterion": [
+            "AC-P27-02-4"
+          ],
           "type": "unit",
-          "description": "Cap-yield the wave, leave one issued member unanswered, advance the clock past the bound, and read the finalise spy's call count, reason and shortfall text plus the queue length.",
-          "expected_result": "Exactly one finalise, reason 'Historical backfill timed out', the AC-D16.4 shortfall line present, and the queue empty afterwards."
+          "description": "The same fixture with wait=2 s.",
+          "expected_result": "_prime_timer.interval() is exactly 15_000 (today's value) and the retry fires at 2 s, issuing a priming request."
         },
         {
-          "test_id": "P26-T2-AC3",
-          "linked_acceptance_criterion": "Given a parked wave, When the identical chart is loaded again, Then the oldest queued plan is issued first and the indicator leaves the parked state, the watchdog is re-armed for the resumed work, and the total number of requests issued across both loads stays inside the budget the pacing manager allows.",
+          "test_id": "P27-T2-03",
+          "linked_acceptance_criterion": [
+            "AC-P27-02-4",
+            "AC-D78.1"
+          ],
           "type": "unit",
-          "description": "Park a wave, then drive the identical triple through the load path with a stub md_manager recording (plan, reqId) in issue order and a pacing stub counting admitted requests across both loads.",
-          "expected_result": "The first plan issued after the reload is the queue's head object; the indicator no longer contains 'parked'; _history_wave_timer.isActive() is True; the total admitted request count across both loads is inside the pacing stub's budget and equals the plans actually issued (no duplicates)."
+          "description": "The same fixture with wait exactly 15 s (the boundary the grace tick exists for).",
+          "expected_result": "_prime_timer.interval() is 16_000 and the retry fires before the backstop; nothing was attached at the 15 s instant."
         },
         {
-          "test_id": "P26-T2-AC4",
-          "linked_acceptance_criterion": "Given a session with queued plans and no in-flight ids for the current triple, When the identical triple is loaded, Then no cancel occurs, the plan queue keeps its identity and contents, _pending_prefetch survives, and no duplicate or extra request is issued for the parked plans beyond the queued plans themselves.",
+          "test_id": "P27-T2-04",
+          "linked_acceptance_criterion": [
+            "AC-D78.2"
+          ],
           "type": "unit",
-          "description": "Set the parked state with a populated queue and _pending_prefetch set, then run the identical-triple coalesce branch with a cancel spy in place.",
-          "expected_result": "The cancel spy is not called; _wave_plan_queue is the same object with the same contents; _pending_prefetch is still set; the issued plans are the queued ones, each once, with no extra request."
+          "description": "An issued prime whose request never answers: let the backstop elapse with a host attach spy and a request counter.",
+          "expected_result": "The attach spy is called exactly once and exactly one priming request was ever issued \u2014 no second attempt."
         },
         {
-          "test_id": "P26-T2-AC5",
-          "linked_acceptance_criterion": "Given a parked wave and a load of a different symbol, timeframe or mode, When the load path runs, Then the existing cancel path runs, the generation advances, and the old queue is cleared.",
+          "test_id": "P27-T2-05",
+          "linked_acceptance_criterion": [
+            "AC-D78.3"
+          ],
           "type": "unit",
-          "description": "Park a wave, then load a different symbol (then, in a second case, a different timeframe and a different mode) through the same branch with a cancel spy and a generation reader.",
-          "expected_result": "The cancel spy is called, _history_generation advanced, and the old queue is empty in each of the three cases."
+          "description": "For several waits including the historical-wait ceiling (wait=600 s), measure refusal\u2192(issued prime or attach) on the fake clock and read the armed interval.",
+          "expected_result": "At wait=600 the armed interval is 601_000 ms and refusal-to-attach never exceeds wait + 1 s + 15 s (616 s), while the issued-prime bound stays 15 s."
         },
         {
-          "test_id": "P26-T2-AC6",
-          "linked_acceptance_criterion": "Given a client that reports not-ready indefinitely, When the bound's worth of time passes, Then the wave ends through a bounded path \u2014 one finalise with a surfaced reason that names the transport, or one surfaced message after a bounded retry budget \u2014 and the retry count is bounded by the bound rather than growing with elapsed time; the bound is armed once per episode, never re-armed on the fixed short tick.",
+          "test_id": "P27-T2-06",
+          "linked_acceptance_criterion": [
+            "AC-D78.2"
+          ],
           "type": "unit",
-          "description": "A stub client that raises IBKRNotReady on every historical issue: run the continuation ticks for longer than the bound while recording every arm call's argument and the surfaced status lines.",
-          "expected_result": "The bound is armed once with the base bound and never re-armed by the 1 s ticks; the wave ends in exactly one finalise whose reason names the transport (or one surfaced message after the bounded budget); the retry count does not keep growing with elapsed time."
-        },
-        {
-          "test_id": "P26-T2-AC7",
-          "linked_acceptance_criterion": "Given not-ready for two seconds and then readiness, When the wave continues, Then it issues as soon as readiness lands with one continuation at a time, and the watchdog arm arguments are the base bound for the deferral the episode actually covers.",
-          "type": "unit",
-          "description": "Report not-ready for two seconds, then let the client become ready, recording continuation starts and arm arguments.",
-          "expected_result": "At most one continuation is pending at a time; the plans are issued as soon as readiness lands; every arm call used the base bound, not a per-tick re-arm."
-        },
-        {
-          "test_id": "P26-T2-AC8",
-          "linked_acceptance_criterion": "Given a parked wave and a disconnect, When the disconnect path settles the wave, Then the parked queue is dropped and the wave is finalised exactly once \u2014 the parked guard exists only in the watchdog timeout handler, so the disconnect strand path is unchanged.",
-          "type": "integration",
-          "description": "Park a wave with queued plans, then drive the disconnect path that finalises stranded waves and read the queue, the generation and the finalise spy.",
-          "expected_result": "The parked queue is empty after the disconnect, exactly one finalise ran with the stranded reason, and the parked guard is not applied on this path (a source check that _finalize_stranded_history_wave's body carries no _wave_parked test is allowed as a supporting assertion)."
+          "description": "Journey 72's edges: a retry that is itself refused, a new load issued during the deferral, and a disconnect during the deferral.",
+          "expected_result": "The refused retry fails open exactly once with no third attempt; the new load's own prime governs and the stale singleShot callback is a no-op; the disconnect leaves the pending callback harmless (no attach from it)."
         }
       ],
       "expected_artifacts": [
-        "ui/ticker_session.py \u2014 _wave_parked, _settle_parked_wave(), the cap-yield park, the end/error settle steps, the readiness episode (_wave_deferral_reason, _wave_not_ready_announced, the transport_not_ready keyword), and the clears in queue_wave_plans / _cancel_history_requests / _finalize_history_wave",
-        "ui/main_window.py \u2014 the parked guard in _on_session_history_wave_timeout only, the transport-named reason, the widened coalesce gate with the parked resume, and the parked marker in set_backfill_state / _refresh_backfill_indicator / clear_backfill_indicator",
-        "tests/test_d72_d75_d76_parked_wave.py \u2014 the new suite"
+        "ui/ticker_session.py \u2014 _PRIME_BACKSTOP_MS, _PRIME_RETRY_GRACE_MS, _prime_backstop_ms(retry_ms), and prime_aggregator's deferral branch (retry_ms computed once, backstop armed from it) plus its restated comment",
+        "tests/test_d78_prime_retry_reachable.py \u2014 the six cases above"
       ],
       "touches_files": [
         "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_d72_d75_d76_parked_wave.py"
+        "tests/test_d78_prime_retry_reachable.py"
       ],
       "doc_required": false,
       "inputs": [
-        "the per-load cap (per_load_historical_cap()), the existing watchdog bound and its two window fractions",
-        "the D53 indicator state and its marker list",
-        "P26-T1's settled replay deferral shape"
+        "S-P27-3, AR-P27-4, DG135",
+        "AP-P27-6 (the grace tick is a module constant, not a setting) and AP-P27-5's no-new-timer constraint",
+        "the frozen prime signatures in docs/architecture.md \u00a7 Phase P27 \u00a7 Frozen Interfaces"
       ],
       "outputs": [
-        "a parked wave state that survives until the last in-flight member ends",
-        "a coalesce-resume for a parked triple",
-        "one bounded readiness episode with a transport-named reason",
-        "one derived indicator word"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/ticker_session.py",
-            "lines": [
-              "940-1110",
-              "1180-1350",
-              "1395-1500"
-            ],
-            "why": "edit: _register_history_request / _cancel_history_requests, the arm/disarm/bound trio, _retry_silent_chunk, queue_wave_plans / _issue_wave_chunks / _schedule_wave_continuation / _wave_may_complete, on_historical_data_end / on_historical_error"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": [
-              "2820-2895",
-              "3054-3135",
-              "3311-3425",
-              "3847-3890"
-            ],
-            "why": "edit: _finalize_stranded_history_wave / _on_session_history_wave_timeout, the coalesce gate in _load_chart_resolved, set_backfill_state / _refresh_backfill_indicator / clear_backfill_indicator, _finalize_history_wave"
-          },
-          {
-            "path": "tests/test_p7_w2_watchdog.py",
-            "lines": "80-125",
-            "why": "read-only: pins the pacing-deferral arm behaviour the default continuation path must keep \u2014 do not change it"
-          },
-          {
-            "path": "tests/test_p14_indicator.py",
-            "lines": "170-215",
-            "why": "read-only: the indicator's identity/text conventions the one added marker word must not disturb"
-          },
-          {
-            "path": "tests/test_p7_w1_coalesce.py",
-            "lines": "1-70",
-            "why": "read-only: the in-flight coalesce no-op this task keeps for non-parked waves"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/ticker_session.py:per_load_historical_cap",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_issue_wave_chunks",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_wave_may_complete",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_history_wave_watchdog_bound_ms",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_arm_history_wave_watchdog",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_disarm_history_wave_watchdog",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:on_historical_data_end",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:on_historical_error",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_session_history_wave_timeout",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:set_backfill_state",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:clear_backfill_indicator",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "def _settle_parked_wave(self) -> bool:  # disarm the watchdog and stop _wave_continue_timer when self._wave_parked and not self._history_req_ids; return whether it settled"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "def _schedule_wave_continuation(self, wait_s: float, *, transport_not_ready: bool = False) -> None:"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "self._wave_parked: bool; self._wave_deferral_reason: str (\"\" | \"IBKR not ready\"); self._wave_not_ready_announced: bool"
-          },
-          {
-            "status": "new",
-            "module": "ui/main_window.py",
-            "signature": "self._backfill_parked: bool  # derived on every _refresh_backfill_indicator as session._wave_parked and not session._history_req_ids; cleared in clear_backfill_indicator"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P26",
-        "plan_ref": "docs/plan.md#P26-02",
-        "requirement_ids": [
-          "AC-D72.1",
-          "AC-D72.2",
-          "AC-D72.3",
-          "AC-D75.1",
-          "AC-D75.2",
-          "AC-D76.1",
-          "AC-D76.2",
-          "A227",
-          "R166",
-          "R169",
-          "DG130"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d72_d75_d76_parked_wave.py -q",
-        "memory_refs": [
-          "pacing",
-          "watchdog"
-        ],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P26-T3",
-      "title": "D73 + D74 \u2014 one chunk-surrender rule for both retry paths and one wave-scoped retry ledger",
-      "description": "Extract _surrender_chunk_bars(req_id) in ui/ticker_session.py \u2014 pop _req_bars[req_id] and drop exactly those Bar objects from _pending_bars by id() \u2014 and call it from _retry_silent_chunk (replacing its inline block, behaviour identical) and from on_historical_error's code == 162 branch BEFORE the plan is re-queued. Nothing else in either path changes: the cancel, the tag, the post-issue slot, the _retried_plans allowance and the continuation/arm behaviour stay as they are; persisted rows are untouched because save_bars is INSERT OR REPLACE on the mode-aware PK. Then scope the ledger: queue_wave_plans also resets self._backfill_failed_req_ids = set() (beside _retried_plans) and calls the new _prune_cancel_tags(); _cancelled_history_gen: dict[int, int] records _history_generation at each _cancelled_history_req_ids.add(...) site (the cancel path and the silence retry); _register_history_request's existing discard also pops the gen entry; _prune_cancel_tags() keeps ids whose tagged generation is >= _history_generation - 1 and runs at the start of queue_wave_plans. is_superseded stays a set-membership read. In ui/main_window.py, _teardown_session merges each batch into _superseded_history_windows (keeping the last two) and rebuilds _superseded_history_reqs as their union, so the attribute's name and meaning survive. This is generation-windowed bookkeeping, not a TTL, an LRU or a numeric cap; no cancel tag for the current generation is ever cleared.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P26-T2"
-      ],
-      "acceptance_criteria": [
-        "Given a chunk that delivers N bars and then a 162, When the retry succeeds and the wave finalises, Then _pending_bars holds at most one bar per (symbol, timeframe, ts) and the persisted row count equals the number of distinct timestamps; the same invariant holds when the retry is refused twice (the wave finalises short with the partial bars surrendered) and when the 162 arrives with zero partial bars (a no-op surrender).",
-        "Given the same scenario driven through the silence path instead of the 162 path, When the wave finalises, Then the post-condition is identical and is asserted by the same invariant helper, not by two different expectations.",
-        "Given two hundred waves in one session, When the waves finish, Then the cancel-tag set's size is bounded by the ids cancelled in the current and previous generation (it does not grow linearly with wave count), and a late acknowledgement for an id cancelled in the current wave still classifies as superseded \u2014 logged at debug, with no status-bar error.",
-        "Given wave A with two failed chunks followed by wave B with none, When wave B finalises, Then its shortfall line reports zero failures and the failure set is empty; a prefetch wave started immediately after a failed load reports only its own failures."
-      ],
-      "tests": [
-        {
-          "test_id": "P26-T3-AC1",
-          "linked_acceptance_criterion": "Given a chunk that delivers N bars and then a 162, When the retry succeeds and the wave finalises, Then _pending_bars holds at most one bar per (symbol, timeframe, ts) and the persisted row count equals the number of distinct timestamps; the same invariant holds when the retry is refused twice (the wave finalises short with the partial bars surrendered) and when the 162 arrives with zero partial bars (a no-op surrender).",
-          "type": "unit",
-          "description": "A stub md_manager whose req can return a chosen set of bars per reqId and a controllable _silence_now: deliver five bars then a 162, let the retry deliver the same five plus five more, finalise the wave, and read the _pending_bars multiset plus the cache row count via the mode-aware key. Repeat with the retry refused twice and with a zero-bar 162.",
-          "expected_result": "Every timestamp in _pending_bars appears exactly once and the cache row count equals the distinct-timestamp count in all three cases; the refused-twice case finalises short with no duplicated bars, and the zero-bar 162 changes nothing."
-        },
-        {
-          "test_id": "P26-T3-AC2",
-          "linked_acceptance_criterion": "Given the same scenario driven through the silence path instead of the 162 path, When the wave finalises, Then the post-condition is identical and is asserted by the same invariant helper, not by two different expectations.",
-          "type": "unit",
-          "description": "Drive the same five-bars-then-retry scenario through _retry_silent_chunk and assert the post-condition with the same assertion helper the 162 case uses.",
-          "expected_result": "The silence path satisfies the identical invariant via the shared helper (one helper, two callers), with no second, differently-worded expectation."
-        },
-        {
-          "test_id": "P26-T3-AC3",
-          "linked_acceptance_criterion": "Given two hundred waves in one session, When the waves finish, Then the cancel-tag set's size is bounded by the ids cancelled in the current and previous generation (it does not grow linearly with wave count), and a late acknowledgement for an id cancelled in the current wave still classifies as superseded \u2014 logged at debug, with no status-bar error.",
-          "type": "unit",
-          "description": "Run many waves in one session, recording len(_cancelled_history_req_ids) per generation, then drive a late ack for an id cancelled in the current wave through _on_error with a status-bar spy.",
-          "expected_result": "The tag set's size stays bounded by the ids cancelled in the last two generations and does not grow with the wave count; the current-wave ack is classified superseded and produces no status-bar error."
-        },
-        {
-          "test_id": "P26-T3-AC4",
-          "linked_acceptance_criterion": "Given wave A with two failed chunks followed by wave B with none, When wave B finalises, Then its shortfall line reports zero failures and the failure set is empty; a prefetch wave started immediately after a failed load reports only its own failures.",
-          "type": "unit",
-          "description": "Record two failed chunks in wave A, then run wave B with none and read B's shortfall text and _backfill_failed_req_ids; then start a prefetch wave right after a failed load and read its own shortfall.",
-          "expected_result": "Wave B's shortfall reports zero failures and the failure set is empty; the prefetch wave reports only its own failures."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/ticker_session.py \u2014 _surrender_chunk_bars(req_id) called from both the silence retry and the 162 branch, the per-wave _backfill_failed_req_ids reset and _prune_cancel_tags() call in queue_wave_plans, generation-tagged cancel tags in _cancelled_history_gen with the discard in _register_history_request",
-        "ui/main_window.py \u2014 _teardown_session's two-batch window with _superseded_history_reqs rebuilt as the flattened union",
-        "tests/test_d73_d74_retry_ledger.py \u2014 the new suite"
-      ],
-      "touches_files": [
-        "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_d73_d74_retry_ledger.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P26-T2's park resets and resume in queue_wave_plans / the coalesce branch",
-        "the existing 162 branch, _retry_silent_chunk and _cancelled_history_req_ids bookkeeping"
-      ],
-      "outputs": [
-        "one surrender rule shared by both retry paths",
-        "a cancel-tag set bounded by two generations",
-        "a per-wave failure set",
-        "a two-batch window on teardown"
+        "a deferral backstop derived from the retry's own deadline",
+        "the flat 15 s answer bound preserved for an issued prime",
+        "one QTimer.singleShot, one _prime_timer, no sleep"
       ],
       "status": "done",
       "size": "S",
@@ -507,35 +338,447 @@
           {
             "path": "ui/ticker_session.py",
             "lines": [
-              "930-1115",
-              "1180-1260",
-              "1395-1500"
+              "320-360",
+              "1700-1860",
+              "1860-1905"
             ],
-            "why": "edit: _register_history_request / is_superseded / _cancel_history_requests, _retry_silent_chunk and its inline surrender block, queue_wave_plans, _finalize_history_wave's shortfall accounting, on_historical_error's 162 branch"
+            "why": "edit: the prime timer's creation and prime_aggregator's deferral/issued branches; the 1860-1905 range (_on_prime_retry, _fail_open_prime) is read-only \u2014 do not change it"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": [
-              "1095-1125",
-              "2874-2935",
-              "3847-3890"
-            ],
-            "why": "edit: _teardown_session's merge, _on_error's superseded classification, _finalize_history_wave's shortfall line"
+            "path": "tests/test_d28_3_historical_pacing.py",
+            "lines": "420-495",
+            "why": "read-only: the two prime-retry cases Q-80 made clock-hermetic at 623809e \u2014 they must stay green unchanged"
           },
           {
-            "path": "tests/test_d56_silence_retry.py",
-            "lines": "1-70",
-            "why": "read-only: the silence-retry ledger the extracted helper must preserve exactly \u2014 do not change it"
+            "path": "tests/test_p7_w2_prime.py",
+            "lines": "100-200",
+            "why": "read-only: pins the single QTimer.singleShot call shape and the precedence slip this edit must preserve"
           },
           {
-            "path": "tests/test_p19_prefetch_honesty.py",
-            "lines": "1-60",
-            "why": "read-only: how the prefetch wave reports its own failures, which the per-wave reset must keep true"
+            "path": "tests/test_d67_forming_candle.py",
+            "lines": "160-185",
+            "why": "read-only: the AC-D65.15 prime-timeout host stub that must stay green"
+          },
+          {
+            "path": "tests/test_p7_w4_streaming.py",
+            "lines": "150-170",
+            "why": "read-only: the second AC-D65.15 prime-timeout stub, unchanged"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/ticker_session.py:is_superseded",
+            "ref": "ui/ticker_session.py:prime_aggregator",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_on_prime_retry",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_on_prime_timeout",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_fail_open_prime",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:prepare_load",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "_PRIME_BACKSTOP_MS = 15_000\n_PRIME_RETRY_GRACE_MS = 1_000\n\ndef _prime_backstop_ms(retry_ms: int) -> int:  # returns max(_PRIME_BACKSTOP_MS, retry_ms + _PRIME_RETRY_GRACE_MS)\n\n# in prime_aggregator's PacingExceeded branch:\n#   retry_ms = max(1000, int(wait_s * 1000))          # computed once\n#   QTimer.singleShot(retry_ms, self._on_prime_retry)  # same call shape\n#   self._prime_timer.start(_prime_backstop_ms(retry_ms))"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P27",
+        "plan_ref": "docs/plan.md#P27-02",
+        "requirement_ids": [
+          "AC-D78.1",
+          "AC-D78.2",
+          "AC-D78.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d78_prime_retry_reachable.py tests/test_p7_w2_prime.py tests/test_d28_3_historical_pacing.py -q",
+        "memory_refs": [
+          "pacing",
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P27-T3",
+      "title": "P27-03a \u2014 D81: budget is stamped only by a send that crossed the wire",
+      "description": "Split the pacing gate from the stamp: ibkr/pacing.py gets def throttle(self, *, stamp: bool = True) -> bool whose reservation branch is byte-identical (decrement, return True), else reads request_wait_seconds() (raising PacingExceeded when closed), stamps only when stamp is true, and returns False. In ibkr/market_data.py the four generic paths become readiness \u2192 reserved = pacing_manager.throttle(stamp=False) \u2192 req_id = id_manager.get_id() \u2192 try: self.client.req\u2026(\u2026) / except Exception: id_manager.release_id(req_id); raise \u2192 if not reserved: pacing_manager.record_request_slot() \u2192 return req_id; req_historical_data moves its existing historical_wait_seconds() gate in front of get_id() and keeps its after-send stamp. Add IdManager.release_id(req_id) -> bool (under the lock, roll back only when self._next_id - 1 == req_id) and give the two pacing doubles the keyword-only parameter; the default path stays behaviour-identical, pinned by tests/test_d28_pacing.py::test_throttle_success_stamps_interval_gate and P26's replay suite, both unchanged. New suite cases (a),(b),(c),(f) only \u2014 cases (d) and (e) belong to P27-T4.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        {
+          "id": "AC-D81.1",
+          "criterion": "Given a client whose request call raises, When the request is attempted, Then the pacing interval clock and the realtime/historical budgets are unchanged by the attempt, and the next successful request is spaced from the previous successful one."
+        },
+        {
+          "id": "AC-D81.2",
+          "criterion": "Given the same failing send, Then the id sequence has no gap caused by a failed send \u2014 after the failing send the next successful request receives the id the failed attempt took, and release_id rolls back only the newest allocation."
+        },
+        {
+          "id": "AC-P27-03-3",
+          "criterion": "Given a generic_batch(3) reservation, When three req_mkt_data sends run inside it, Then three reservation units are consumed, the sends do not stamp _last_req_time, and the batch's exit stamps once; an empty generic_batch(0) reserves nothing, leaves the gate deciding and stamps nothing."
+        },
+        {
+          "id": "AC-P27-03-4",
+          "criterion": "Given a caller that does not pass stamp=False, When throttle runs, Then it behaves exactly as today \u2014 raising PacingExceeded carrying the reported wait when the gate is closed, stamping on success, consuming one reservation unit inside a batch \u2014 and returns whether a reservation unit was spent."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P27-T3-01",
+          "linked_acceptance_criterion": [
+            "AC-D81.1"
+          ],
+          "type": "unit",
+          "description": "A fake client whose chosen call raises, a monkeypatched clock, and a pacing manager reset between cases: perform a successful send, then a raising send, then a successful send on the same path.",
+          "expected_result": "The interval between the first and third successful sends is exactly one minimum interval (the failed attempt consumed none), and the historical and realtime budget counters are identical before and after the failed attempt."
+        },
+        {
+          "test_id": "P27-T3-02",
+          "linked_acceptance_criterion": [
+            "AC-D81.2"
+          ],
+          "type": "unit",
+          "description": "The same failing-send fixture, observing the ids handed to the client and to the caller.",
+          "expected_result": "The next successful request receives the same id the failed attempt took \u2014 the id sequence has no failure-shaped gap."
+        },
+        {
+          "test_id": "P27-T3-03",
+          "linked_acceptance_criterion": [
+            "AC-D81.2"
+          ],
+          "type": "unit",
+          "description": "Call release_id on a real IdManager wrapper: once with the newest allocation, once with a non-newest id, and once after another get_id.",
+          "expected_result": "The newest allocation rolls back and returns True (the next get_id returns that id again); a non-newest id returns False and changes nothing."
+        },
+        {
+          "test_id": "P27-T3-04",
+          "linked_acceptance_criterion": [
+            "AC-P27-03-3"
+          ],
+          "type": "unit",
+          "description": "Inside pacing_manager.generic_batch(3), issue three req_mkt_data sends; separately, inside generic_batch(0), issue one send with the gate open and one with it closed.",
+          "expected_result": "Three sends consume three reservation units and leave _last_req_time untouched inside the batch, with one stamp at the batch's exit; the empty batch reserves nothing and stamps nothing, so the gate decides each send."
+        },
+        {
+          "test_id": "P27-T3-05",
+          "linked_acceptance_criterion": [
+            "AC-P27-03-4"
+          ],
+          "type": "unit",
+          "description": "Call throttle() with no argument in three states \u2014 gate closed, gate open, and inside an open generic_batch reservation.",
+          "expected_result": "Closed: raises PacingExceeded carrying the reported wait and stamps nothing; open: stamps once and returns False; inside a reservation: consumes one unit, leaves the clock untouched and returns True."
+        }
+      ],
+      "expected_artifacts": [
+        "ibkr/pacing.py \u2014 throttle(*, stamp: bool = True) -> bool with its docstring stating the two modes",
+        "ibkr/market_data.py \u2014 the four generic request bodies reordered (readiness \u2192 gate \u2192 id \u2192 send-try \u2192 stamp) and req_historical_data's gate moved before get_id",
+        "ibkr/id_manager.py \u2014 release_id(req_id) -> bool",
+        "tests/test_d65_option_chain.py and tests/test_ibkr_contract_details_d22.py \u2014 the pacing doubles take the keyword-only parameter",
+        "tests/test_d79_d80_d81_budget_honesty.py \u2014 cases (a), (b), (c), (f)"
+      ],
+      "touches_files": [
+        "ibkr/pacing.py",
+        "ibkr/market_data.py",
+        "ibkr/id_manager.py",
+        "tests/test_d65_option_chain.py",
+        "tests/test_ibkr_contract_details_d22.py",
+        "tests/test_d79_d80_d81_budget_honesty.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P27-4, AR-P27-5, AR-P27-7, AP-P27-7",
+        "P26's ESC-129 batch rework at bda354f (n >= 1 semantics)",
+        "the frozen signatures in docs/architecture.md \u00a7 Phase P27 \u00a7 Frozen Interfaces"
+      ],
+      "outputs": [
+        "a gate that can be consulted without stamping",
+        "a stamp only after a successful send, and an id rolled back when the send raises",
+        "the batch reservation still consuming one unit per send and stamping once for n >= 1"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ibkr/pacing.py",
+            "lines": [
+              "1-20",
+              "45-70",
+              "85-175",
+              "205-305"
+            ],
+            "why": "edit: PacingExceeded, request_wait_seconds/record_request_slot, generic_batch + throttle; the historical_* members are read-only in this task (the refund is deleted in P27-T4)"
+          },
+          {
+            "path": "ibkr/market_data.py",
+            "lines": [
+              "1-60",
+              "85-200"
+            ],
+            "why": "edit: req_historical_data and the four generic request bodies; TIMEFRAME_CONFIG is read-only"
+          },
+          {
+            "path": "ibkr/id_manager.py",
+            "lines": "1-30",
+            "why": "edit: add release_id beside get_id/set_next_valid_id"
+          },
+          {
+            "path": "tests/test_d28_pacing.py",
+            "lines": "210-245",
+            "why": "read-only: test_throttle_success_stamps_interval_gate pins throttle's default path \u2014 it must stay green unchanged"
+          },
+          {
+            "path": "tests/test_d71_replay_transaction.py",
+            "lines": "1-70",
+            "why": "read-only: P26's batch cases pin one unit consumed per send and the batch's single stamp \u2014 unchanged"
+          },
+          {
+            "path": "tests/test_d65_option_chain.py",
+            "lines": "100-125",
+            "why": "edit: the _FakePacing.throttle double gains the keyword-only parameter"
+          },
+          {
+            "path": "tests/test_ibkr_contract_details_d22.py",
+            "lines": "105-145",
+            "why": "edit: the _FakePacing double gains the keyword-only parameter"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/pacing.py:throttle",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:generic_batch",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:request_wait_seconds",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:record_request_slot",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:historical_wait_seconds",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:record_historical_slot",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_mkt_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_contract_details",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_sec_def_opt_params",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_matching_symbols",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_historical_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/id_manager.py:get_id",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/pacing.py",
+            "signature": "def throttle(self, *, stamp: bool = True) -> bool:\n    # reservation open: decrement _batch_remaining, touch nothing, return True\n    # else: wait = self.request_wait_seconds(); if wait > 0: raise PacingExceeded(wait)\n    #       if stamp: self.record_request_slot()\n    #       return False"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/id_manager.py",
+            "signature": "def release_id(self, req_id: int) -> bool:\n    # under self._lock: if self._next_id - 1 == req_id: self._next_id = req_id; return True\n    # else: return False  (only the newest allocation can be rolled back)"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P27",
+        "plan_ref": "docs/plan.md#P27-03",
+        "requirement_ids": [
+          "AC-D81.1",
+          "AC-D81.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d79_d80_d81_budget_honesty.py tests/test_d28_pacing.py tests/test_d71_replay_transaction.py tests/test_d65_option_chain.py tests/test_ibkr_contract_details_d22.py -q",
+        "memory_refs": [
+          "pacing",
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P27-T4",
+      "title": "P27-03b \u2014 D80 + D79: retire the pre-issue refund and the mode-blind cache read",
+      "description": "Delete PacingManager.refund_historical_slot and, in ui/ticker_session.py, the 'if req_id not in self._history_req_issued:' refund branch in _cancel_history_requests plus the _history_req_issued / mark_history_request_issued ledger that existed only to gate it (the eight sites enumerated in docs/plan.md P27-03 deliverable 4: the declaration and its comment block, the in-place reset, the clear, the discard in _register_history_request, the method itself, and its two call sites in _issue_wave_chunks and _reissue_historic), restating the branch's comment as the rule 'the slot was recorded after the send; a wave never refunds'. Delete BarCache.get_last_timestamp and the Optional import it alone used. Re-baseline exactly two existing cases \u2014 tests/test_p7_w1_coalesce.py::test_p7_t13_pre_issue_refund_post_issue_keep and tests/test_d56_taxonomy_pacing.py::test_t33_silence_retry_consumes_two_slots_with_no_refund \u2014 to the retired rule (slot count unchanged by either cancel, no refund symbol) and append cases (d),(e) to tests/test_d79_d80_d81_budget_honesty.py without touching P27-T3's cases (a),(b),(c),(f). The cancel tags, the generation stamp, _prune_cancel_tags, the wave lifecycle and every P26 state are untouched; any other red assertion is a stop-and-escalate. The new suite file already holds P27-T3's cases (a),(b),(c),(f): read them before appending and do not change them.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P27-T2",
+        "P27-T3"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-D80.1",
+          "criterion": "Given the two-request fixture (two slots recorded, one pre-issue id and one post-issue id cancelled), When _cancel_history_requests runs, Then the slot count is unchanged at 2, both ids are superseded, no refund API exists on the pacing manager, and the other request's slot survives."
+        },
+        {
+          "id": "AC-D80.2",
+          "criterion": "Given ui/ticker_session.py and ibkr/pacing.py, Then refund_historical_slot, the 'if req_id not in self._history_req_issued:' branch, _history_req_issued (declaration and comment block, the clear in _cancel_history_requests, the in-place reset, the discard in _register_history_request) and mark_history_request_issued with its two call sites in _issue_wave_chunks and _reissue_historic are all absent, and no remaining code reads or writes them."
+        },
+        {
+          "id": "AC-D79.1",
+          "criterion": "Given the change set, Then BarCache.get_last_timestamp no longer exists, the Optional import it alone used is gone from data/bar_cache.py, and no module under data/, services/, ui/, tests/ or the repo root queries bars by symbol+timeframe with MAX(ts) while ignoring ext_hours."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P27-T4-01",
+          "linked_acceptance_criterion": [
+            "AC-D80.1"
+          ],
+          "type": "unit",
+          "description": "The new suite's case (d): record two historical slots, register a pre-issue id and a post-issue id, then run _cancel_history_requests.",
+          "expected_result": "The slot count stays 2, both ids are superseded, the other request's slot survives, and the pacing manager has no refund_historical_slot attribute."
+        },
+        {
+          "test_id": "P27-T4-02",
+          "linked_acceptance_criterion": [
+            "AC-D80.2"
+          ],
+          "type": "unit",
+          "description": "A static/AST scan over ui/ticker_session.py and ibkr/pacing.py for the three retired names, plus an AST check that _issue_wave_chunks and _reissue_historic contain no call to mark_history_request_issued.",
+          "expected_result": "No occurrence of refund_historical_slot, _history_req_issued or mark_history_request_issued in either file, and no such call node in the two named methods."
+        },
+        {
+          "test_id": "P27-T4-03",
+          "linked_acceptance_criterion": [
+            "AC-D79.1"
+          ],
+          "type": "unit",
+          "description": "The new suite's case (e): hasattr(BarCache, 'get_last_timestamp') plus a static scan over data/, services/, ui/, tests/ and the repo-root probes for MAX(ts) queries against bars that filter symbol and timeframe without ext_hours.",
+          "expected_result": "The attribute does not exist and the scan finds no mode-blind MAX(ts) read."
+        },
+        {
+          "test_id": "P27-T4-04",
+          "linked_acceptance_criterion": [
+            "AC-D79.1"
+          ],
+          "type": "unit",
+          "description": "Source-shape assertion on data/bar_cache.py: read the module source and assert Optional is not imported and not referenced, while save_bars/get_bars/prune and RETENTION_BARS are still present.",
+          "expected_result": "No Optional import or reference remains, the module imports cleanly, and the three surviving members plus RETENTION_BARS are intact."
+        },
+        {
+          "test_id": "P27-T4-05",
+          "linked_acceptance_criterion": [
+            "AC-D80.1"
+          ],
+          "type": "unit",
+          "description": "The re-baselined tests/test_p7_w1_coalesce.py case test_p7_t13_pre_issue_refund_post_issue_keep: two slots recorded, one pre-issue and one post-issue id cancelled.",
+          "expected_result": "Both ids appear in the host's cancels, the slot count is unchanged at 2, both ids are superseded, and the case no longer references the refund or the issued set."
+        },
+        {
+          "test_id": "P27-T4-06",
+          "linked_acceptance_criterion": [
+            "AC-D80.1"
+          ],
+          "type": "unit",
+          "description": "The re-baselined tests/test_d56_taxonomy_pacing.py case test_t33_silence_retry_consumes_two_slots_with_no_refund.",
+          "expected_result": "Both legs consumed a slot (len(pacing_manager._hist_times) == 2) and the case asserts no refund counter or issued-set state."
+        }
+      ],
+      "expected_artifacts": [
+        "ibkr/pacing.py \u2014 refund_historical_slot deleted, every other member byte-identical",
+        "ui/ticker_session.py \u2014 the refund branch, _history_req_issued and mark_history_request_issued deleted at the eight enumerated sites, with the branch's comment restated as the wave's budget rule",
+        "data/bar_cache.py \u2014 get_last_timestamp and the Optional import deleted",
+        "tests/test_p7_w1_coalesce.py and tests/test_d56_taxonomy_pacing.py \u2014 the two named cases re-baselined",
+        "tests/test_d79_d80_d81_budget_honesty.py \u2014 cases (d) and (e) appended"
+      ],
+      "touches_files": [
+        "ibkr/pacing.py",
+        "ui/ticker_session.py",
+        "data/bar_cache.py",
+        "tests/test_p7_w1_coalesce.py",
+        "tests/test_d56_taxonomy_pacing.py",
+        "tests/test_d79_d80_d81_budget_honesty.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P27-5, S-P27-6, AR-P27-6, AP-P27-4, AP-P27-5",
+        "P26's ESC-129 batch rework at bda354f (n >= 1 semantics)",
+        "the eight enumerated deletion sites in docs/plan.md P27-03 deliverable 4"
+      ],
+      "outputs": [
+        "a wave budget rule of 'recorded after the send, never refunded'",
+        "no mode-blind cache read anywhere in the tree",
+        "two re-baselined cases asserting the retired-refund rule"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": [
+              "225-250",
+              "960-1050",
+              "1215-1230",
+              "1250-1275",
+              "1300-1390"
+            ],
+            "why": "edit: the ledger declaration and comment, _register_history_request's discard, mark_history_request_issued, _cancel_history_requests' refund branch, the two mark call sites and the in-place reset"
+          },
+          {
+            "path": "ibkr/pacing.py",
+            "lines": "205-310",
+            "why": "edit: delete refund_historical_slot, keeping historical_wait_seconds, record_historical_slot, _expire_hist_slots and reset_for_tests"
+          },
+          {
+            "path": "data/bar_cache.py",
+            "lines": "1-95",
+            "why": "edit: delete get_last_timestamp and the Optional import; save_bars/get_bars/prune/RETENTION_BARS stay byte-identical"
+          },
+          {
+            "path": "tests/test_p7_w1_coalesce.py",
+            "lines": "185-225",
+            "why": "edit: re-baseline test_p7_t13_pre_issue_refund_post_issue_keep to the retired rule (slot count unchanged, no refund symbol)"
+          },
+          {
+            "path": "tests/test_d56_taxonomy_pacing.py",
+            "lines": "205-255",
+            "why": "edit: re-baseline test_t33_silence_retry_consumes_two_slots_with_no_refund (keep len(_hist_times) == 2, drop the refund counter and the issued-set assertion)"
+          }
+        ],
+        "contracts": [
+          "DELETED by P27-T4 \u2014 ibkr/pacing.py:refund_historical_slot. Removing this symbol (and its ui/ticker_session.py callers) IS the task; it must be absent when the task is done, and its absence is asserted by AC-D80.2. Do not re-add it.",
+          {
+            "ref": "ibkr/pacing.py:record_historical_slot",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:historical_wait_seconds",
             "status": "existing"
           },
           {
@@ -547,161 +790,145 @@
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_retry_silent_chunk",
+            "ref": "ui/ticker_session.py:_issue_wave_chunks",
+            "status": "existing"
+          },
+          "DELETED by P27-T4 \u2014 data/bar_cache.py:get_last_timestamp. Removing this symbol (and the Optional import only it used) IS the task; it must be absent when the task is done, and its absence is asserted by AC-D79.1. Do not re-add it.",
+          {
+            "ref": "data/bar_cache.py:save_bars",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:queue_wave_plans",
+            "ref": "data/bar_cache.py:get_bars",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:on_historical_error",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_error",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_teardown_session",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_history_wave",
+            "ref": "data/bar_cache.py:prune",
             "status": "existing"
           },
           {
             "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "def _surrender_chunk_bars(self, req_id: int) -> None:  # pop self._req_bars[req_id] and drop exactly those Bar objects from self._pending_bars by id()"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "def _prune_cancel_tags(self) -> None:  # keep ids whose tagged generation in self._cancelled_history_gen is >= self._history_generation - 1"
-          },
-          {
-            "status": "new",
-            "module": "ui/ticker_session.py",
-            "signature": "self._cancelled_history_gen: dict[int, int]  # reqId -> _history_generation at cancel time"
-          },
-          {
-            "status": "new",
-            "module": "ui/main_window.py",
-            "signature": "self._superseded_history_windows: list[set[int]]  # at most two teardown batches; _superseded_history_reqs stays the flattened union"
+            "module": "tests/test_d79_d80_d81_budget_honesty.py",
+            "signature": "append case (d) \u2014 two slots recorded, a pre-issue and a post-issue id cancelled, slot count unchanged, no refund_historical_slot attribute; and case (e) \u2014 not hasattr(BarCache, 'get_last_timestamp') plus the mode-blind MAX(ts) static scan over data/, services/, ui/, tests/ and the repo root. P27-T3's cases (a),(b),(c),(f) are already in this file and must not be changed."
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P26",
-        "plan_ref": "docs/plan.md#P26-03",
+        "architecture_ref": "docs/architecture.md#Phase P27",
+        "plan_ref": "docs/plan.md#P27-03",
         "requirement_ids": [
-          "AC-D73.1",
-          "AC-D73.2",
-          "AC-D74.1",
-          "AC-D74.2",
-          "A228",
-          "A229",
-          "R168"
+          "AC-D79.1",
+          "AC-D80.1"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d73_d74_retry_ledger.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d79_d80_d81_budget_honesty.py tests/test_p7_w1_coalesce.py tests/test_d56_taxonomy_pacing.py tests/test_d28_pacing.py -q",
         "memory_refs": [
+          "pacing",
           "offscreen"
         ],
         "needs_graphify": false,
-        "size": "S"
+        "size": "M"
       }
     },
     {
-      "id": "P26-T4",
-      "title": "P26 fence suite, the delta-scope record and the two named owner gates",
-      "description": "Add tests/test_p26_fence.py \u2014 one assertion per named artefact of AC-D76.3 plus the module constants the phase relies on \u2014 and record the phase's delta scope. The D41-D70 assertion is presence per id in a heading, never a literal ### D<n> prefix (the record is mixed, exactly as P25's fence records). Read every value off the live modules (ui.ticker_session's per_load_historical_cap and the two window fractions, _history_wave_watchdog_bound_ms() against pacing_manager._hist_window, ibkr.subscription_manager's four tags, the include_types set _replay_subscriptions passes, ibkr.market_data.TIMEFRAME_CONFIG's keys), never off prose and never as a copied literal. Record git diff --name-only 629be4a in the wave result against the phase allowlist; list gates G3 and G4 as owner-run and do not claim them. Publish no literal file/line counts and no phase commit hash, so a later phase cannot redden this fence.",
+      "id": "P27-T5",
+      "title": "P27-04 \u2014 the phase fence, the pinning assertions and the records",
+      "description": "Add tests/test_p27_fence.py: one assertion per named artefact of requirements.md (marker sentence, D41\u2013D76 presence per id, P27's own D77\u2013D83 entries, Journeys 71\u201373, AC-D1.1\u2013AC-D76.3 plus AC-D77.1\u2013AC-D83.2, A1\u2013A229 plus A230\u2013A234, R1\u2013R169 plus R170\u2013R174, the Current Tech Stack section) and the pinning assertions read off the modules (the five settings constants, per_load_historical_cap(), the two watchdog fractions, _PRIME_BACKSTOP_MS and _prime_backstop_ms at 2_000/40_000/600_000, TIMEFRAME_CONFIG's nine rows, and the planner's Qt/DB/clock-free imports). No literal file or line counts and no phase hash. The delta-scope record is a build artefact, not a test: record git diff --name-only 623809e in the result and require it to be a subset of {services/backfill_service.py, ui/ticker_session.py, ibkr/pacing.py, ibkr/market_data.py, ibkr/id_manager.py, data/bar_cache.py, the four new suites (tests/test_d77_d82_d83_planner_identity.py, tests/test_d78_prime_retry_reachable.py, tests/test_d79_d80_d81_budget_honesty.py, tests/test_p27_fence.py), the two re-baselined files, the two pacing doubles, docs/}; anything else is a scope breach to escalate, not justify. Record the full offscreen suite result and claim no live gate \u2014 the requirements declare none. Allowlist amendment (P27-RW1, authorized by P27-T6): the phase delta also carries tests/test_d65_option_stream.py, tests/test_d27_reconnect.py and tests/test_d45_removal.py \u2014 the three signature-sensitive `throttle` doubles P27-T3's keyword-only `stamp` broke \u2014 plus tests/test_p27_throttle_double_signature.py, their guard. Those four paths are in scope, not a breach: `git diff --name-only 623809e` must be a subset of the original allowlist plus these four. P27-T6 is this task's dependency, so this finalize pass runs after the fix and verifies the green suite.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [
-        "P26-T1",
-        "P26-T2",
-        "P26-T3"
+        "P27-T1",
+        "P27-T2",
+        "P27-T3",
+        "P27-T4",
+        "P27-T6"
       ],
       "acceptance_criteria": [
-        "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D70 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D71-D76 entries, Journey 68-Journey 70, AC-D1.1-AC-D70.3 plus AC-D71.1-AC-D76.3, A1-A224 plus A225-A229, R1-R164 plus R165-R169 and the Current Tech Stack section are all present.",
-        "Given the live modules, When the fence reads them, Then per_load_historical_cap() == max(1, settings.MAX_HISTORICAL_PER_600S // 4); _WATCHDOG_BASE_WINDOW_FRACTION == 1 / 5 and _WATCHDOG_MARGIN_WINDOW_FRACTION == 1 / 20; _history_wave_watchdog_bound_ms() at a zero wait equals int(pacing_manager._hist_window * 1000 / 5); the four subscription tags have their recorded values; _replay_subscriptions passes include_types == {RT_BARS, S0_TICKS, OPTION_LEGS}; and TIMEFRAME_CONFIG's key set is unchanged.",
-        "Given the phase's build record, When the wave result is read, Then git diff --name-only 629be4a is a subset of the phase allowlist (ibkr/subscription_manager.py, ibkr/pacing.py, ui/ticker_session.py, ui/main_window.py, the four new suites, tests/test_p7_w4_streaming.py only if a pre-existing expectation had to move, and docs/), and anything outside it is recorded as a scope breach to escalate, not justified.",
-        "Given the phase's complete change set, When the full offscreen suite runs, Then it is green, and gates G3 and G4 are listed in the result as owner-run \u2014 named, not claimed as satisfied."
+        {
+          "id": "AC-D83.2",
+          "criterion": "Given requirements.md, Then ### D41\u2013### D76, AC-D1.1\u2013AC-D76.3, A1\u2013A229, R1\u2013R169, the 'This is an existing repository.' marker sentence and the Current Tech Stack section are unchanged and present, alongside this phase's own D77\u2013D83 entries, Journeys 71\u201373, AC-D77.1\u2013AC-D83.2, A230\u2013A234 and R170\u2013R174."
+        },
+        {
+          "id": "AC-P27-05-2",
+          "criterion": "Given the five modules read off source, Then the pinned values are unchanged \u2014 MAX_REQ_PER_SEC 50, HISTORICAL_MIN_INTERVAL_S 0.5, MAX_HISTORICAL_PER_600S 100, MIN_INTRADAY_SESSIONS 30, SESSION_BAR_CAP 5000; per_load_historical_cap() == max(1, MAX_HISTORICAL_PER_600S // 4); _WATCHDOG_BASE_WINDOW_FRACTION == 1/5 and _WATCHDOG_MARGIN_WINDOW_FRACTION == 1/20; _PRIME_BACKSTOP_MS == 15_000 with _prime_backstop_ms(2_000) == 15_000, _prime_backstop_ms(40_000) == 41_000 and _prime_backstop_ms(600_000) == 601_000; TIMEFRAME_CONFIG's nine keys and durations unchanged; and services/backfill_service.py still carries no Qt, sqlite or clock import."
+        }
       ],
       "tests": [
         {
-          "test_id": "P26-T4-AC1",
-          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D70 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D71-D76 entries, Journey 68-Journey 70, AC-D1.1-AC-D70.3 plus AC-D71.1-AC-D76.3, A1-A224 plus A225-A229, R1-R164 plus R165-R169 and the Current Tech Stack section are all present.",
+          "test_id": "P27-T5-01",
+          "linked_acceptance_criterion": [
+            "AC-D83.2"
+          ],
           "type": "unit",
-          "description": "Read docs/requirements/requirements.md from the repo root and assert the marker sentence, presence per id in a heading for D41-D70, the #### D71-D76 headings, Journey 68-Journey 70, the AC/A/R id ranges and the Current Tech Stack section.",
-          "expected_result": "Every named artefact is present; the suite holds no literal count of files, lines or entries. RED only if this phase edited the requirements record."
+          "description": "Fence test over docs/requirements/requirements.md: the marker sentence, presence per id in a heading for D41\u2013D76, this phase's own #### D77\u2013#### D83 entries, Journey 71\u2013Journey 73, AC-D1.1\u2013AC-D76.3 plus AC-D77.1\u2013AC-D83.2, A1\u2013A229 plus A230\u2013A234, R1\u2013R169 plus R170\u2013R174, and the Current Tech Stack section.",
+          "expected_result": "Every listed artefact is present exactly as named (presence-per-id, no literal file or line counts, no phase hash) and the fence suite passes on the phase's tree."
         },
         {
-          "test_id": "P26-T4-AC2",
-          "linked_acceptance_criterion": "Given the live modules, When the fence reads them, Then per_load_historical_cap() == max(1, settings.MAX_HISTORICAL_PER_600S // 4); _WATCHDOG_BASE_WINDOW_FRACTION == 1 / 5 and _WATCHDOG_MARGIN_WINDOW_FRACTION == 1 / 20; _history_wave_watchdog_bound_ms() at a zero wait equals int(pacing_manager._hist_window * 1000 / 5); the four subscription tags have their recorded values; _replay_subscriptions passes include_types == {RT_BARS, S0_TICKS, OPTION_LEGS}; and TIMEFRAME_CONFIG's key set is unchanged.",
+          "test_id": "P27-T5-02",
+          "linked_acceptance_criterion": [
+            "AC-P27-05-2"
+          ],
           "type": "unit",
-          "description": "Import the live modules and read the six pinning values, then instantiate/inspect the window's include_types set and TIMEFRAME_CONFIG's keys.",
-          "expected_result": "per_load_historical_cap() == max(1, settings.MAX_HISTORICAL_PER_600S // 4); the two fractions are 1/5 and 1/20; the zero-wait bound equals int(pacing_manager._hist_window * 1000 / 5); the four tag values match; include_types is exactly the three-tag set; TIMEFRAME_CONFIG's key set equals the pre-phase set."
+          "description": "Read the pinned values off config/settings.py, ui/ticker_session.py, ibkr/market_data.py and the planner's import block.",
+          "expected_result": "The five settings values, per_load_historical_cap(), the two watchdog fractions, TIMEFRAME_CONFIG's nine keys and durations, and the planner's Qt/DB/clock-free import block all match the recorded values."
         },
         {
-          "test_id": "P26-T4-AC3",
-          "linked_acceptance_criterion": "Given the phase's build record, When the wave result is read, Then git diff --name-only 629be4a is a subset of the phase allowlist (ibkr/subscription_manager.py, ibkr/pacing.py, ui/ticker_session.py, ui/main_window.py, the four new suites, tests/test_p7_w4_streaming.py only if a pre-existing expectation had to move, and docs/), and anything outside it is recorded as a scope breach to escalate, not justified.",
-          "type": "manual",
-          "description": "The build record, not a test: run git diff --name-only 629be4a at the end of the phase and list the result in the wave result beside the allowlist.",
-          "expected_result": "The diff is a subset of the allowlist (the four production modules, the four new suites, docs/); anything else is recorded as a scope breach to escalate, never justified."
-        },
-        {
-          "test_id": "P26-T4-AC4",
-          "linked_acceptance_criterion": "Given the phase's complete change set, When the full offscreen suite runs, Then it is green, and gates G3 and G4 are listed in the result as owner-run \u2014 named, not claimed as satisfied.",
-          "type": "integration",
-          "description": "Run the full offscreen suite once at the end of the phase and record the result together with the G3/G4 lines.",
-          "expected_result": "A clean full-suite run is green (not an incremental one); G3 and G4 appear as owner-run, named and not claimed."
+          "test_id": "P27-T5-03",
+          "linked_acceptance_criterion": [
+            "AC-P27-05-2"
+          ],
+          "type": "unit",
+          "description": "Read _PRIME_BACKSTOP_MS and call _prime_backstop_ms at 2_000, 40_000 and 600_000 ms.",
+          "expected_result": "The constant is 15_000 and the three calls return 15_000, 41_000 and 601_000 \u2014 the retry's own deadline rules the backstop at every wait."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p26_fence.py \u2014 the fence suite (requirements presence per id, the module-read pinning assertions)",
-        "the wave result's delta-scope record (git diff --name-only 629be4a against the phase allowlist) and the G3/G4 named-gates line"
+        "tests/test_p27_fence.py \u2014 the requirements fence and the module-read pinning assertions",
+        "the wave result's delta-scope record (git diff --name-only 623809e against the phase allowlist) and the full offscreen suite result, with no live gate claimed"
       ],
       "touches_files": [
-        "tests/test_p26_fence.py"
+        "tests/test_p27_fence.py"
       ],
       "doc_required": false,
       "inputs": [
-        "the three preceding tasks' change set",
-        "docs/requirements/requirements.md (read-only input)"
+        "AC-D83.2",
+        "S-P27-7 and AR-P27-8 (the pinning list)",
+        "the phase allowlist in docs/plan.md P27-04 deliverable 3"
       ],
       "outputs": [
-        "a fence that pins the requirements record and the phase's constants without pinning a count",
-        "the phase's delta-scope record",
-        "G3/G4 named as owner-run"
+        "a fence suite that fails if a later edit opens a D1\u2013D76 record or retunes a pinned constant",
+        "the delta-scope and suite records for the phase"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
+            "path": "tests/test_p26_fence.py",
+            "lines": "1-90",
+            "why": "read-only: the immediately prior fence precedent \u2014 marker grep, presence-per-id style, and the note that the delta record is a build artefact, not a test"
+          },
+          {
             "path": "tests/test_d66_delta_fence.py",
-            "lines": "1-120",
-            "why": "read-only: the P24 fence precedent \u2014 REQUIREMENTS path, marker grep, presence-per-id style and the note that the delta record is a build artefact, not a test"
+            "lines": "1-80",
+            "why": "read-only: the earlier fence precedent for the requirements path and assertion shape"
+          },
+          {
+            "path": "config/settings.py",
+            "lines": "20-60",
+            "why": "read-only: the five pinned constants the fence reads off the module"
           },
           {
             "path": "ui/ticker_session.py",
             "lines": "88-115",
-            "why": "read-only: the two watchdog window fractions and per_load_historical_cap the fence reads off the module"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2029-2065",
-            "why": "read-only: the include_types set _replay_subscriptions passes, which the fence asserts"
-          },
-          {
-            "path": "ibkr/subscription_manager.py",
-            "lines": "30-45",
-            "why": "read-only: the four tag constants' recorded values"
+            "why": "read-only: the two watchdog window fractions and per_load_historical_cap()"
           },
           {
             "path": "ibkr/market_data.py",
-            "lines": "1-60",
-            "why": "read-only: where TIMEFRAME_CONFIG is defined, for the key-set assertion"
+            "lines": "1-40",
+            "why": "read-only: TIMEFRAME_CONFIG's nine rows, for the key/duration assertion"
+          },
+          {
+            "path": "services/backfill_service.py",
+            "lines": "1-40",
+            "why": "read-only: the planner's import block, for the Qt/DB/clock-free assertion"
           }
         ],
         "contracts": [
@@ -710,11 +937,11 @@
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_history_wave_watchdog_bound_ms",
+            "ref": "ui/ticker_session.py:_WATCHDOG_BASE_WINDOW_FRACTION",
             "status": "existing"
           },
           {
-            "ref": "ibkr/subscription_manager.py:RT_BARS",
+            "ref": "ui/ticker_session.py:_WATCHDOG_MARGIN_WINDOW_FRACTION",
             "status": "existing"
           },
           {
@@ -722,23 +949,220 @@
             "status": "existing"
           },
           {
+            "ref": "config/settings.py:MAX_REQ_PER_SEC",
+            "status": "existing"
+          },
+          {
+            "ref": "config/settings.py:MAX_HISTORICAL_PER_600S",
+            "status": "existing"
+          },
+          {
             "status": "new",
-            "module": "tests/test_p26_fence.py",
-            "signature": "one assertion per named artefact: the requirements marker sentence, D41-D70 presence per id in a heading, #### D71-D76, Journey 68-70, AC-D1.1-AC-D70.3 + AC-D71.1-AC-D76.3, A1-A224 + A225-A229, R1-R164 + R165-R169, the Current Tech Stack section, and the six module-read pinning values"
+            "module": "tests/test_p27_fence.py",
+            "signature": "presence-per-id assertions over docs/requirements/requirements.md (marker sentence, D41-D76, #### D77-D83, Journey 71-73, AC-D1.1-AC-D83.2, A1-A234, R1-R174, Current Tech Stack) + module-read pins: the five settings constants, per_load_historical_cap(), 1/5 and 1/20, _PRIME_BACKSTOP_MS == 15_000, _prime_backstop_ms in {2_000: 15_000, 40_000: 41_000, 600_000: 601_000}, TIMEFRAME_CONFIG's nine keys, and a Qt/DB/clock-free planner import block"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P26",
-        "plan_ref": "docs/plan.md#P26-04",
+        "architecture_ref": "docs/architecture.md#Phase P27",
+        "plan_ref": "docs/plan.md#P27-04",
         "requirement_ids": [
-          "AC-D76.3"
+          "AC-D83.2"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p26_fence.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p27_fence.py -q",
         "memory_refs": [
           "offscreen"
         ],
         "needs_graphify": false,
         "size": "S"
-      }
+      },
+      "generation": 1
+    },
+    {
+      "id": "P27-T6",
+      "title": "P27-RW1 \u2014 the D81 signature change's test-double sweep: keyword-stamped `throttle` doubles + the guard",
+      "description": "P27-RW1 \u2014 the D81 signature change's test-double sweep. P27-T3 made `PacingManager.throttle` keyword-only `stamp` (default True) and `ibkr/market_data.py` calls `throttle(stamp=False)` at three request sites (`:111`, `:142`, `:177`), so every `throttle` double installed in `tests/` must accept the keyword form. The guard is a **static AST scan with zero exemptions**: a `lambda: None` is rejected whether or not its path can reach the real call, so \"behaviourally unreachable\" is not \"out of scope\" here. All eight zero-argument doubles in the tree therefore change from `lambda: None` to `lambda *, stamp=True: None` \u2014 the three the signature change breaks today (`tests/test_d65_option_stream.py:191`, `tests/test_d27_reconnect.py:148`, `tests/test_d45_removal.py:516`) and the five whose paths stub the generic request seam (`win.md_manager.req_historical_data`, `win.rt_manager.subscribe`) or drive RT-bar/historical paths, so no `req_mkt_data` / `req_contract_details` / `req_sec_def_opt_params` call reaches them (`tests/test_d27_aggregator_priming.py:26`, `tests/test_d48_mode_parity.py:118`, `tests/test_d67_forming_candle.py:569`, `tests/test_d27_stream_health.py:56`, `tests/test_d41_removal.py:252`); in those five the edit is signature conformance alone, so every assertion and every other line of every one of the eight files stays untouched. One further in-footprint change is required and permitted: `tests/test_d65_option_stream.py`'s `_make_window` also installs `monkeypatch.setattr(pacing_mod.pacing_manager, \"record_request_slot\", lambda: None)` \u2014 the same class of harness double. D81 moved the interval stamp out of `throttle()` into `record_request_slot()`; without the stub the 16 leg sends stamp the generic interval, `generic_wait_for_batch(16)` returns 0.3 s, and P26's all-or-nothing `replay_all` defers the reconnect replay via a `QTimer.singleShot` that never fires under pytest, yielding 0 new `reqMktData`. The stub is scheduling-only: no production line changes and the asserted `reqMktData` counts are unchanged. Add `tests/test_p27_throttle_double_signature.py`: an AST guard that discovers every `throttle` double in `tests/` at run time (each `monkeypatch.setattr(<expr>, \"throttle\", <callable>)` and each `def throttle(...)`) and fails unless it accepts `throttle(stamp=False)` with zero exemptions, plus a pin on the real keyword-only signature and a negative control proving a zero-argument double is rejected. The five doubles that passed before the fix are covered by that same guard, not exempted \u2014 each now carries the same `lambda *, stamp=True: None` form: `tests/test_d27_aggregator_priming.py:26`, `tests/test_d48_mode_parity.py:118`, `tests/test_d67_forming_candle.py:569`, `tests/test_d27_stream_health.py:56` and `tests/test_d41_removal.py:252` were unreachable only because their paths stub the generic request seam (`win.md_manager.req_historical_data`, `win.rt_manager.subscribe`) or drive RT-bar/historical paths, so no `req_mkt_data` / `req_contract_details` / `req_sec_def_opt_params` call reaches the double \u2014 safety here is enforced by the guard, never assumed. Nothing else changes: no production edit, no pacing constant, no other test's assertions (the option-stream `record_request_slot` stub above is the sole harness addition); the guard lives in its own file rather than in `tests/test_p27_fence.py` because P27-T5 owns that file, already holds a written skeleton and will be re-dispatched as a finalize worker \u2014 T6 writing it would either serialize against an in-flight task or be lost when the fence is regenerated, and P27-T5 now depends on P27-T6 so the finalize pass runs after this fix and can verify the green suite. Exit condition: the full offscreen suite (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -m 'not webengine' -q`) is green except `tests/test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record`, which asserts a clean `tests/` tree and can only pass once the phase is committed \u2014 record it as exactly that, do not fix it here.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P27-T3"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P27-06-1",
+          "criterion": "Given `ibkr/pacing.py`, Then `PacingManager.throttle` declares `stamp` as a KEYWORD-ONLY parameter defaulting to `True` \u2014 it is never positional, the default is not changed, and the three `MarketDataManager` request sites still call `throttle(stamp=False)`."
+        },
+        {
+          "id": "AC-P27-06-2",
+          "criterion": "Given every `throttle` double installed anywhere under `tests/` \u2014 each `monkeypatch.setattr(<expr>, \"throttle\", <callable>)` and each `def throttle(...)` in a test helper class \u2014 Then every one of them accepts `throttle(stamp=False)` and `throttle()` (its `stamp` is keyword-only with a default, or it declares `**kwargs`); the set is discovered from the tree at run time with zero exemptions, so a double added by a later phase is covered without editing the guard, and a zero-argument double is rejected by the guard's own negative control."
+        },
+        {
+          "id": "AC-P27-06-3",
+          "criterion": "Given the phase tree, Then the three pre-existing tests the signature change broke pass \u2014 `tests/test_d65_option_stream.py::test_P23_T9_AC1_on_populates_both_ladders_negative_and_partial_legs`, `tests/test_d27_reconnect.py::test_d27_3_drop_reconnect_reissues_with_rebound_reqids` and `tests/test_d45_removal.py::test_zero_transmit_walkthrough` \u2014 with their assertions unchanged; in each file the only edits are the installed `throttle` double's signature and, in `tests/test_d65_option_stream.py`'s `_make_window` only, a `monkeypatch.setattr(pacing_mod.pacing_manager, \"record_request_slot\", lambda: None)` pacing-seam stub (the same class of harness double): D81 moved the interval stamp from `throttle()` into `record_request_slot()`, so without it the 16 leg sends consume the generic interval and P26's all-or-nothing `replay_all` defers the reconnect replay via a `QTimer.singleShot` that never fires under pytest; the stub is scheduling-only \u2014 it skips pacing bookkeeping in the harness, touches no production line, and leaves every asserted `reqMktData` count unchanged."
+        },
+        {
+          "id": "AC-P27-06-4",
+          "criterion": "Given the full offscreen suite run as `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -m 'not webengine' -q`, Then it reports no failure attributable to a `throttle` double or to this phase's code, and the one exception is recorded explicitly: `tests/test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record` asserts a clean `tests/` working tree and can only pass once the phase is committed, so it is a post-commit gate, not a code defect and not fixed here."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P27-T6-01",
+          "linked_acceptance_criterion": [
+            "AC-P27-06-1"
+          ],
+          "type": "unit",
+          "description": "`inspect.signature(PacingManager.throttle)` \u2014 read the `stamp` parameter's kind and default off the live module.",
+          "expected_result": "`stamp` is present exactly once, its kind is `KEYWORD_ONLY`, and its default is `True`; no parameter accepts it positionally."
+        },
+        {
+          "test_id": "P27-T6-02",
+          "linked_acceptance_criterion": [
+            "AC-P27-06-2"
+          ],
+          "type": "unit",
+          "description": "Parametrized over the doubles the guard discovers in `tests/`: one case per discovered `throttle` double (all `setattr` lambdas/names and all class `def throttle` methods in the tree, including the five files that already pass because their paths never reach the double).",
+          "expected_result": "Every discovered double reports keyword-compatible `stamp`, and the discovered set contains at least the eight fixed files and both class-based doubles already carrying `*, stamp: bool = True` \u2014 the test fails, naming the file:line, if any double is zero-argument."
+        },
+        {
+          "test_id": "P27-T6-03",
+          "linked_acceptance_criterion": [
+            "AC-P27-06-2"
+          ],
+          "type": "unit",
+          "description": "Negative control on the guard's own predicate: feed it synthetic source text held in the test (`x = lambda: None` and `monkeypatch.setattr(m, \"throttle\", lambda: None)`) and the fixed forms (`lambda *, stamp=True: None`, `def throttle(self, **kw)`), without touching any real test file.",
+          "expected_result": "The zero-argument forms are rejected and the keyword forms accepted, so the guard provably reddens on the pre-fix shape rather than passing vacuously."
+        },
+        {
+          "test_id": "P27-T6-04",
+          "linked_acceptance_criterion": [
+            "AC-P27-06-3"
+          ],
+          "type": "integration",
+          "description": "Run the three previously red suites unchanged except for the installed double's signature and the option-stream harness's `record_request_slot` stub AC-06-3 permits, including the option-stream case that previously aborted the interpreter inside a Qt slot.",
+          "expected_result": "All three pass \u2014 including `test_P23_T9_AC1_on_populates_both_ladders_negative_and_partial_legs` (no `TypeError: ... unexpected keyword argument 'stamp'`, no `qFatal`, no exit 134), `test_d27_3_drop_reconnect_reissues_with_rebound_reqids`, and the `test_zero_transmit_walkthrough` fixture plus its test."
+        },
+        {
+          "test_id": "P27-T6-05",
+          "linked_acceptance_criterion": [
+            "AC-P27-06-4"
+          ],
+          "type": "integration",
+          "description": "Run `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -m 'not webengine' -q` on the phase tree and record the summary line plus any failure ids in the wave result.",
+          "expected_result": "Green except, at most, `tests/test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record` (clean-`tests/`-tree gate, only satisfiable post-commit); no other failure and no abort \u2014 the count and that one exception are recorded verbatim."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_option_stream.py, tests/test_d27_reconnect.py, tests/test_d45_removal.py, tests/test_d27_aggregator_priming.py, tests/test_d48_mode_parity.py, tests/test_d67_forming_candle.py, tests/test_d27_stream_health.py, tests/test_d41_removal.py \u2014 each installed throttle double becomes `lambda *, stamp=True: None` (the five already-satisfied files change for AST-signature conformance alone); assertions untouched; plus the option-stream harness's `record_request_slot` pacing stub",
+        "tests/test_p27_throttle_double_signature.py \u2014 run-time discovery of every throttle double in tests/, the keyword-`stamp` predicate over each, the real keyword-only signature pin, and the negative control",
+        "the wave result's full offscreen suite summary plus the amended phase delta allowlist (the three double files and the guard file added to P27-T5's original set)"
+      ],
+      "touches_files": [
+        "tests/test_d65_option_stream.py",
+        "tests/test_d27_reconnect.py",
+        "tests/test_d45_removal.py",
+        "tests/test_d27_aggregator_priming.py",
+        "tests/test_d48_mode_parity.py",
+        "tests/test_d67_forming_candle.py",
+        "tests/test_d27_stream_health.py",
+        "tests/test_d41_removal.py",
+        "tests/test_p27_throttle_double_signature.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P27-T3's keyword-only `throttle(*, stamp: bool = True)` in ibkr/pacing.py and its three `throttle(stamp=False)` call sites in ibkr/market_data.py",
+        "the ten throttle doubles in tests/ (8 monkeypatch lambdas, 2 class methods)"
+      ],
+      "outputs": [
+        "a phase tree in which no test double contradicts the D81 signature",
+        "a guard that fails the suite if any future throttle double omits the keyword form"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "186-205",
+            "why": "edit site: the `_make_window` harness double at :191 that aborted the option-stream case"
+          },
+          {
+            "path": "tests/test_d27_reconnect.py",
+            "lines": "140-160",
+            "why": "edit site: the `_make_window` harness double at :148"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "508-522",
+            "why": "edit site: the `_make_window` harness double at :516 used by the zero-transmit walkthrough"
+          },
+          {
+            "path": "tests/test_d27_aggregator_priming.py",
+            "lines": "22-30",
+            "why": "edit site: harness double at :26 \u2014 signature conformance only; every assertion untouched"
+          },
+          {
+            "path": "tests/test_d48_mode_parity.py",
+            "lines": "112-122",
+            "why": "edit site: harness double at :118 \u2014 signature conformance only; every assertion untouched"
+          },
+          {
+            "path": "tests/test_d67_forming_candle.py",
+            "lines": "562-573",
+            "why": "edit site: harness double at :569 \u2014 signature conformance only; every assertion untouched"
+          },
+          {
+            "path": "tests/test_d27_stream_health.py",
+            "lines": "50-60",
+            "why": "edit site: harness double at :56 \u2014 signature conformance only; every assertion untouched"
+          },
+          {
+            "path": "tests/test_d41_removal.py",
+            "lines": "246-256",
+            "why": "edit site: harness double at :252 \u2014 signature conformance only; every assertion untouched"
+          },
+          {
+            "path": "tests/test_p27_fence.py",
+            "lines": "1-40",
+            "why": "read-only: the phase fence's style and its explicit ownership of tests/test_p27_fence.py \u2014 this task must NOT write that file; the guard goes in its own module"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/pacing.py:throttle",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_mkt_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_contract_details",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_sec_def_opt_params",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p27_throttle_double_signature.py",
+            "signature": "`ThrottleDouble(path: str, lineno: int, kind: Literal[\"setattr\", \"def\"], accepts_keyword_stamp: bool)`; `discover_throttle_doubles(tests_dir: Path) -> list[ThrottleDouble]` walks every `tests/**/*.py` via `ast`, collecting (a) `Call` nodes whose func is `setattr` with a literal `\"throttle\"` second argument and (b) `FunctionDef` named `throttle`; `accepts_keyword_stamp(expr, module_ast) -> bool` is True iff the callable is an `ast.Lambda` or `FunctionDef` with `stamp` in `kwonlyargs` (and a default) or a non-None `kwarg` (**kwargs), or an `ast.Name`/`ast.Attribute` resolving to such a module-level definition \u2014 anything unresolvable FAILS naming `path:lineno`; tests: `test_real_throttle_signature_is_keyword_only_stamp()`, `test_every_throttle_double_accepts_keyword_stamp[<path:lineno>]` (parametrized over the discovery, asserting the eight fixed files and both class doubles are in the discovered set), `test_guard_rejects_zero_argument_doubles()` (negative control over in-test synthetic source). The installed double's fixed form is exactly `lambda *, stamp=True: None`."
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P27",
+        "plan_ref": "docs/plan.md#P27-03",
+        "requirement_ids": [
+          "AC-D81.1",
+          "AC-D81.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p27_throttle_double_signature.py tests/test_d65_option_stream.py tests/test_d27_reconnect.py tests/test_d45_removal.py -q",
+        "memory_refs": [
+          "pacing",
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      },
+      "generation": 1
     }
   ]
 }

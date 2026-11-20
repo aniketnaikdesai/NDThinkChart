@@ -19,7 +19,21 @@ questions without any UI, TWS or Qt dependency:
 2. *How do we request them?* — :func:`plan_requests` turns each missing span into
    one or more :class:`RequestPlan` objects, chunking by the timeframe's
    ``TIMEFRAME_CONFIG`` duration, **newest chunk first**, with the ``endDateTime``
-   anchor in the IBKR UTC-hyphenated ``yyyyMMdd-HH:mm:ss`` format.
+   anchor in the IBKR UTC-hyphenated ``yyyyMMdd-HH:mm:ss`` format. Each distinct
+   request identity ``(endDateTime, duration, bar_size)`` is planned **once** —
+   two spans that share an anchor are the *same* request, so only the first
+   occurrence in that newest-first order is emitted (D77) — and a span with no
+   positive length (``end_ts <= start_ts``) yields no plan at all (D83).
+
+3. *Where are the intraday holes?* — the bar-level pass assigns each cached bar
+   to exactly **one** session window using half-open membership ``[start, end)``,
+   with the *now* cap still inclusive so today's open session is never
+   over-fetched, and reports a hole wherever two consecutive accounted instants
+   (or a session edge and the nearest bar) are more than **1.5 bar periods**
+   apart — one threshold for the leading, internal and trailing edges (D82).
+   That window-membership rule is **not** the day-level presence predicate of
+   :func:`present_days`, which stays inclusive at the window end; see that
+   function's docstring for why the two predicates differ.
 
 Public API:
     bar_period_seconds(timeframe)                    -> int
@@ -221,6 +235,22 @@ def present_days(
     Qt-free, and is reused verbatim by
     ``MainWindow._missing_backfill_trading_days`` (the AC-D16.4 shortfall report)
     so the planner and the report cannot disagree about presence.
+
+    **Inclusive at the close, deliberately.** The equity membership test is
+    ``window_start <= ts <= window_end`` — inclusive at *both* edges — and it is
+    **not** the half-open ``[start, end)`` window-membership rule the bar-level
+    gap pass uses (:func:`_bar_level_missing_spans`). The two answer different
+    questions. This one is a per-day boolean over a cache whose coarse bars are
+    stamped at the **end** of their period — a ``1 day`` bar arrives at the
+    session close, ``16:00`` ET (the tree's own daily fixture convention,
+    ``tests/test_history_backfill.py``) — so a half-open presence test would
+    judge every cached daily day absent and re-request the whole daily history
+    on every load, and it would turn the AC-D16.4 shortfall line into "every day
+    short". Keeping the inclusive bound is what lets one predicate admit both
+    stamp conventions (period-start-stamped intraday bars and period-end-stamped
+    daily bars). Only *window membership* — which window a bar is counted in for
+    the gap arithmetic, a partition in which no instant may count twice — is
+    half-open.
 
     S-P20-5: ``is_futures=True`` switches to futures calendar-day presence —
     any bar on the ET calendar date counts (no window filter), Saturday is the
@@ -488,6 +518,15 @@ def _bar_level_missing_spans(
     bar periods between consecutive cached bars (or a session edge and the
     nearest bar) becomes a MissingSpan. See :func:`find_missing_spans`.
 
+    Window membership is **half-open ``[start, end)``** — the assignment of a
+    bar to one window of one day is a partition, so an instant stamped exactly
+    at a session's end belongs to no window of that session (it can never be
+    counted in two). The single exception is the window capped by *now*, where
+    the bound is ``now_ts`` itself: ``[start, now_ts]`` stays inclusive so
+    today's open session is never over-fetched. One ``gap_threshold`` of **1.5
+    bar periods** governs the leading edge (session start -> first bar), the
+    internal edges (bar -> bar) and the trailing edge (last bar -> bound).
+
     S-P20-5: with ``is_futures`` the trailing enumeration uses the futures
     week (Saturday the only closure) and each day's window is the full ET
     calendar day — overnight futures bars sit inside the window, so the
@@ -527,7 +566,14 @@ def _bar_level_missing_spans(
         for window in windows:
             ws, we = window["start_ts"], window["end_ts"]
             bound = min(we, now_ts)
-            in_window = sorted(t for t in day_ts if ws <= t <= bound)
+            # Window membership is half-open ``[ws, we)`` (a partition: no
+            # instant belongs to two windows). The single exception is a window
+            # capped by *now*, where ``bound`` is ``now_ts`` and the bound stays
+            # inclusive so today's open session is not over-fetched (A232).
+            if now_ts < we:
+                in_window = sorted(t for t in day_ts if ws <= t <= bound)
+            else:
+                in_window = sorted(t for t in day_ts if ws <= t < bound)
             if not in_window:
                 continue
             # Leading edge: session start -> first bar.
@@ -537,9 +583,10 @@ def _bar_level_missing_spans(
             for prev, cur in zip(in_window, in_window[1:]):
                 if cur - prev > gap_threshold:
                     spans.append(MissingSpan(start_ts=prev, end_ts=cur))
-            # Trailing edge: last bar -> session bound (capped at now).
+            # Trailing edge: last bar -> session bound (capped at now). One
+            # threshold for every edge: 1.5 bar periods.
             last = in_window[-1]
-            if bound - (last + period) >= period:
+            if bound - last > gap_threshold:
                 spans.append(MissingSpan(start_ts=last, end_ts=bound))
     return spans
 
@@ -557,6 +604,24 @@ def plan_requests(
     the newest chunk is anchored at the span end and each successive anchor steps
     back by exactly one configured duration. Every plan carries the timeframe's
     ``bar_size``/``duration`` and the span it was derived from.
+
+    Two promises (D77/D83), both independent of how many *reasons* detection
+    produced:
+
+    * **One plan per request identity.** The identity is exactly the tuple
+      ``req_historical_data`` is called with — ``(endDateTime, duration,
+      bar_size)`` — so a second plan with the same identity would be the same
+      request under a second reqId. Spans are still chunked independently (the
+      detector keeps its overlapping spans and their reasons, including the
+      floor span's earlier start), but a repeat identity is skipped: the first
+      occurrence in the existing newest-first order wins and carries the
+      current span's provenance. Coverage is unchanged, because chunking from a
+      shared anchor has already covered the interval the repeat would request.
+    * **No plan for a span with no positive length.** ``end_ts <= start_ts``
+      covers nothing, so it is skipped before chunking (which also makes
+      ``ceil`` a safe chunk count — it is never 0 for a positive span).
+
+    The function stays pure: no DB, no clock, no Qt.
     """
     cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG[_FALLBACK_TIMEFRAME])
     duration = cfg["duration"]
@@ -564,21 +629,26 @@ def plan_requests(
     chunk_seconds = _duration_to_seconds(duration)
 
     plans: List[RequestPlan] = []
+    seen: set[tuple[str, str, str]] = set()
     for span in sorted(missing_spans, key=lambda s: s.end_ts, reverse=True):
         span_seconds = span.end_ts - span.start_ts
-        if span_seconds < 0:
+        if span_seconds <= 0:
             continue
-        chunk_count = max(1, -(-span_seconds // chunk_seconds))
+        chunk_count = -(-span_seconds // chunk_seconds)
         anchor = span.end_ts
         for _ in range(chunk_count):
-            plans.append(
-                RequestPlan(
-                    endDateTime=_format_end_date(anchor),
-                    duration=duration,
-                    bar_size=bar_size,
-                    span_start_ts=span.start_ts,
-                    span_end_ts=span.end_ts,
+            end_dt = _format_end_date(anchor)
+            key = (end_dt, duration, bar_size)
+            if key not in seen:
+                seen.add(key)
+                plans.append(
+                    RequestPlan(
+                        endDateTime=end_dt,
+                        duration=duration,
+                        bar_size=bar_size,
+                        span_start_ts=span.start_ts,
+                        span_end_ts=span.end_ts,
+                    )
                 )
-            )
             anchor -= chunk_seconds
     return plans

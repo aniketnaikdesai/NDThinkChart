@@ -65,13 +65,13 @@ class MarketDataManager:
         """
         cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["5 mins"])
         self._require_api_ready()
-        req_id = id_manager.get_id()
-        # D28.3: rolling 600s historical window, non-blocking. Never sleeps:
-        # when the budget is exhausted the caller defers (the backfill wave
-        # caps chunks and continues via singleShot; see TickerSession).
+        # D28.3 / D81: the gate runs before the id is allocated, so a refusal
+        # defers the caller without burning a reqId for a request that was
+        # never sent.
         wait = pacing_manager.historical_wait_seconds()
         if wait > 0:
             raise PacingExceeded(wait)
+        req_id = id_manager.get_id()
         # Extended hours overrides useRTH
         effective_useRTH = 0 if extended_hours else useRTH
         self.client.reqHistoricalData(
@@ -101,12 +101,23 @@ class MarketDataManager:
         exhausted ``pacing_manager.throttle()`` raises PacingExceeded with
         the seconds to wait; the caller defers via QTimer.singleShot and
         retries (same wait/defer contract as historical requests).
+
+        D81: the gate is read before the id is allocated and the interval
+        clock is stamped only after the send crossed the wire, so a refused
+        or failing send consumes neither budget nor id (the same rule the
+        historical path already follows).
         """
         self._require_api_ready()
+        reserved = pacing_manager.throttle(stamp=False)
         req_id = id_manager.get_id()
-        pacing_manager.throttle()
-        self.client.reqMktData(req_id, contract, generic_ticks, False, False,
-                               [])
+        try:
+            self.client.reqMktData(req_id, contract, generic_ticks, False,
+                                   False, [])
+        except Exception:
+            id_manager.release_id(req_id)
+            raise
+        if not reserved:
+            pacing_manager.record_request_slot()
         return req_id
 
     def cancel_mkt_data(self, req_id: int | None):
@@ -123,11 +134,20 @@ class MarketDataManager:
         Q-41 / D28.1: never sleeps — pacing-limited calls raise
         PacingExceeded (defer via QTimer.singleShot), same wait/defer
         contract as historical requests.
+
+        D81: gate before the id, stamp after the send; a raising send rolls
+        its id back (see :meth:`req_mkt_data`).
         """
         self._require_api_ready()
+        reserved = pacing_manager.throttle(stamp=False)
         req_id = id_manager.get_id()
-        pacing_manager.throttle()
-        self.client.reqContractDetails(req_id, contract)
+        try:
+            self.client.reqContractDetails(req_id, contract)
+        except Exception:
+            id_manager.release_id(req_id)
+            raise
+        if not reserved:
+            pacing_manager.record_request_slot()
         return req_id
 
     def req_sec_def_opt_params(
@@ -145,21 +165,30 @@ class MarketDataManager:
         IND contract, so the caller passes that conId.
 
         Order matters: readiness first (a pre-handshake request is rejected with
-        504 and must not consume a reqId or pacing budget), then ``get_id``,
-        then ``throttle``. Q-41 / D28.1: never sleeps — when the pacing budget
+        504 and must not consume a reqId or pacing budget), then the gate
+        (``throttle(stamp=False)``, which may raise without spending
+        anything), then ``get_id``, then the send. D81: the interval clock is
+        stamped only after the send crossed the wire and a raising send rolls
+        its id back. Q-41 / D28.1: never sleeps — when the pacing budget
         is exhausted ``PacingExceeded`` propagates for the caller to defer
         (``QTimer.singleShot``), the same contract as historical requests.
         """
         self._require_api_ready()
+        reserved = pacing_manager.throttle(stamp=False)
         req_id = id_manager.get_id()
-        pacing_manager.throttle()
-        self.client.reqSecDefOptParams(
-            req_id,
-            underlying_symbol,
-            fut_fop_exchange,
-            underlying_sec_type,
-            underlying_con_id,
-        )
+        try:
+            self.client.reqSecDefOptParams(
+                req_id,
+                underlying_symbol,
+                fut_fop_exchange,
+                underlying_sec_type,
+                underlying_con_id,
+            )
+        except Exception:
+            id_manager.release_id(req_id)
+            raise
+        if not reserved:
+            pacing_manager.record_request_slot()
         return req_id
 
     def req_matching_symbols(self, pattern: str) -> int:
@@ -173,11 +202,20 @@ class MarketDataManager:
         Q-41 / D28.1: never sleeps — pacing-limited calls raise
         PacingExceeded (defer via QTimer.singleShot), same wait/defer
         contract as historical requests.
+
+        D81: gate before the id, stamp after the send; a raising send rolls
+        its id back (see :meth:`req_mkt_data`).
         """
         self._require_api_ready()
+        reserved = pacing_manager.throttle(stamp=False)
         req_id = id_manager.get_id()
-        pacing_manager.throttle()
-        self.client.reqMatchingSymbols(req_id, pattern)
+        try:
+            self.client.reqMatchingSymbols(req_id, pattern)
+        except Exception:
+            id_manager.release_id(req_id)
+            raise
+        if not reserved:
+            pacing_manager.record_request_slot()
         return req_id
 
     def cancel_contract_details(self, req_id: int | None):

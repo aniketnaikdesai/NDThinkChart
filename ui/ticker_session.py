@@ -65,6 +65,27 @@ _PRIME_MAX_SPAN_S = 3_600
 # to `'1 D'` — with the duration clamped into [60 S, 1 D].
 _PRIME_MAX_SPAN_1MIN_S = 86_400
 
+# D78 (S-P27-3): the prime has ONE completion owner. A pacing-deferred prime
+# schedules exactly one retry at ``max(1000, wait_s * 1000)`` ms; the backstop
+# is armed from that same deadline (plus one grace tick) so it can never fire
+# before the retry it exists to let through. A flat 15 s backstop pre-empted
+# every retry whose reported wait exceeded 15 s — exactly the case the retry
+# exists for — and attached the live feed without the forming period's partial
+# bars. An *issued* prime keeps the flat 15 s answer bound: there is no retry
+# to protect, only a request that must not strand the chart.
+_PRIME_BACKSTOP_MS = 15_000
+_PRIME_RETRY_GRACE_MS = 1_000
+
+
+def _prime_backstop_ms(retry_ms: int) -> int:
+    """D78 (S-P27-3): arm the prime's backstop for the retry's own deadline.
+
+    The backstop covers the retry's deferral plus one grace tick, so the
+    scheduled retry always fires first (a wait at or below 14 s keeps the
+    flat ``_PRIME_BACKSTOP_MS``; a 15 s wait arms 16_000 ms).
+    """
+    return max(_PRIME_BACKSTOP_MS, retry_ms + _PRIME_RETRY_GRACE_MS)
+
 # S-P25-1/S-P25-3: the two calendar-bucketed timeframes whose forming candle
 # is based on the period row the chart already renders (weeks anchor to
 # Monday 00:00 ET, months to the calendar boundary — S-P8-2).
@@ -230,12 +251,6 @@ class TickerSession(QObject):
         # ── History wave (3b-2) ────────────────────────────────────────
         self._history_req_ids: set[int] = set()
         self._history_req_generation: dict[int, int] = {}
-        # P7-W1 (S-P7-2): per-reqId issue state for the cancel-slot refund
-        # rule. A tracked reqId is pre-issue until its request reaches TWS;
-        # only pre-issue cancels refund their rolling-budget slot (via the
-        # pacing owner). ``mark_history_request_issued`` flips it at the
-        # single post-send registration site.
-        self._history_req_issued: set[int] = set()
         # P7-W1 (S-P7-2): cancel-tagged reqIds. A 162 arriving for one of
         # these is the expected TWS echo of our own cancel (superseded),
         # classified debug at the error ingress — never a user-facing error.
@@ -983,19 +998,6 @@ class TickerSession(QObject):
         self._cancelled_history_gen.pop(req_id, None)
         self._host._register_req_id(req_id, self)
 
-    def mark_history_request_issued(self, req_id: int) -> None:
-        """Mark a tracked reqId as issued (its request reached TWS).
-
-        P7-W1 (S-P7-2): the single post-send seam for the pre/post-issue
-        refund rule. Registrations default to pre-issue; the wave issue
-        path flips each reqId here once ``req_historical_data`` returns, so
-        a later cancel of it keeps (never refunds) its pacing slot.
-        """
-        if req_id in self._history_req_ids:
-            self._history_req_issued.add(req_id)
-            # P17-T1: stamp last activity at issue.
-            self._history_req_last_activity[req_id] = self._silence_now()
-
     def is_superseded(self, req_id: int) -> bool:
         """True when reqId was cancel-tagged (its inventoried-code error is
         a superseded ack).
@@ -1027,20 +1029,14 @@ class TickerSession(QObject):
                     self.symbol, req_id, type(exc).__name__, exc,
                 )
             # P7-W1 (S-P7-2): tag the cancel so a later 162 for this reqId
-            # classifies as a superseded ack (debug, no status-bar error),
-            # and refund the pacing slot ONLY when the request never reached
-            # TWS (pre-issue cancel). Post-issue cancels keep their slot
-            # (AR-P7-4: refunding issued slots would over-count the budget
-            # and risk a real 162 storm); pacing_manager stays the owner.
+            # classifies as a superseded ack (debug, no status-bar error).
+            # The slot was recorded after the send; a wave never refunds.
             self._cancelled_history_req_ids.add(req_id)
             # P26/D74: stamp the generation this tag belongs to. The tag is
             # kept for the current and previous generation only.
             self._cancelled_history_gen[req_id] = self._history_generation
-            if req_id not in self._history_req_issued:
-                pacing_manager.refund_historical_slot()
         self._history_req_ids.clear()
         self._history_req_generation.clear()
-        self._history_req_issued.clear()
         self._req_bars.clear()
         self._pending_bars = []
         # P17-T1: the wave terminated — drop silence stamps and park the
@@ -1219,7 +1215,6 @@ class TickerSession(QObject):
         # 2. Drop the old reqId and its per-chunk state.
         self._history_req_ids.discard(req_id)
         self._req_to_plan.pop(req_id, None)
-        self._history_req_issued.discard(req_id)
         self._history_req_last_activity.pop(req_id, None)
         # 3. Surrender the old chunk's bars: the one shared rule both retry
         # paths use (bars already persisted per-chunk stay in the cache —
@@ -1260,7 +1255,6 @@ class TickerSession(QObject):
             return
         self._register_history_request(new_req_id)
         self._req_to_plan[new_req_id] = plan
-        self.mark_history_request_issued(new_req_id)
         self._wave_issued_this_load += 1
         self._refresh_silence_sweeper()
         _LOG.warning(
@@ -1309,7 +1303,6 @@ class TickerSession(QObject):
         self._retried_plans = set()
         self._backfill_failed_req_ids = set()
         self._req_bars = {}
-        self._history_req_issued = set()
         # P17-T1: a new wave re-stamps every chunk it issues.
         self._history_req_last_activity = {}
         self._wave_issued_this_load = 0
@@ -1374,9 +1367,6 @@ class TickerSession(QObject):
             self._wave_plan_queue.pop(0)
             self._register_history_request(req_id)
             self._req_to_plan[req_id] = plan
-            # The transport accepted the request: it reached TWS, so a
-            # later cancel of this reqId keeps (never refunds) its slot.
-            self.mark_history_request_issued(req_id)
             # P26/D76: the transport accepted a request — the readiness
             # episode is over (a later one re-announces).
             self._wave_deferral_reason = ""
@@ -1800,7 +1790,8 @@ class TickerSession(QObject):
             # request, so a load following a backfill wave almost always lands
             # here; skipping would drop the forming period's partial bars.
             # One scheduled retry, never a busy loop; the prime timeout stays
-            # the backstop.
+            # the backstop, armed for the retry's own deadline (D78) so it can
+            # never pre-empt it.
             wait_s = max(
                 1.0, float(getattr(e, "wait_seconds", 0.0) or 0.0)
             )
@@ -1829,10 +1820,13 @@ class TickerSession(QObject):
                     self._wave_continue_wait_s
                     + settings.HISTORICAL_MIN_INTERVAL_S
                 )
-            self._prime_timer.start(15_000)
-            QTimer.singleShot(
-                max(1000, int(wait_s * 1000)), self._on_prime_retry
-            )
+            # D78 (S-P27-3): one computed deadline, two timers. The backstop
+            # covers the retry's own deferral (plus one grace tick) and, after
+            # an issue, the answer to the issued prime below — never a flat
+            # 15 s that would pre-empt a longer retry.
+            retry_ms = max(1000, int(wait_s * 1000))
+            self._prime_timer.start(_prime_backstop_ms(retry_ms))
+            QTimer.singleShot(retry_ms, self._on_prime_retry)
             return True
         self._prime_req_id = req_id
         self._prime_timeframe = timeframe
@@ -1843,8 +1837,9 @@ class TickerSession(QObject):
         # reservation is released.
         self._prime_reserved = False
         # Backstop: a priming request that never answers must not strand the
-        # chart without a live feed.
-        self._prime_timer.start(15_000)
+        # chart without a live feed. An issued prime keeps the flat 15 s
+        # answer bound (D78: only the deferral is derived from its retry).
+        self._prime_timer.start(_PRIME_BACKSTOP_MS)
         return True
 
     def _fail_open_prime(self, timeframe: str | None = None) -> None:

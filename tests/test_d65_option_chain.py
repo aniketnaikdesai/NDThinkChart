@@ -104,11 +104,16 @@ class _PacingStub:
     def __init__(self, raise_wait: float | None = None):
         self.raise_wait = raise_wait
         self.throttles = 0
+        self.stamps = 0
 
-    def throttle(self):
+    def throttle(self, *, stamp: bool = True):
         self.throttles += 1
         if self.raise_wait is not None:
             raise PacingExceeded(self.raise_wait)
+        return False
+
+    def record_request_slot(self):
+        self.stamps += 1
 
 
 def _spx_params(expirations, strikes=(5000.0, 5100.0, 5200.0),
@@ -312,7 +317,9 @@ def test_req_sec_def_opt_params_propagates_pacing_exceeded(monkeypatch):
         manager.req_sec_def_opt_params("SPX", "SMART", "IND", 416904)
 
     assert excinfo.value.wait_seconds == pytest.approx(1.5)
-    assert ids.calls == 1
+    # D81: the gate runs before the id is allocated, so a refusal consumes
+    # no reqId (the caller defers and retries with the same id).
+    assert ids.calls == 0
     assert pacing.throttles == 1
     assert client.calls == []
 

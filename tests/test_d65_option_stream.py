@@ -188,7 +188,12 @@ def _make_window(monkeypatch, qapp):
     monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
     from ibkr import pacing as pacing_mod
 
-    monkeypatch.setattr(pacing_mod.pacing_manager, "throttle", lambda: None)
+    monkeypatch.setattr(pacing_mod.pacing_manager, "throttle", lambda *, stamp=True: None)
+    # D81 moved the interval stamp out of throttle() into record_request_slot(),
+    # which req_mkt_data now calls after each send. Neutralise it too, or the
+    # leg sends stamp the generic interval and the reconnect replay defers
+    # (P26's all-or-nothing transaction) instead of re-issuing synchronously.
+    monkeypatch.setattr(pacing_mod.pacing_manager, "record_request_slot", lambda: None)
 
     from ui.main_window import MainWindow
 

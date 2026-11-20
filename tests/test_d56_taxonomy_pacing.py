@@ -9,8 +9,7 @@ Offscreen, clock-controlled suites (no live TWS):
 - T32 / AC1: a 162 on the re-issued (silence-retried) reqId finalizes short
   under existing error semantics with exactly two total issues (no third).
 - T33 / AC2: pacing-spy wave with one silent chunk — both the cancelled and
-  the re-issued reqIds consumed pacing slots; the post-issue cancel refunded
-  nothing.
+  the re-issued reqIds consumed pacing slots, and no cancel refunds one.
 - T34 / AC2: PacingExceeded at re-issue time with no slot freeing before the
   watchdog horizon — the wave falls through to the unchanged watchdog
   strand-finalization (counted); no historical request is ever issued outside
@@ -210,20 +209,10 @@ def test_t32_fresh_req_id_162_after_silence_retry_finalizes_short(monkeypatch, q
 
 
 # ---------------------------------------------------------------------------
-# T33 / AC2 — both issues consumed pacing slots; post-issue cancel: no refund
+# T33 / AC2 — both issues consumed pacing slots; no cancel refunds
 # ---------------------------------------------------------------------------
 def test_t33_silence_retry_consumes_two_slots_with_no_refund(monkeypatch, qapp):
     pacing_manager.reset_for_tests()
-    refunds = {"n": 0}
-    real_refund = pacing_manager.refund_historical_slot
-
-    def _counting_refund():
-        refunds["n"] += 1
-        return real_refund()
-
-    monkeypatch.setattr(
-        pacing_manager, "refund_historical_slot", _counting_refund
-    )
     win, session, stub, clock = _make_session(
         monkeypatch, qapp, "T33X", stub=_PacingMirrorStub()
     )
@@ -237,13 +226,12 @@ def test_t33_silence_retry_consumes_two_slots_with_no_refund(monkeypatch, qapp):
         assert stub.cancelled == [old_id]
         assert len(stub.calls) == 2
         new_id = stub.calls[1]["reqId"]
-        # Both the cancelled and the re-issued reqIds consumed pacing slots.
+        # Both the cancelled and the re-issued reqIds consumed pacing slots,
+        # and a wave never refunds either of them.
         assert len(pacing_manager._hist_times) == 2
-        # Post-issue cancel keeps its slot — no refund on either leg.
-        assert refunds["n"] == 0
-        # The re-issue is marked post-issue issued (its slot is owned).
-        assert new_id in session._history_req_issued
+        assert not hasattr(pacing_manager, "refund_historical_slot")
         assert plan in session._retried_plans
+        assert new_id in session._history_req_ids
     finally:
         pacing_manager.reset_for_tests()
         win.close()

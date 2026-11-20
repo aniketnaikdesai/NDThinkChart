@@ -1,4 +1,4 @@
-"""P7-W1 (S-P7-2): same-chart reload coalescing, cancel-slot refund,
+"""P7-W1 (S-P7-2): same-chart reload coalescing, cancel-slot accounting,
 superseded-162 at debug.
 
 Covers P7-T03 T11..T14 against the task's acceptance criteria. The
@@ -187,31 +187,26 @@ def test_p7_t12_different_symbol_cancels_and_fences(window):
     assert set(msft._history_req_ids) == tracked
 
 
-# ── T13: pre-issue refund vs post-issue keep ─────────────────────────────────
+# ── T13: no cancel refunds a slot (retired pre-issue refund) ─────────────────
 
 def test_p7_t13_pre_issue_refund_post_issue_keep(session_host):
-    """Cancelling a pre-issue reqId frees exactly its pacing slot; a
-    post-issue cancel frees nothing."""
+    """A wave never refunds: cancelling a reqId — whether or not its request
+    reached TWS — leaves the recorded slot count unchanged."""
     pacing_manager.record_historical_slot()
     pacing_manager.record_historical_slot()
     assert len(pacing_manager._hist_times) == 2
 
     session = TickerSession("TST", session_host)
-    session._register_history_request(101)  # pre-issue: never reached TWS
+    session._register_history_request(101)  # never reached TWS
     session._register_history_request(102)
-    session.mark_history_request_issued(102)  # post-issue: reached TWS
 
     session._cancel_history_requests()
 
     assert set(session_host.md_manager.cancels) == {101, 102}
-    assert len(pacing_manager._hist_times) == 1
+    assert len(pacing_manager._hist_times) == 2
     assert session.is_superseded(101)
     assert session.is_superseded(102)
-
-    # A refund with an empty budget is a no-op — never inflates the bound.
-    pacing_manager.reset_for_tests()
-    assert pacing_manager.refund_historical_slot() is False
-    assert len(pacing_manager._hist_times) == 0
+    assert not hasattr(pacing_manager, "refund_historical_slot")
 
 
 # ── T14: superseded 162 at debug, genuine 162 unchanged ──────────────────────

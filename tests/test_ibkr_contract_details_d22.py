@@ -110,9 +110,14 @@ class _FakeIdManager:
 class _FakePacing:
     def __init__(self):
         self.calls = 0
+        self.stamps = 0
 
-    def throttle(self):
+    def throttle(self, *, stamp: bool = True):
         self.calls += 1
+        return False
+
+    def record_request_slot(self):
+        self.stamps += 1
 
 
 class _FakeClient:

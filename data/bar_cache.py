@@ -1,6 +1,6 @@
 from data.db import db
 from data.models import Bar
-from typing import List, Optional
+from typing import List
 
 #: D28.4: SQLite retention — the newest N bars per (symbol, timeframe) are
 #: kept; older rows are pruned after each backfill wave so the on-disk
@@ -70,14 +70,3 @@ class BarCache:
         )
         db.conn.commit()
         return cursor.rowcount
-
-    @staticmethod
-    def get_last_timestamp(symbol: str, timeframe: str) -> Optional[int]:
-        """Return the unix timestamp of the most recent cached bar, or None."""
-        cursor = db.conn.cursor()
-        cursor.execute(
-            "SELECT MAX(ts) FROM bars WHERE symbol=? AND timeframe=?",
-            (symbol, timeframe)
-        )
-        row = cursor.fetchone()
-        return row[0] if row and row[0] is not None else None

@@ -132,30 +132,41 @@ class PacingManager:
                 self._batch_remaining = 0
             self.record_request_slot()
 
-    def throttle(self):
-        """Non-blocking minimum-interval gate (D28.1 / Q-41).
+    def throttle(self, *, stamp: bool = True) -> bool:
+        """Non-blocking minimum-interval gate (D28.1 / Q-41 / D81).
 
         Never sleeps: when the minimum interval has not elapsed since the
         last request, raises ``PacingExceeded`` carrying the seconds the
         caller must wait before retrying. Callers defer via
         ``QTimer.singleShot`` / existing timer paths (never ``time.sleep``
-        on the GUI thread). On success stamps the interval clock and
-        returns. The lock is held only around timestamp bookkeeping and
-        is never held across the wait.
+        on the GUI thread). The lock is held only around timestamp
+        bookkeeping and is never held across the wait.
+
+        Returns whether a :meth:`generic_batch` reservation unit was spent.
+
+        D81: ``stamp=False`` reads the gate without stamping it, for callers
+        that stamp only after their own send actually crossed the wire —
+        ``MarketDataManager``'s request paths call it in front of the send and
+        then ``record_request_slot()`` on success. A refused gate therefore
+        charges nothing at all, whichever mode is used; the default
+        (``stamp=True``) keeps the original stamp-on-success behaviour for
+        every existing caller.
 
         P26/D71: while a :meth:`generic_batch` reservation is open, a call
-        consumes one reserved unit and returns without touching the clock;
-        the reservation's ``finally`` stamps the interval once for the
+        consumes one reserved unit, returns ``True`` and does not touch the
+        clock; the reservation's ``finally`` stamps the interval once for the
         whole burst.
         """
         with self._lock:
             if self._batch_remaining > 0:
                 self._batch_remaining -= 1
-                return
+                return True
         wait = self.request_wait_seconds()
         if wait > 0:
             raise PacingExceeded(wait)
-        self.record_request_slot()
+        if stamp:
+            self.record_request_slot()
+        return False
 
     def _expire_rt_slots(self, now: float) -> None:
         """Drop slots older than the rolling window. Caller must hold the lock."""
@@ -260,31 +271,6 @@ class PacingManager:
             self._expire_hist_slots(now)
             self._hist_times.append(now)
             self._last_hist_time = now
-
-    def refund_historical_slot(self) -> bool:
-        """Return one historical slot to the rolling budget.
-
-        P7-W1 (S-P7-2 / AR-P7-4): the pre-issue-only counterpart to
-        :meth:`record_historical_slot` — ``TickerSession`` calls this only
-        for a cancelled reqId whose request never reached TWS, so the wave
-        does not re-spend budget on data it never asked for. Post-issue
-        cancels keep their slot (never refunded). The minimum-interval
-        clock (``_last_hist_time``) is deliberately untouched: the refund
-        restores budget count, never issue spacing (Q-2). No-op (``False``)
-        when no slot is held, so a stray refund can never inflate the
-        budget past its bound. Pacing stays the single owner — callers
-        never mutate the deque themselves. Returns True when a slot was
-        actually freed.
-        """
-        with self._lock:
-            now = time.time()
-            self._expire_hist_slots(now)
-            if not self._hist_times:
-                return False
-            # Newest-first: the cancelled request's own spend is the most
-            # recent unexpired slot.
-            self._hist_times.pop()
-            return True
 
     def reset_for_tests(self) -> None:
         """Clear pacing state. Test-only: keeps the suite hermetic.
