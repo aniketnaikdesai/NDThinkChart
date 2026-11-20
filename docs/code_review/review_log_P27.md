@@ -106,3 +106,67 @@ Every claim below was re-derived on the live tree, not taken from the worker's p
 - **3 new entries opened**, all `nice-to-have`, all `open`: ESC-130 (P27-T4 → BUILD, `quality`), ESC-131 (P27-T6 → BUILD, `gap`), ESC-132 (P27-T3 → TASK_MANAGER, `consistency`). None blocks the phase: no shipped behaviour is wrong and no suite is weakened. They are documentation/guard-coverage/AC-wording items and can be taken with the next phase's first wave.
 
 Status: REVIEW_COMPLETE
+
+---
+
+## Rework verification pass — ESC-130 / ESC-131 / ESC-132 (commit `5096b78`, base `0ff7964`)
+
+**Pass type:** rework verification, **full pass** — not light: `P27-T4` touched `ui/ticker_session.py`, a file `P27-T2` also claims, and this pass re-checks the whole delta by judgment (no line-by-line read-through of unrelated P27 code, which §1–§5 above already covered).
+**Scope:** `P27-T4`, `P27-T6` per `precheck.json` (0 fail_fast, 0 `PRE-*`, 0 overlaps, 0 open escalation entries) plus the `AC-D81.2` record.
+**Inputs:** `precheck.json` (2026-11-20T03:59:51Z), `test_verification.json` (**pass, exit 0, 216.3 s**, newer than `build_log.md` — consumed as ground truth; the full suite was not re-run), `build_log.md` waves 419–420, `wave419_P27-T4.json` / `wave419_P27-T6.json`, the rework packs, `task-graph.json`, `requirements.md` / Q121, and the commit diff.
+
+### 1. Delta check — the commit and the working tree
+
+`git diff --name-status 0ff7964 5096b78` = 11 files. The **P27 production / test / criterion delta is exactly the three fixes plus the Q121 record**:
+
+- `ui/ticker_session.py` — 2 comment lines (ESC-130), no code.
+- `tests/test_p27_throttle_double_signature.py` — `FIXED_SETATTR_FILES` +5 paths and its comment block (ESC-131); the predicate, discovery and negative control are untouched.
+- `docs/requirements/requirements.md` — one line: `AC-D81.2` reworded (ESC-132); `docs/requirements/open_questions.md` — Q121 appended; `docs/tasks/task_manager_notes_P27.md` — the three decisions and the rework wave shape.
+- `docs/code_review/review_log_P27.md` + `docs/code_review/escalations.json` — this reviewer's own previous-pass artifacts, committed with the rework.
+
+**No other criterion, code path or test changed.** The other four files are **P28 planning artifacts appended by other agents** — `docs/architecture.md` (+287), `docs/plan.md` (+203), `docs/plan_review_P28.md` (new, 145), `docs/codebase-map.md` (+37) — and every hunk is a pure append at the P28 line ranges (`@@ -11418,0 +11419,287 @@`, `@@ -8144,0 +8145,203 @@`); no P27 sentence is modified. So the handoff's "exactly those three fixes plus the Q121 record" describes the **P27 delta** correctly, but not the commit as a whole: the commit also carries the P28 planning work. No P27 behaviour moved. (Process note only: a commit labelled "P27 rework" sweeps in ~670 lines of P28 planning; it has no code/criteria effect.)
+**Working tree:** `git status` shows modified `docs/architecture.md` and `docs/plan.md`, both P28 revision-pass-2 edits at the P28 ranges (8168+/11508+), made by the concurrent Plan pass — outside `5096b78` and outside this review's subject. At precheck time the tree was clean (`unattributed_working_tree_changes: []`).
+
+### 2. ESC-130 — addressed (verified against the code, not the absence of the old phrase)
+
+`ui/ticker_session.py:990-991` now reads "*P17-T1: stamp last activity at registration and re-stamp it on each accepted bar in on_historical_bar (the only two stamp sites).*" I counted every write to `_history_req_last_activity`: **exactly two `=` stamps** — `:992` in `_register_history_request` and `:1529` in `on_historical_bar`; everything else is the dict initialiser (`:332`), the `:1307` in-place `= {}` reset, the `:1044` `.clear()` and four pops (`:1218`, `:1588`, `:1649`, `:1683`). **`on_historical_bar` is genuinely the second site, and it is the accepted-bar path**: `:1529` runs after `_history_event_accepted(req_id)` (`:1526`), and the prime branch returns at `:1525`, so an unaccepted or prime bar does not stamp. **There is no third site.** `_register_history_request`'s other callers (`:1256` `_reissue_historic`, `:1368`, and the public wrapper `:1502`) all land on the same registration stamp, so "at registration" is accurate, and the deleted `mark_history_request_issued` has zero production occurrences. No behaviour changed: the whole `ui/ticker_session.py` hunk is the two comment lines.
+
+### 3. ESC-131 — addressed (10 discovered, presence reddens on the right file, control still discriminates)
+
+- **Live count:** importing the guard and reading `_DISCOVERED` gives **10** doubles — **8 `setattr` + 2 `def`** — at `test_d65_option_stream:191`, `test_d27_reconnect:148`, `test_d45_removal:516`, `test_d27_aggregator_priming:26`, `test_d48_mode_parity:118`, `test_d67_forming_candle:569`, `test_d27_stream_health:56`, `test_d41_removal:252` (setattr) and `test_d65_option_chain:109`, `test_ibkr_contract_details_d22:115` (def). All 10 report `accepts_keyword_stamp=True`.
+- **Coverage is complete:** `FIXED_SETATTR_FILES` is exactly those eight setattr paths (equal to P27-T6's `touches_files` minus the guard) and `KEYWORD_DEF_FILES` exactly the two class doubles — 8 + 2 = the discovered 10, no required path absent.
+- **Presence fails for the right reason:** filtering a discovery list and calling `_assert_required_files_present`, dropping `test_d48_mode_parity.py` fails with "*discovery did not find the installed double in tests/test_d48_mode_parity.py; the guard would be vacuous there …*", and dropping `test_ibkr_contract_details_d22.py` fails with the class-double wording naming that file. Neither failure is attributed to a symbol elsewhere — the assertion keys on the discovered `(path, kind)` pair, so it names the file whose double vanished. I also confirmed the escalation's mechanism: a class-attribute double (`throttle = lambda: None` in a class body) is discovered **zero** times, so before this fix its file silently lost its case; now the required pair is absent and the discovery test reddens.
+- **Negative control intact:** `test_guard_rejects_zero_argument_doubles` passes (4 pre-fix forms rejected / 5 fixed accepted), and my standalone probe over `doubles_in_source` gives `False` for `lambda: None` and `def throttle(self)` and `True` for `lambda *, stamp=True` and `def throttle(self, *, stamp=True)`.
+- **Green:** `pytest tests/test_p27_throttle_double_signature.py -q` → **13 passed** (10 parametrized + 3). The rework diff is the five paths plus comments only.
+- Precision note: the presence key is `(path, kind)`, not `(path, line)`; every one of the ten paths currently holds exactly one double, so per-pair presence equals per-double presence today. A future second double added to one of those files would still be covered by its own parametrized `accepts_keyword_stamp` case, so this is not a coverage gap.
+
+### 4. ESC-132 — addressed (criterion matches the code; fence green)
+
+- **Requirements:** `requirements.md` now carries `**AC-D81.2 (ids are not burned on a failed generic send)**` — the four generic paths are named, and the historical branch is recorded (send unwrapped, an allocated id may be left unused, no budget charged because the slot is recorded only after the send so `AC-D81.1` holds there, the counter has already moved past the id so it is never reissued, ids remain increasing). Q121 records the decision and the fence constraint.
+- **Code, `ibkr/market_data.py`:** all four generic paths do `_require_api_ready()` → `throttle(stamp=False)` (raises before the id) → `get_id()` → `try: send / except Exception: id_manager.release_id(req_id); raise` → `record_request_slot()` only when no reservation was spent (`:110-121`, `:141-151`, `:176-192`, `:209-219`). `req_historical_data` (`:71-91`) **really is unwrapped**: gate → `get_id()` → `client.reqHistoricalData(...)` → `record_historical_slot()`, with no `try/except`.
+- **My own behavioural probe** (fresh `IdManager` at 500; fake client raising once; monkeypatched clock): the failed send took id 500, the counter stayed at 501 (not released), `_hist_times`/`_last_hist_time`/`_rt_times` were unchanged, and the next success got 501 (never reissued, increasing) with the slot recorded only then — i.e. `AC-D81.1` holds on the historical path exactly as the new clause states. The parametrized suite covers all four generic paths (`tests/test_d79_d80_d81_budget_honesty.py` → 14 passed), and P27-T4's task command (budget-honesty + `p7_w1_coalesce` + `d56_taxonomy_pacing` + `d28_pacing`) is green.
+- **Fence:** `pytest tests/test_p27_fence.py -q` → **12 passed**. `test_acceptance_criteria_ranges_are_present` builds the `**AC-D{defect}.{suffix}` prefix pattern from `P27_CRITERIA[81] = (1, 2)`, so the reworded criterion keeps the `**AC-D81.2` prefix and the fence still matches.
+
+### 5. Standing duties (full pass)
+
+| duty | result |
+|---|---|
+| **Mock-endpoint containment** | **Clean.** No added line in the production diff matches `mock|fake|stub|simulat`; the only test-file change is in a test, and no production module imports a test double. |
+| **Usage docs** | **Not applicable.** P27 turns no user-visible wording (`AP-P27-10`), all six tasks are `doc_required: false`, and every `doc_candidates` entry in `precheck.json` is `touched: false` — correct: a comment, an AC qualification and a test-guard list change nothing a user reads. |
+| **Pack-prose spot-check** | **P27-T4 / P27-T6 rework packs** (the tasks in scope). Their guarantees either name their enforcer (the guard's `P27-T6-02`, the task cases) or are build-discipline statements the diffs confirm (no assertion touched in the eight double files); nothing contradicts an AC. The ESC-132 pack prose correctly says the AC edit is the Analyst's. |
+| **Repeat-invariant** | No new BUILD route: each finding was fixed at its own site; none is a per-case patch of a rule. |
+| **Owner-run gates** | P27 names none (unchanged from §4 above). |
+| **No new finding** | **None opened.** The observations below are all inert. |
+
+### 6. Examined and deliberately not escalated
+
+1. **The P27 task-graph's `AC-D81.2` criterion copy is still the pre-qualification paraphrase** ("…after the failing send the next successful request receives the id the failed attempt took…"). The authoritative ledger (`requirements.md`, which `requirement_ids` points at) is qualified; the graph is the delivered P27 record (all six tasks `done`), no gate reads the criterion text, P27-T3-02 is parametrized over the four generic paths only, and the graph is replaced at P28 breakdown. Recorded, not routed — same treatment as the ESC-053/ESC-054 stale-description note.
+2. **`ibkr/realtime_bars.py::subscribe` has the same unwrapped-send shape** (id → `reqRealTimeBars` → `record_realtime_slot`): a raise leaves an unused id. It predates D81, is not one of "the four generic market-data request paths", and is untouched by P27; the new AC states the historical fact, not "only". No escalation.
+3. **The guard's per-`(path, kind)` key** — see §3's precision note; not a gap today, and each double is also checked individually.
+4. **Commit scope / uncommitted P28 edits** — see §1; process observations, no code or criteria effect.
+
+### 7. Escalation close-out
+
+Three entries were open at entry: **ESC-130** (P27-T4 → BUILD), **ESC-131** (P27-T6 → BUILD), **ESC-132** (P27-T3 → TASK_MANAGER). Each linked task/artifact had changed since the last pass (`precheck.json` `escalation_updates`), and each was re-verified above against the code/tests, not the owner's say-so. All three are flipped in place to `"status": "addressed"` with a `verified` record. **Zero open escalations remain across the repo:** `docs/code_review/escalations.json` (127 records — 103 `ESC-030`…`ESC-132` plus 24 `PRE-*` precheck records) has **no** `"open"` entry, `precheck.json` names no open `PRE-*`, and the legacy `docs/code_review/escalations.md` (ESC-001…ESC-029) already records all entries `addressed`.
+
+Status: REVIEW_COMPLETE

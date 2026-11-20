@@ -692,3 +692,36 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - bb5d540 P23 rework: ESC-116 contract re-point, ESC-117 OFF/cutoff session reset, ESC-118 dead alias + allowlist tighten
 - 82b82fd P23 build: Option Spreads panel, chain/greeks, engine, live wiring, Portfolio stack removal, schema drop (10 waves)
 - 4bb01e9 P23: plan approved after owner review (10 waves, RC-1..RC-16)
+## P27 — 2026-11-20
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P27-T3 — D81: throttle(*, stamp=True) -> bool splits the gate from the stamp; the four generic paths read the gate before allocating an id, stamp only after the send crosses the wire and release the id on a raise, while req_historical_data's gate moves in front of get_id; new budget-honesty suite cases (a),(b),(c),(f) plus the default-path case are green and the P26 replay / D28 pacing suites are unchanged.
+- P27-T2 — D78: prime_aggregator arms the deferral backstop at max(15_000, retry_ms + 1_000) so a deferred retry is always reachable; issued primes keep the flat 15 s; new suite tests/test_d78_prime_retry_reachable.py green
+- P27-T4 — ESC-130 rework: _register_history_request's comment now states only the two surviving last-activity stamp sites (registration and the accepted bar in on_historical_bar); no issue-time re-stamp is claimed, and no behaviour changed.
+- P27-T1 — P27-01: plan_requests emits one plan per (endDateTime, duration, bar_size) and none for a non-positive span; _bar_level_missing_spans uses half-open window membership with the now cap inclusive and one 1.5-period threshold; present_days docstring only; new pure 8-case suite green (note: tests/test_d42_depth_floor.py, outside this task's test command, fails in this environment because QtWebEngine is unavailable offscreen — pre-existing and unrelated).
+- P27-T5 — P27 fence suite finalised and verified: tests/test_p27_fence.py green (12 passed) covering presence-per-id requirements markers (D41-D76 headings, #### D77-D83, Journeys 71-73, AC-D1.1-AC-D83.2, A1-A234, R1-R174, marker sentence, Current Tech Stack) and the module-read pins; delta vs 623809e is a subset of the allowlist, including the eight throttle lambdas and their guard; the only full-suite red is the pre-commit clean-tests/ gate test_d64_batch_gate.py::test_p22_t5_ac2_shared_seam_record.
+- P27-T6 — ESC-131 rework: FIXED_SETATTR_FILES now names all eight swept setattr throttle-double files (the three D81 broke plus the five conformance-only ones), so a double that stops being discoverable fails the guard instead of silently dropping its parametrized case.
+
+### Recent commits (unscoped)
+- 5096b78 P27 rework: comment states the live stamp sites, guard covers every swept double, AC-D81.2 qualified (ESC-130/131/132)
+- 0ff7964 P27 build: planner request identity, confined window rule, reachable prime retry, gate-before-stamp, refund retirement (D77-D83)
+- 8fdc27f P27: plan approved after RC-1..RC-3 revision (present_days confinement, P17 supersession, 615s bound)
+- 623809e Q-80: freeze the clock for the deferred-prime retry tests (removes a 5s-per-5min wall-clock flake)
+- d56a97f P26 close-out: ESC-129 verified addressed, changelog, review log
+- bda354f P26 rework: empty batch reservation reserves nothing; batch-of-one contract documented (ESC-129)
+- 70b16f2 P26 build: transactional reconnect replay, cap-parked wave lifecycle, retry surrender, generation-scoped ledgers (D71-D76)
+- 4975efa P26: plan approved (D71-D76 reconnect replay + wave lifecycle)
+- 629be4a P25 close-out: changelog, review log, escalations addressed
+- a22ecf6 P25 rework: single-sourced whitespace predicate, import-time QApplication invariant, partial-marker docs (ESC-126/127/128)
+- 7d93819 Q-79: drop the dead module-level QApplication in the forming-candle suite (import-order fix)
+- 76713af P25 build: period base + forming-candle marker, pop-out hold latches, arrival-ordered flush, one whitespace rule
+- 08cade8 P25: plan approved (D67-D70 silent-wrong-data); Batch-38 requirements recorded as phases P25-P30
+- 94d6119 Q-76/77/78: expiry renders Nov19, silence bound scales with chunk shape, ResizeObserver work coalesced
+- 9418a54 P24 close-out: changelog, review log, PRE-021 addressed
+- 246e5df P24: PCS per-side offsets + reversed row order (D66); fixtures re-derived, delta fence
+- f9bb73c P24: requirements + plan approved (D66 PCS ordering delta); ESC-123/124/125 closed; acceptance record names db21672
+- db21672 P23 rework: restore the install guard (ESC-124); surface the IB chain error code and stop claiming no-0DTE on failure (Q-74)
+- 39856b0 P23 cleanup: delete 18 test-only symbols, wire AC-D65.4 into evaluate(), harden the residue gate (ESC-121/122), live-TWS acceptance record
+- c04cc03 Q-73: usage docs cover the D65 badge, STALE/freeze and no-0DTE empty state
