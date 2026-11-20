@@ -8376,4 +8376,529 @@ Two waves change what the user sees: `P28-04` (closing the app actually closes i
 - **FI-P28-2 — `AC-D92.1`'s "grep over the usage docs" must be read as scoped (non-blocking).** A repo-wide grep for "trading terminal"/"trades live" also hits `docs/README.md:5`, `docs/archive/**`, `docs/D55_*`, `docs/build/**`, `docs/code_review/order_code_audit.md` — historical and internal records that the D45/D55 conventions forbid rewriting (and `docs/README.md` is not a user doc). P28's assertion covers the six **live** sources (`usage.md`, `USAGE.md`, `USAGE.txt`, `ui/main_window.py`, `config/settings.py`, `main.py`). If the owner wants `docs/README.md` corrected too, that is a one-line doc request, not a P28 edit.
 - **FI-P28-3 — `AC-D95.2` has two branches; P28 takes the lock branch and declines the schema constraint (non-blocking, recorded for confirmation).** The lock makes a second writer impossible by construction, the `popouts` table needs no rebuild, and no migration lands — the residual the requirement explicitly leaves to Plan. The phase still asserts single-process upsert idempotence (today's `SELECT`-then-`UPDATE` shape) plus the two-process refusal and the "no DB file created" probe. If the owner prefers a `UNIQUE(symbol, timeframe, mode)` constraint as well, that is a new requirement (a table rebuild) — deliberately not taken here.
 
+## Phase P29 — Persisted state and alarm evaluation: the delete that outlives a failed save, the alarm at its own level, replay duplication (D96–D100) — drafted 2026-11-20
+
+> Companion: `docs/architecture.md` § *Phase P29* (Relationship to prior phases, Codebase Summary,
+> tech-stack decisions, System Components, Data Model, Integration Points, Frozen Interfaces,
+> Non-Functional Approach, AR-P29-1…9, S-P29-1…5). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P29 (D96–D100)**,
+> Journeys 78–81, `AC-D96.1`–`AC-D100.3`, A241–A245, R181–R185, `design_gaps.md` **DG133 / DG134**; one
+> live gate, **G6** (owner-run). **D98 has no numbered journey** — its fixture is `AC-D98.1`/`AC-D98.2`
+> plus G6.
+>
+> **Baseline: HEAD `1404877`** (P28 build, base `ef04c5a`). P29 starts there; every wave re-reads its own
+> site before editing, because P28 touched `ui/main_window.py`'s connect/disconnect block and
+> `data/db.py`'s startup path.
+>
+> **The work is four rules behind five defects:** **a persisted write is one transaction over one
+> declaration** (D96 + D100), **one crossing rule with the previous side inclusive** (D97), **every outage
+> has one interval and one resume** (D98), and **a page-ready transition delivers from the log and nothing
+> else** (D99). Hard constraints: D1–P28 read-only apart from the declared `[revises P4/D40]` label; **no
+> new module, no new dependency, no migration, no settings key, no wire-protocol change, no order path**;
+> sizes S/M only; every AC offscreen-assertable except **G6**, which is owner-run and never claimed.
+
+### Revision notes (answers `docs/plan_review_P29.md` § Required Changes)
+
+- **RC-1 — the cold-start hole is closed in `begin_outage()`, not in a window flag.** The outage is now
+  recorded only when **at least one `TickerSession` exists at the drop**; a session comes from a connect-time path or a
+  user action while disconnected — the connect-time paths and pop-out restore run only after the handshake,
+  while a symbol Enter or an alarm add can run while disconnected (AR-P29-9 (iii)); on an ordinary launch
+  there is no session yet, so a failed/pre-handshake `connectionClosed()` on an "app started before TWS"
+  launch arms nothing and the first successful handshake keeps the 1m-cache seed. The gate is deliberately **not**
+  `MainWindow._ibkr_connected` — the validator's measured constraint: `_go_live()` sets only
+  `ib_client._connected` and never runs `_on_connected`, so that gate would redden `test_d40_1`–`test_d40_4`;
+  the session predicate is true in all four D40 cases **without touching `_go_live`**, because each calls
+  `reconcile()` before the drop. New case (g) pins the cold-start ordering
+  (pre-handshake `connectionClosed()` with no session → successful `nextValidId(1)` → the reconcile-created
+  monitor holds the cached close, `_outage_start` stays empty, no "unmonitored" line). A late `disconnected`
+  delivered after a later `nextValidId` is stated: it arms one extra re-seed at the **following** connect and
+  `resume_all()` clears the flag on every resume; AR-P29-9 now states the residuals honestly (a
+  poll-detected drop that recovers without any `connectionClosed()`, a late delivery, and a session created
+  by alarm CRUD before the first handshake). Rewritten: P29-03 deliverables 1–3 and
+  7, S-P29-3, AR-P29-9, the D98 Non-Functional bullet and the `_outage_active` Data Model row.
+- **RC-2 — the `_pause_start` inventory is corrected to five reads in four cases.** `:199`, `:364`, `:375`
+  and `:402` are renames whose assertion content is unchanged; **`:445`** sits inside the re-baselined
+  `test_d40_4_transient_drop_no_pause_ui` and **changes value** — it becomes an assertion that the renamed
+  ledger holds `SYM_A` at the drop and is empty after the resume, alongside that case's other two flipped
+  assertions (`last_chart_price is None`; the "unmonitored" line now present). Also folded in from the
+  review's non-blocking note: the re-baselined tail's tick sequence is anchored to `AC-D98.2` — seed tick
+  **beyond** the level, then a bar at/below the level, then a bar beyond — because after the seed the first
+  bar beyond leaves `prev` above the level and a second bar beyond cannot fire a `cross_above`. Rewritten:
+  P29-03 deliverable 6, AP-P29-7 and the codebase-map P29 note.
+- **RC-3 — the three consumed `[existing]` helpers are frozen verbatim.** `AlarmMonitor.
+  _session_has_live_alarms(session) -> bool` (called by `begin_outage`), and `LwBridge._emit(env: dict) ->
+  None` and `LwBridge._replay_channels() -> None` (both called by the rewritten `handle_page_ready`), each
+  with its owning module. Rewritten: § Frozen Interfaces.
+- **RC-4 — AR-P29-7's claim is made true.** P29-01's exit condition now names the four group-dialog suites
+  that reach the changed `update_group` (`test_p9_group_dialog`, `test_p9_group_payload`,
+  `test_p9_active_group`, `test_p10_groups_dialog_lock`), so the audit's evidence is a gate, not a sentence.
+  Rewritten: P29-01's exit condition and AR-P29-7.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey | Architecture | Wave |
+|---|---|---|
+| **AC-D96.1** (failed save changes nothing — immediately and after a later unrelated commit; no transaction pending) | **S-P29-1** (serialize-first + `with db.conn:`; `in_transaction` assertion), AR-P29-1/2 | **P29-01** |
+| **AC-D96.2** (successful save still replaces exactly) | S-P29-1 (the same statement pair, now transactional) | **P29-01** |
+| **AC-D96.3** (a legitimate empty set still clears and commits) | S-P29-1 (`executemany` with an empty list inside the same transaction) | **P29-01** |
+| **AC-D97.1** (touch then cross fires once; staying at the level does not) | **S-P29-2** (`prev <= level < curr`, mirrored) | **P29-02** |
+| **AC-D97.2** (no phantom on the seed tick at the level) | S-P29-2 + `TickerSession`'s `prev is None` guard (`[existing]`) | **P29-02** |
+| **AC-D97.3** (no cross-direction fire after a touch) | S-P29-2 (the exclusive current-side boundary in the opposite direction) | **P29-02** |
+| **AC-D98.1** (either outage path suppresses the first evaluation and reports the gap) | **S-P29-3** (`begin_outage` ledger + `resume_all` on both paths), AR-P29-4/5 | **P29-03** |
+| **AC-D98.2** (the second tick evaluates normally against the seed) | S-P29-3 (re-seed only; the ordinary per-tick path is untouched) | **P29-03** (after 02) |
+| **AC-D98.3** (recorded override if the owner prefers cross-gap evaluation) | *Not activated* — the recommended default stands (A243); **FI-P29-2** records it | — |
+| **AC-D99.1** (each queued op once per transition) | **S-P29-4** (buffers discarded, log replayed once) | **P29-04** |
+| **AC-D99.2** (recovery replay intact, no duplicate inside an envelope) | S-P29-4 (log never cleared; one envelope per transition) | **P29-04** |
+| **AC-D100.1** (unknown field rejected before any SQL; group unchanged) | **S-P29-1** (`ValueError` before a cursor; `set_trace_callback` records nothing) | **P29-01** |
+| **AC-D100.2** (allowed subsets apply, value list matches `assigns`) | S-P29-1 (one filtered pair sequence) | **P29-01** |
+| **AC-D100.3** (history intact — D41–D95, AC-D1.1–AC-D95.3, A1–A240, R1–R180, marker, tech stack) | *Relationship to prior phases* (`[existing]` read-only inputs) | **P29-05** |
+| **Journey 78** (save a study set that cannot be serialized; retry; empty set; locked DB) | S-P29-1, AR-P29-1/2 | **P29-01** |
+| **Journey 79** (arm an alarm at the price the market is already at; both directions; gap-over; return-to-level) | S-P29-2, AR-P29-3 | **P29-02** |
+| **Journey 80** (page recovery with ops queued; a second recovery; a channel op) | S-P29-4, AR-P29-6 | **P29-04** |
+| **Journey 81** (update a group with one bad keyword; two allowed keys; empty fields; bool name) | S-P29-1, AR-P29-7 | **P29-01** |
+| **G6 (owner-run)** — live disconnect across the level, reconnect: no fire on the first tick, the gap shown, fire only on a later crossing | S-P29-3; **P29-03's exit condition names G6 as owner-run and never claims it** | **P29-03** |
+| A241–A245 | S-P29-1/2/3/4 | 01/02/03/04 |
+| R181–R185 | *Architecture Risks* AR-P29-1…9 | all waves |
+| DG133 / DG134 | S-P29-2 / S-P29-4 | 02 / 04 |
+
+### Phases
+
+Dependency shape: **`P29-01` ∥ `P29-02` ∥ `P29-04` → `P29-03` → `P29-05`.**
+
+No two waves share a production file. `P29-03` follows `P29-02` because its fixture asserts a post-seed
+crossing under the phase's final rule (a strict cross behaves the same under both rules, but the case that
+proves `AC-D98.2` must be written against the shipped semantics, not a soon-to-change one). `P29-05` is
+last because it records what the other four made true. `P29-01`, `P29-02` and `P29-04` are file-disjoint
+and may open together; the Task Manager may serialise them if it prefers one chain.
+
+**Why this grouping, not one task per defect.** D96 and D100 are one rule in two stores — *a persisted
+write either applies exactly its declared parameters atomically or leaves the rows untouched* — with the
+same harness (a temp SQLite DB, `in_transaction`, `set_trace_callback`), disjoint files, and no ordering
+between them; splitting them would give two exit conditions that assert the same invariant and duplicate
+the DB fixture. D97 and D98 are both "the alarm compares against the wrong baseline", but they are **not**
+one wave: D97 is a pure function assertable with no Qt, no window and no clock, while D98 is a
+monitor/window lifecycle that needs a fake `MainWindow`, a fake client and a controlled clock — and D98's
+`AC-D98.2` case must be written against the final crossing rule, which makes it a follower. D99 shares
+nothing with either (one bridge, envelope assertions) and opens beside them.
+
+#### P29-01 — D96 + D100: the persisted write and its parameters — size M
+
+- **Covers:** AC-D96.1, AC-D96.2, AC-D96.3, AC-D100.1, AC-D100.2, Journey 78, Journey 81, A241, A245,
+  R181, R185; `[extends P9: the store APIs and the studies/drawing_groups schemas are unchanged]`.
+- **Depends on:** nothing (may open with P29-02/P29-04).
+- **Files:** `data/study_store.py`, `data/drawing_store.py`; a new
+  `tests/test_d96_d100_store_atomicity.py`.
+- **Deliverables, in this order:**
+  1. **D96 — serialize first, replace in one transaction (S-P29-1).** In `StudyStore.save`, build the row
+     list **before any connection use**:
+     `rows = [(symbol, study["type"], 1 if study.get("enabled") else 0, json.dumps(deepcopy(study.get("params", {})))) for study in studies]`
+     — note this consumes an `Iterable` exactly once, as today. Then:
+     ```python
+     with db.conn:
+         cursor = db.conn.cursor()
+         cursor.execute("DELETE FROM studies WHERE symbol=?", (symbol,))
+         cursor.executemany(
+             "INSERT INTO studies (symbol, type, enabled, params) VALUES (?, ?, ?, ?)",
+             rows,
+         )
+     ```
+     Remove the trailing `db.conn.commit()` (the context manager commits on exit). Wrap nothing: the
+     original `TypeError`/`IntegrityError`/`OperationalError` surfaces once. Docstring gains one sentence:
+     *"the rows are serialized before the connection is touched, and the replace is one transaction — a
+     failure leaves the stored set exactly as it was and no transaction pending."*
+  2. **D100 — one declaration, two halves (S-P29-1).** In `DrawingStore.update_group`:
+     `allowed = {"name", "color", "visible", "locked"}`; `unknown = sorted(set(fields) - allowed)`; if
+     `unknown`, `raise ValueError(f"update_group: unknown field(s): {', '.join(unknown)}")` **before**
+     `db.conn.cursor()`. Then `pairs = [(k, v) for k, v in fields.items() if k in allowed]`; if `pairs` is
+     empty, return (today's no-op). Build `assigns = [f"{k}=?" for k, _ in pairs]` and
+     `values` from `pairs` with the coercion keyed on the field:
+     ```python
+     values = []
+     for key, value in pairs:
+         if key in ("visible", "locked"):
+             values.append(int(value) if isinstance(value, bool) else value)
+         elif isinstance(value, bool):
+             raise ValueError(f"update_group: {key} expects a string, got bool")
+         else:
+             values.append(value)
+     ```
+     One documented rule in the docstring: *"the boolean columns coerce a bool to int; a bool supplied for
+     a text column is rejected, never silently stored as 1; an unknown field is rejected before any SQL."*
+     `groups_for_symbol`/`create_group`/`repaint_group_members`/`delete_group` and every drawing method
+     are untouched.
+  3. **The suite** `tests/test_d96_d100_store_atomicity.py` — the conftest temp DB; a dedicated symbol;
+     fixtures commit before each call. Cases:
+     (a) **AC-D96.1 serialization** — two stored studies; `save` with `params={"bad": object()}` raises
+     `TypeError`; `load` returns the original two byte-identically (compare `json.dumps(load(...),
+     sort_keys=True)` before/after); `db.conn.in_transaction is False`; then an unrelated write +
+     `commit()` and `load` again → unchanged.
+     (b) **AC-D96.1 DB error** — `save` with `type=None` raises `sqlite3.IntegrityError` (the `NOT NULL`
+     on `studies.type` is the forced failure **between** the delete and the insert); rows unchanged,
+     `in_transaction` False, and unchanged again after an unrelated commit.
+     (c) **first-write-on-connection** — assert `in_transaction is False` immediately before the failing
+     call, and that a persisted fixture seeded by a prior committed save survives (a).
+     (d) **AC-D96.2** — a valid set replaces exactly: row count and `load` equality; two saves in a row
+     leave exactly the second set.
+     (e) **AC-D96.3** — `save(symbol, [])` removes the symbol's rows and commits (`load() == []`,
+     `in_transaction` False).
+     (f) **retry after failure** — after (a)'s `TypeError`, `save` with good data succeeds and `load`
+     returns exactly that set.
+     (g) **AC-D100.1** — `update_group(gid, visible=False, bogus=1)` raises `ValueError` naming `bogus`;
+     a `db.conn.set_trace_callback(records.append)` installed before the call records **no** statement
+     (clear the list first, remove the callback in `finally`); the group row is unchanged and
+     `in_transaction` False; repeat after an unrelated commit.
+     (h) **AC-D100.2** — `visible=False`; `visible=False, locked=True`; `color=...`; `name=...` each apply
+     exactly that field and leave the others untouched; `update_group(gid)` is a no-op; the value list
+     matches the assignment list by construction (assert one statement's parameter count equals the
+     placeholder count by reading the trace).
+     (i) **bool rule** — `visible=True` stores `1`/reads `True`; `name=True` raises `ValueError` and
+     changes nothing.
+- **Exit condition:** the new suite green **and** `tests/test_drawing_store.py tests/test_p9_recolor.py
+  tests/test_p10_drag_commit.py tests/test_p10_lock_recolor.py tests/test_lwc_studies.py
+  tests/test_studies_dialog.py tests/test_p9_group_dialog.py tests/test_p9_group_payload.py
+  tests/test_p9_active_group.py tests/test_p10_groups_dialog_lock.py tests/test_db_schema.py` green,
+  **unchanged**; `git diff --name-only` ⊆ `data/study_store.py` + `data/drawing_store.py` + the new suite.
+- **Do not:** add a helper module, a second connection, an explicit `BEGIN`/`ROLLBACK` pair, or a
+  retry/queue around a failed save; change `studies`/`drawing_groups` DDL, `load`, `sanitize_study_params`
+  or any other store method; wrap the exception in a new type; clear `triggered`/`active` on a study; change
+  `update_group`'s signature or add per-field validators beyond the one bool rule; touch
+  `ui/drawing_groups_dialog.py` (its three callers already pass one allowed key — the wave **audits** them
+  and records the result, it does not edit them).
+
+#### P29-02 — D97: one crossing rule — size S
+
+- **Covers:** AC-D97.1, AC-D97.2, AC-D97.3, Journey 79, A242, R182, DG133; `[extends P4/D25:
+  evaluate_alarms's signature, its prev-is-None seed guard and the per-session call site are
+  unchanged]`.
+- **Depends on:** nothing (may open with P29-01/P29-04). Must precede P29-03.
+- **Files:** `services/alarm_service.py`; `tests/test_alarm_service.py` (one **named re-baseline** plus
+  additions).
+- **Deliverables, in this order:**
+  1. **The rule, once (S-P29-2).** `evaluate_alarms`'s docstring gains the statement: *"A level is touched
+     when the sampled price equals it, and crossed when the previous sample is at or before the level and
+     the current sample is strictly beyond it in the alarm's direction: `prev <= level < curr` for
+     `cross_above`, `prev >= level > curr` for `cross_below`. The previous-side boundary is inclusive (a
+     touch arms); the current-side boundary is exclusive (sitting on the level never fires)."*
+  2. **The two comparisons.** `crossed_above = prev_price <= alarm.price < curr_price`;
+     `crossed_below = prev_price >= alarm.price > curr_price`. Every other line of the function — the
+     `prev_price is None or curr_price <= 0` guard, the `kind`/`active`/`triggered` skips, the
+     `cross_either` disjunction, the return type — byte-identical.
+  3. **The named re-baseline.** `test_exactly_on_alert_price_above_counts` (9.5 → 10.0 fires) becomes
+     `test_arrival_on_the_level_is_a_touch_not_a_cross`: `evaluate_alarms(9.5, 10.0, [alarm@10.0
+     cross_above]) == []`, then `evaluate_alarms(10.0, 10.01, [alarm]) == [alarm]` with a fresh alarm
+     (same level, not triggered) — citing `AC-D97.1`/A242 in the docstring so the change is not a silent
+     re-baseline. `test_equal_prev_price_is_not_a_cross` (10.0 → 10.0) is already the new rule and is kept
+     **unmodified**.
+  4. **The added cases.** (a) AC-D97.1 both directions and `cross_either`: seed/tick at the level does not
+     fire; the first strictly-beyond sample fires exactly once; a second sample beyond does not fire (the
+     `triggered` latch). (b) AC-D97.2: a seed-only sequence at exactly the level, trigger count zero, for
+     all three directions. (c) AC-D97.3: a `cross_above` touched at the level then crossed downward does
+     not fire, and the mirror for `cross_below`. (d) Journey 79's edges: two opposite alarms at one level
+     (only the matching one fires); a one-tick gap over the level (9.0 → 11.0 fires); a return to the
+     level after firing does not re-fire; touched from above then from below in one session.
+- **Exit condition:** `tests/test_alarm_service.py` green (one named re-baseline, no other assertion
+  changed) **and** `tests/test_alarm_d21.py tests/test_d24_alarm_full_chain.py
+  tests/test_d25_alarm_monitor.py tests/test_d27_phantom_alarms.py tests/test_p9_alarm_persistence.py
+  tests/test_d40_tws_lifecycle.py` green, **unchanged**; `git diff --name-only` ⊆
+  `services/alarm_service.py` + `tests/test_alarm_service.py`.
+- **Do not:** add an `Alarm` field, a module-level cache, a clock, or a second evaluation path; change
+  `evaluate_alarms`'s signature, its guard, `evaluate_volume_burst`, `_resolve_z_threshold`, or
+  `TickerSession._on_aggregated_bar`; change any other shipped case; relax the exclusivity on the current
+  side (it is what A242 requires); widen the re-baseline beyond the one named case.
+
+#### P29-03 — D98: one outage baseline, one resume path — size M
+
+- **Covers:** AC-D98.1, AC-D98.2, A243, R183, gate **G6** (owner-run, named not claimed);
+  `[revises P4/D40: AC-D40.4's no-gap-accounting and prev-price-untouched clauses — superseded by
+  AC-D98.1; the badge/flag clauses stand]`; see **FI-P29-1**.
+- **Depends on:** P29-02 (the post-seed crossing case is written against the final rule).
+- **Files:** `services/alarm_monitor.py`, `ui/main_window.py`; `tests/test_d40_tws_lifecycle.py` (one
+  **named re-baseline** + the four `_pause_start` renames; the fifth read is inside the re-baselined case);
+  a new `tests/test_d98_outage_baseline.py`.
+- **Deliverables, in this order:**
+  1. **`begin_outage()` (S-P29-3).** In `AlarmMonitor`:
+     ```python
+     def begin_outage(self) -> None:
+         """Record the start of every alarmed symbol's unmonitored interval.
+
+         Called on every transport drop, before the drop is classified.
+         A drop with no session is **not** an outage: on an ordinary
+         launch no session exists before the first handshake, so a failed
+         or pre-handshake attempt on an
+         "app started before TWS" launch arms nothing, and the first
+         successful handshake keeps its 1m-cache seed (AR-P29-9).
+         """
+         if not self._host._sessions:
+             return
+         self._outage_active = True
+         now = time.time()
+         for symbol, session in list(self._host._sessions.items()):
+             if self._session_has_live_alarms(session):
+                 self._outage_start.setdefault(symbol, now)
+     ```
+     The gate is the **session** predicate, not `MainWindow._ibkr_connected`: the D40 harness simulates a
+     live connection with `_go_live()` (which sets only `ib_client._connected`), so a window-flag gate would
+     redden `test_d40_1`–`test_d40_4`; sessions exist in all four because each calls `reconcile()` before
+     `_go_live()`, so the predicate is true there **without touching the helper**.
+  2. **One ledger, one meaning, one setter.** Rename `self._pause_start` → `self._outage_start` (constructor
+     comment updated: "one interval per symbol, whatever the drop's classification"), and add
+     `self._outage_active: bool = False` beside it. `begin_outage()` is the **only** setter of
+     `_outage_active`; `resume_all()` the only clearer. `pause_all` keeps `self._paused = True`,
+     `session.monitoring_paused = True` and the count/log, and its `self._pause_start.setdefault(symbol, now)`
+     becomes `self._outage_start.setdefault(...)` (it covers alarms created mid-pause and no-ops where
+     `begin_outage` already recorded the drop) — it does **not** set `_outage_active`, so a pause with no
+     session still cannot arm a re-seed. `_start_monitoring`'s staged branch's `setdefault` targets the
+     renamed dict (otherwise unchanged).
+  3. **`resume_all` re-seeds only a resume that follows an outage.** At entry, remember
+     `resuming_from_outage = self._outage_active`; build `gaps` from `_outage_start` exactly as today;
+     then clear `self._outage_start`, `self._paused = False`, `self._outage_active = False` and per-session
+     `monitoring_paused = False`. **If `resuming_from_outage`**, set `session.last_chart_price = None` for
+     **every** session; otherwise leave every session's price alone. Finish pending subscribes, log, return
+     the gaps. This guard is load-bearing: `_on_connected` now calls `resume_all()` on the app's **first**
+     connect too — without it, startup would wipe `D25.2`'s 1m-cache seed and a monitor's first tick could no
+     longer be evaluated against the last cached close. The flag is also consumed on the **next** resume if a
+     `disconnected` is ever delivered after a later `nextValidId`; the cost is one extra seed and one
+     interval line at that following connect, never a fabricated trigger. Docstring: *"Called on every
+     reconnect. A reconnect that follows an outage re-seeds every session (first tick seeds, no evaluation —
+     AC-D25.3) and the unmonitored interval is reported; a first connect follows no outage and changes no
+     baseline."*
+  4. **The drop records, before classification.** In `MainWindow._on_disconnected`, immediately after
+     `self._ibkr_connected = False` (before the replay-serial bump and before the `TWS_GONE` branch):
+     `self.alarm_monitor.begin_outage()`, with a comment: *"AC-D98.1: a drop while a session exists opens an
+     unmonitored interval; a failed pre-handshake attempt does not (AR-P29-9). The classification decides
+     the UI, not the baseline."*
+  5. **One resume path.** In `_on_connected`, delete the `_resuming_from_pause` local and its `if/else`:
+     after `_restore_popouts()`, run
+     ```python
+     # AC-D98.1: all outages resume the same way — reconcile first so
+     # sessions created for active alarms exist, then re-seed every session
+     # (first tick seeds, no evaluation) and collect the intervals.
+     self.alarm_monitor.reconcile()
+     _gaps = self.alarm_monitor.resume_all()
+     if _gaps:
+         self.status_bar.showMessage(
+             self.alarm_monitor.format_gap_report(_gaps), 30000
+         )
+     ```
+     Keep `self._tws_paused = False` and the badge lines above it exactly as they are (the pause **UI**
+     stays TWS-gone-only). `_enter_tws_paused_state` is untouched.
+  6. **The named re-baseline and the five `_pause_start` reads in `tests/test_d40_tws_lifecycle.py`.**
+     `test_d40_4_transient_drop_no_pause_ui` keeps its first half (no `TWS_GONE` classification, `_tws_paused`
+     False, red badge, `is_paused` False, `monitoring_paused` False) and replaces the superseded tail. Its
+     `:445` read is not a rename: `assert win.alarm_monitor._pause_start == {}` becomes an assertion that
+     `SYM_A` **is** in `_outage_start` at the drop; after `nextValidId(1)` the tail asserts
+     `session.last_chart_price is None` (re-seeded), that the ledger is cleared, and that the status line
+     **contains** `"unmonitored"` and the symbol. The tick sequence is anchored to `AC-D98.2`, not to bar
+     count: seed tick **beyond** the level (no evaluation), then a bar **at or below** the level (no fire —
+     after the seed, `prev` is above the level, so a second bar beyond cannot fire a `cross_above`), then a
+     bar **beyond** the level, which fires exactly once. Docstring cites `AC-D98.1`, **FI-P29-1** and the
+     `:445` change for the supersession. The other four reads are renames whose assertion content is
+     unchanged — `test_d40_1_pause_on_tws_close` (`:199`), `test_d40_3_gap_accounting_per_symbol` (`:364`,
+     `:375`) and `test_d40_3_alarm_created_mid_pause_stays_paused` (`:402`) — each becomes `_outage_start`
+     with the same content (the symbol set; cleared after resume; the staged symbol present).
+  7. **The suite** `tests/test_d98_outage_baseline.py` — the D40-style fake window/client, `threading.Timer`
+     stubbed, `services.alarm_monitor.time.time` monkeypatched to a controlled clock, `BarCache` seeded.
+     Cases: (a) **AC-D98.1 transient** — `reconcile()` (a session with a live alarm), `_go_live`, the session seeded at a known price;
+     `connectionClosed()` with `_connected` already False (the socket was gone, as the poll path records it), so `last_disconnect_class` stays `None`; `nextValidId(1)`; `last_chart_price is
+     None`; the ledger had the symbol at drop time; the status line names the symbol and the interval; a
+     first bar **beyond** the level does not fire. (b) **AC-D98.1 TWS-gone** — the same assertions with
+     `DisconnectClass.TWS_GONE`, plus the pause flags/badge on the way down and off on the way up. (c)
+     **AC-D98.2** — after the seed tick, a tick at/below the level does not fire and the next tick beyond it
+     fires exactly once, on both classifications. (d) **one interval per drop** — two drops without a
+     successful connect keep the earliest start (`setdefault`); a resume clears the ledger and the flag.
+     (e) **no alarms, no entry** — a session with no live alarm produces no ledger entry and no line.
+     (f) **a session created during the outage** is re-seeded **when the drop was recorded** (some session
+     existed at the drop); when no session existed at all, there is no outage to resume and the new session
+     keeps its own seed (see **FI-P29-3**). (g) **the cold-start ordering — a pre-handshake close is not an
+     outage** — seed the 1m cache and an alarm row, leave `_sessions` empty, call `connectionClosed()`
+     (the failed-attempt path: `was_connected` False, classification stays None), then a successful
+     `nextValidId(1)`: `reconcile()` creates the monitor seeded from the cache, `last_chart_price` **equals
+     the cached close** (no resume-wipe), `_outage_active is False`, `_outage_start == {}`, and no
+     "unmonitored" line. (h) **a duplicate `connected` is inert** — a second `nextValidId(1)` with no
+     intervening drop leaves the baseline untouched (the gate keys on a recorded drop, not on
+     `_ibkr_connected`), and the late-delivery sentence holds: a `begin_outage()` called after a resume
+     arms exactly one re-seed at the **following** connect, which `resume_all()` consumes.
+- **Exit condition:** the new suite green **and** `tests/test_d40_tws_lifecycle.py` green with **only**
+  the one named re-baseline (which carries the `:445` value change) and the four renames,
+  `tests/test_d25_alarm_monitor.py
+  tests/test_d24_alarm_full_chain.py tests/test_d27_phantom_alarms.py tests/test_d27_reconnect.py
+  tests/test_alarm_service.py` green; `git diff --name-only` ⊆ `services/alarm_monitor.py` +
+  `ui/main_window.py` + the two test files + the new suite. **G6 is owner-run and is not claimed by this
+  wave**: no case asserts a live TWS disconnect, a real socket drop or a live alarm fire; the suite's
+  docstring says so and names what it proxies (the ledger, the re-seed, the first-tick suppression, the
+  gap line, the cold-start ordering).
+- **Do not:** enter the paused UI state on a transient drop (no `_paused`, no `monitoring_paused`, no
+  paused badge — `_enter_tws_paused_state` is TWS-gone-only); change `format_gap_report`'s wording,
+  signature or grouping; add a duration threshold before reporting; gate on `MainWindow._ibkr_connected`
+  (the measured constraint: `_go_live()` sets only `ib_client._connected`); change `pause_all`'s flags, the
+  reconcile selection, the pacing guard, `_proxy_targets` or `_order_by_recency`; add a timer, a sleep or a
+  polling loop; re-seed only monitored sessions; change `evaluate_alarms` or `_on_aggregated_bar`; claim
+  G6; edit any other D40 case.
+
+#### P29-04 — D99: one delivery path per page-ready transition — size M
+
+- **Covers:** AC-D99.1, AC-D99.2, Journey 80, A244, R184, DG134; `[extends P6/D47: ENVELOPE_VERSION 1,
+  the op set, the coalescing flush and the channel envelopes are unchanged]`.
+- **Depends on:** nothing (may open with P29-01/P29-02).
+- **Files:** `ui/lwc_bridge.py`; `ui/lwc_host.py` (one comment's wording); `tests/test_lwc_bridge.py`
+  (one **named re-baseline**); a new `tests/test_d99_page_ready_delivery.py`.
+- **Deliverables, in this order:**
+  1. **`set_ready` becomes a flag setter (S-P29-4).** `set_ready(self, ready: bool)` sets `self._ready`
+     only; its docstring becomes: *"Mark the page ready. A readiness **transition** is
+     `handle_page_ready`'s job: it replays the log, which is the single delivery source. This method emits
+     nothing."* The `_queued` drain block is deleted; the channel comment above it is folded into the new
+     docstring.
+  2. **The transition delivers from the log.** `handle_page_ready`:
+     ```python
+     self._queued.clear()
+     self._outbox.clear()
+     self._live_buf.clear()
+     self.set_ready(True)
+     ```
+     then the existing `if self._op_log:` block verbatim (one envelope, `_emit`, counters, `replayFinished`)
+     and `self._replay_channels()`; the `pending = self.flush()` line and the `envelopes` list go; return
+     the replay envelope or `None` when the log is empty. Docstring: *"A page-ready transition is a
+     full-log replay: every accepted op is already in `_op_log`, so the staging buffers are discarded, not
+     drained, and each op crosses exactly once per transition (DG134)."*
+  3. **The contract, stated once (module docstring).** Replace the queue-until-ready bullet's "drained on
+     `set_ready(True)`; nothing is dropped" with: *"**queue-until-ready** — ops accepted before the page is
+     ready are logged and queued for the backpressure counters; a page-ready transition discards the
+     staging buffers and delivers the full log once, because the log already contains them. The log is the
+     single full-state source; a transition delivers each op at most once."* Update the replay bullet to
+     say the transition emits the log **once** (recovery included), and the `pageReady()` table row from
+     "(drain + replay)" to "(replay)". `pageReady`'s docstring: "the page's QWebChannel half is subscribed;
+     replay the full log now", keeping its idempotence sentence (a second call replays again, which the page
+     applies idempotently).
+  4. **One comment in `ui/lwc_host.py`.** `_on_load_finished`'s "that slot owns the drain + replay" becomes
+     "that slot owns the replay" (the ordering guard and `set_ready(False)` are untouched).
+  5. **The named re-baseline.** `tests/test_lwc_bridge.py::TestBatchShape::test_queue_until_ready_holds_pre_ready_ops`:
+     keep "nothing crosses before ready", `counters()["queued"] == 2`, `queue_depth_max == 2`; replace
+     `b.set_ready(True); env = b.flush()` with `env = b.handle_page_ready()` and assert the same two ops
+     arrive once (`len(env["ops"]) == 2`, `received == 2`). Docstring notes the transition is now the
+     delivery path (DG134).
+  6. **The suite** `tests/test_d99_page_ready_delivery.py` — a fresh `LwBridge`, `opsEmitted` /
+     `channelOpsJson` connected to recorders, `apply_ops_to_bars` for reconstruction. Cases:
+     (a) **AC-D99.1** — N=5 ops queued while not ready (two `set_bars`/`set_volume` replaces and three
+     `update_bar`s); `handle_page_ready()`: the envelopes emitted in that transition carry each queued op's
+     identity exactly once (multiset over `(op, series, ts)`; a counter of duplicates == 0), and the
+     reconstruction equals the expected series. (b) **zero queued** — only a log, or an empty log: one
+     replay envelope when the log is non-empty, `None` when empty, and exactly one `replays` increment.
+     (c) **AC-D99.2** — `handle_render_terminated()` then `handle_page_ready()`: one envelope carrying the
+     full log once; every per-envelope duplicate check is zero; reconstruction equals the expected series;
+     repeat a second recovery and assert the same (the log is never cleared).
+     (d) **a live op coalesced at the boundary** — an `update_bar` staged while ready but not yet flushed,
+     then a recovery: it appears once (via the log, not a flush). (e) **a channel op sent while not ready** —
+     `_replay_channels` emits it once and `_channel_queue` is empty (unchanged behaviour, asserted).
+     (f) **the mixed case** — queued bar ops + a queued channel op in one transition: the bar envelope has
+     each bar op once, the channel envelope has the channel op once, and `counters()["queued"]` still
+     counts what was queued.
+- **Exit condition:** the new suite green **and** `tests/test_lwc_bridge.py` green with **only** the one
+  named re-baseline, `tests/test_lwc_bridge_handshake.py tests/test_d69_d70_bridge_contract.py
+  tests/test_lwc_page_wiring.py tests/test_lwc_time_parity.py tests/test_p7_w1_coalesce.py
+  tests/test_lwc_alarms.py tests/test_lwc_drawings.py tests/test_lwc_studies.py
+  tests/test_lwc_overlays.py` green, **unchanged**; `git diff --name-only` ⊆ `ui/lwc_bridge.py` +
+  `ui/lwc_host.py` + the two test files + the new suite.
+- **Do not:** change `ENVELOPE_VERSION`, the op shapes, `_check_op_shape`, `flush`'s coalescing/replace/
+  directive rules, the counters' names or meanings, `send_ops`'s log-before-queue order, or the channel
+  path; clear or truncate `_op_log`; add chunking, a second envelope per transition, or a new signal; call
+  `handle_page_ready` from `loadFinished`; change `handle_render_terminated`; alter the page's JS.
+
+#### P29-05 — records, the map, and the phase fence — size S
+
+- **Covers:** AC-D100.3, the phase's evidence record, `docs/codebase-map.md`'s P29 note.
+- **Depends on:** all.
+- **Files:** a new `tests/test_p29_fence.py`; `docs/codebase-map.md`. **No production file.**
+- **Deliverables:**
+  1. **The fence suite** `tests/test_p29_fence.py`, one assertion per named artefact:
+     `requirements.md` still carries `This is an existing repository.`; the `D41`–`D95` record present per
+     id in *a* heading (mixed record — the P26/P27/P28 fences' rule); P29's own `#### D96`–`#### D100`;
+     `Journey 78`–`Journey 81`; `AC-D1.1`–`AC-D95.3` plus `AC-D96.1`–`AC-D100.3`; `A1`–`A240` plus
+     `A241`–`A245`; `R1`–`R180` plus `R181`–`R185`; the `Current Tech Stack` section.
+  2. **The pinning assertions** (read off the live modules, not prose): `ENVELOPE_VERSION == 1`; the
+     bridge's `CHANNELS` tuple and its three op-kind frozensets unchanged (`update_bar`; `set_bars` /
+     `set_volume` / `clear`; `set_visible_range` / `set_partial`); `flush`'s coalescing constant
+     (`COALESCE_MS == 33`); the `studies` and `drawing_groups` column sets read from
+     `PRAGMA table_info` equal to today's (no migration landed); `format_gap_report`'s signature and the
+     `"unmonitored"` shape for a fixed pair of epochs; `Alarm`'s field set has **no** touch/armed field
+     (DG133); `evaluate_alarms`'s signature; `DrawingStore.update_group`'s accepted set is exactly the four
+     names. No file/line counts, no phase hash.
+  3. **The records**: the wave records `git diff --name-only ef04c5a` and requires it to be a subset of
+     {`data/study_store.py`, `data/drawing_store.py`, `services/alarm_service.py`,
+     `services/alarm_monitor.py`, `ui/main_window.py`, `ui/lwc_bridge.py`, `ui/lwc_host.py`,
+     `tests/test_alarm_service.py`, `tests/test_d40_tws_lifecycle.py`, `tests/test_lwc_bridge.py`,
+     the four new suites, `docs/`}. Anything else is a scope breach to escalate, never to justify.
+  4. **The map**: `docs/codebase-map.md` gains a **P29 note** (what moved, which rows are stale, the three
+     named re-baselines, the four new suites) and carries every existing annotation forward; the skeleton
+     is regenerated by `update_codebase_map.py`, never hand-edited — with the generator's `(root)/` row
+     repaired back to the slash-free `(root)` form the map lint requires (the P26 note's standing issue).
+  5. **G6's record**: the wave records that G6 is **owner-run and not claimed** — P29-03's exit names it,
+     and no suite asserts a live socket drop, a live alarm fire or a post-reconnect price from TWS.
+- **Exit condition:** the fence suite green, the full offscreen suite green, and the recorded diff listing
+  matches the allowlist.
+- **Do not:** edit `docs/requirements/**`; assert a phase commit hash or a file/line count; assert the
+  behaviour of a later phase (P30's D101–D104); re-baseline any case outside the three named ones.
+
+### Assumptions
+
+- **AP-P29-1 — baseline and the D97 boundary.** The build starts from `1404877` (or a later descendant
+  carrying only P28 review fixes). The crossing rule is `prev <= level < curr` / `prev >= level > curr`,
+  so **arrival exactly on the level does not fire**; that is A242's "touch is not cross" and it is the one
+  shipped assertion P29 changes on purpose (`test_exactly_on_alert_price_above_counts`, re-baselined and
+  cited). `test_equal_prev_price_is_not_a_cross` already encodes the new rule and stays untouched.
+- **AP-P29-2 — one connection, commit-per-operation.** `StudyStore.save`'s transaction owns every pending
+  statement on `data.db.db.conn`, which is safe only because every store method commits at the end of its
+  own operation (verified across `data/*_store.py`) and nothing holds a transaction across calls. The
+  suite asserts `in_transaction` before and after a failed save, and seeds its fixtures with a commit.
+  This is an assumption the wave proves at its own sites, not a claim about arbitrary callers.
+- **AP-P29-3 — D98's default is suppression (A243), and AC-D98.3 is not activated.** The phase builds the
+  recommended default (seed + report). A cross-gap-evaluation override would be a recorded owner decision
+  and a different rule; it is **FI-P29-2**, not silently pre-built.
+- **AP-P29-4 — "reported" means the existing formatter, once.** The gap is surfaced exactly as the
+  TWS-gone path already surfaces it (`format_gap_report`'s string, one status call, 30 s). No second
+  surface, no threshold, no new wording. Exact epochs are logged at info for diagnosis.
+- **AP-P29-5 — a touch is derived, never stored (DG133).** No `Alarm` field, no migration, no
+  `triggered`-adjacent state; the per-session `prev_price` remains the only baseline.
+- **AP-P29-6 — the replay is the only delivery source (DG134).** `_op_log` is never cleared; a transition
+  emits it once; `set_ready` cannot emit. This is what keeps `AC-D99.2` true and `AC-D99.1` provable.
+- **AP-P29-7 — exactly three named re-baselines, and one `_pause_start` read changes value.** The
+  re-baselines are `tests/test_alarm_service.py::
+  TestBoundaryAndState::test_exactly_on_alert_price_above_counts` (D97/A242),
+  `tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui` (AC-D98.1 / **FI-P29-1**), and
+  `tests/test_lwc_bridge.py::TestBatchShape::test_queue_until_ready_holds_pre_ready_ops` (DG134). Within the
+  D40 case there are **five** `_pause_start` reads across four cases: four are renames whose content is
+  unchanged (`:199`, `:364`, `:375`, `:402`), and `:445` **changes value** (`== {}` becomes "SYM_A present
+  at the drop", cleared after the resume) as part of that one named re-baseline. Any other red is a
+  stop-and-escalate.
+- **AP-P29-8 — one live gate.** G6 is owner-run and never claimed; every other criterion is offscreen
+  (temp SQLite, a controlled clock, fake windows/clients, recorded envelopes).
+
+### Flagged Issues
+
+- **FI-P29-1 — `AC-D40.4` and `AC-D98.1` contradict each other; P29 follows the later, phase-governing
+  criterion and asks for the supersession to be recorded (blocking for the record, not for the build).**
+  `AC-D40.4` (`requirements.md:3817-3818`) says a non-TWS-gone disconnect keeps "no gap accounting — and
+  reconnect leaves `prev_price` untouched"; `AC-D98.1` (`:7494`) requires the first post-outage tick to
+  seed with no evaluation **and** the gap to be reported "over both disconnect classifications". Both
+  cannot hold. P29 implements `AC-D98.1` (the phase's own criterion, and D98's stated recommended default,
+  A243) and keeps `AC-D40.4`'s other two clauses (no paused badge, no pause flags) verbatim — so the
+  supersession is two clauses, not the whole criterion. This needs a recorded update (Requirements
+  Analyst/Validator) because P29's Non-Goals say `AC-D40.*` is not reopened while `AC-D98.1` necessarily
+  revises part of it, and because the shipped case encoding the old clauses is re-baselined in P29-03.
+  **Suggested direction:** mark `AC-D40.4` as superseded in part by `AC-D98.1` (with the surviving
+  badge/flag clauses named), in the same place the D40 record already carries its verification notes.
+- **FI-P29-2 — `AC-D98.3` is conditional and is not exercised (non-blocking).** The criterion only bites
+  "given the owner prefers cross-gap evaluation"; the owner has not said so, and the phase's default is
+  suppression (A243). P29 therefore builds no cross-gap rule and asserts no override wording. If the owner
+  later prefers evaluation across the gap, that is a new requirement (a different `resume_all` rule plus a
+  different report), deliberately not pre-built.
+- **FI-P29-3 — a session created *during* an outage has no interval start (non-blocking, recorded).** The
+  ledger is written at the drop for sessions with live alarms; a session created mid-outage (a restore, a
+  watchlist change, an alarm added) is re-seeded at resume **when the drop was recorded** — so the first
+  post-outage tick never evaluates against a stale baseline — but it contributes no gap entry, because
+  monitoring never started for it. When **no** session existed at the drop (the cold-start failed attempt),
+  nothing is recorded and nothing is re-seeded (that is the RC-1 gate: the first handshake is not a resume).
+  Recorded so `AC-D98.1`'s "the gap is included in the reported outage interval" is read as "for the symbols
+  that were being monitored when the drop happened". Extending the ledger to mid-outage sessions would need
+  a "monitoring never started" interval, which is a different (and less truthful) claim.
+
 Status: READY_FOR_TASK_MANAGER

@@ -19,8 +19,10 @@ Cases (P28-T2-01..08):
 (d) AC-P28-02-1 / Journey 74 / R175 — the drop owes the attach, the
     reconnect pays it exactly once, plus the two negatives (a background
     session; a session whose line was already live).
-(e) AC-D88.1 — the realtime manager's dead replay is gone, with no
-    reference anywhere in ``ui/``, ``ibkr/`` or ``tests/``.
+(e) AC-D88.1 — the realtime manager's dead replay is gone, with no code
+    use of the symbol anywhere in ``ui/``, ``ibkr/`` or ``tests/``. Prose
+    mentions and ``not hasattr`` strings are not uses, and neither is the
+    legitimate ``SubscriptionManager.replay_all`` (the one replay P28 keeps).
 (f) AC-D84.3 — one function serves both managers; ``_require_api_ready``'s
     signature and exception identity are unchanged.
 (g) AC-P28-02-3 — the new flag defaults to False and dies with the session.

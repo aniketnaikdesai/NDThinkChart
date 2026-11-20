@@ -924,3 +924,47 @@ next.
 
 **Escalation:** ESCALATED_TO_REQUIREMENTS — **addressed 2026-11-19** (`AC-D77.1`, D77, Journey 71;
 `AC-D77.1` reworded only — no new criterion).
+
+## RG-P29-1 — `AC-D40.4` and Journey 35 step 3 contradict `AC-D98.1` on a transient drop (gap accounting + `prev_price`)
+
+**Requirement/Journey:** three sentences in `requirements.md`, quoted verbatim:
+
+- `AC-D40.4` (`:3817-3818`): "**AC-D40.4 (transient drops unaffected)** Given a non-TWS-gone disconnect,
+  Then it keeps the fast D27 path — no paused badge, no pause flags, **no gap accounting** — and **reconnect
+  leaves `prev_price` untouched**."
+- Journey 35 / step 3 (`:1136-1137`): "3) A transient drop (poll-driven / 1100/1101/1102) takes the fast
+  D27 path — no pause UI, no gap accounting." (same journey's postcondition, `:1141`: "transient drop →
+  fast reconnect, no paused state").
+- `AC-D98.1` (`:7494`): "**AC-D98.1 (outage suppresses the first evaluation)** Given any outage path
+  (transient or TWS-gone), When the first tick arrives after reconnection, Then no alarm evaluation occurs
+  for that tick — it seeds only — and the gap is included in the reported outage interval."
+
+**Problem:** for one and the same event — a non-TWS-gone disconnect — the record requires opposite
+behaviour on both of D98's axes: gap accounting (none vs reported) and the post-reconnect baseline
+(`prev_price` untouched vs re-seeded so the first tick only seeds). They cannot both hold, so no
+implementation can satisfy the requirements as written. The P29 slice itself notices the collision: its
+Non-Goals (`:7412`) say "No reopening of … `AC-D40.*`", while `AC-D98.1` necessarily revises part of
+`AC-D40.4`. Plan flags this as **FI-P29-1** and implements the later, phase-governing criterion
+(`AC-D98.1`, D98's stated recommended default, A243) rather than reinterpreting either criterion — which is
+the right behaviour, but the record still needs the supersession written down by the analyst, and the
+shipped case `tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui` encodes the
+superseded clauses (`_pause_start == {}`, `last_chart_price == before`, no "unmonitored" line).
+
+**Why it cannot be satisfied as currently written:** the two criteria are not reconcilable by reading —
+`AC-D40.4` is explicit that a non-TWS-gone disconnect has "no gap accounting" and leaves `prev_price`
+untouched, and `AC-D98.1` is explicit that **any** outage path (parenthetically naming "transient")
+suppresses the first evaluation and reports the gap. Choosing one is a requirements decision (A243 records
+only that the *recommended default* is suppression, and `AC-D98.3` makes cross-gap evaluation the recorded
+override), so Plan may not settle it by architecture, and the Validator may not settle it by review.
+
+**Suggested Direction:** record the supersession rather than rewriting either criterion wholesale — mark
+`AC-D40.4`'s **gap-accounting** and **`prev_price`-untouched** clauses superseded in part by `AC-D98.1`
+(its surviving clauses — no paused badge, no pause flags — stay, and they are what P29 keeps verbatim), and
+apply the same one-line note to Journey 35 step 3's "no gap accounting" (its surviving half, "no pause UI /
+fast reconnect, no paused state", stays). Also amend P29's Non-Goals sentence (`:7412`) to name the
+recorded partial supersession instead of saying `AC-D40.*` is not reopened. No new criterion is needed; the
+build does not change either way (P29 builds `AC-D98.1`'s default and does not activate `AC-D98.3`).
+
+**Status:** open
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS

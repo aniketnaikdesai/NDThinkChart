@@ -181,7 +181,7 @@
     {
       "id": "P28-T2",
       "title": "P28-02a - one readiness predicate, one replay path, and the drop owes the attach (D84, D88; the production half of Journey 74)",
-      "description": "The production half of plan wave 02 (deliverables 1-5, 7, 8); the seventeen-suite harness seam (deliverable 6) is P28-T3/T4/T5 and must NOT be started here. 1. One readiness seam (S-P28-1): add `def require_api_ready(client) -> None:` to `ibkr/error_codes.py` carrying TODAY'S `MarketDataManager._require_api_ready` body VERBATIM (`hasattr client.api_ready` -> `elif hasattr client._connected` -> else return; callable => call; falsy => `raise IBKRNotReady(\"IBKR API not ready (handshake pending)\")`); `MarketDataManager._require_api_ready` becomes `require_api_ready(self.client)` with its signature and exception identity unchanged, its docstring keeping the D28 text plus 'the one seam; the realtime manager calls the same function'. 2. The realtime gate: `RealtimeBarsManager.subscribe`'s first statement is `require_api_ready(self.client)` - before pacing, before the id, so a not-ready transport allocates no reqId and records no pacing slot; nothing else in the method changes. 3. The dead replay goes (S-P28-10): delete `RealtimeBarsManager.replay_all` and state the single path in the class docstring (reconnect replay is `SubscriptionManager.replay_all`, which carries the reissue/rebind hooks; the realtime manager only subscribes, unsubscribes and cancels). 4. The window gate and the deferred attach: add `def _transport_ready(self) -> bool:` returning `bool(self._ibkr_connected and getattr(self.ib_client, \"api_ready\", True))`, docstring'd as the ONLY window-side readiness predicate for the realtime attach (the search/watchlist-add/option/backfill gates keep reading `_ibkr_connected` directly and this predicate does not replace them). In `_attach_live_feed`, after the 200-latch check: `if not self._transport_ready(): session._rt_attach_pending = True; return` - no singleShot, no status line (the reconnect path owns the retry). On a successful `ensure_rt_subscribed()` set `session._rt_attach_pending = False`. Add `def _attach_deferred_rt_feeds(self) -> None:` - for each session with `_rt_attach_pending` (iterate a copy): clear the flag, skip a 200-rejected contract, and call `_attach_live_feed(session.symbol, session._wave_contract or get_contract_for_symbol(session.symbol))`; call it in `_on_connected` immediately after `self._replay_subscriptions()`. 5. THE DROP OWES THE ATTACH (S-P28-2). `_rt_attach_pending` has exactly TWO setters: the readiness refusal above, and the drop. Extract `def _clear_prime_state(self) -> None:` in `ui/ticker_session.py` holding the six statements now copied THREE times - `self._prime_timer.stop()`, `self._prime_req_id = None`, `self._prime_period_start = None`, `self._prime_retry_pending = False`, `self._prime_retry_args = None`, `self._prime_reserved = False` - carrying the call sites' comments (Q-3/Q-12, P7-W2/S-P7-4) into the one docstring; `teardown`, `prepare_load` and `_fail_open_prime` each CALL IT IN PLACE OF their inline block and keep everything else and their order (teardown and prepare_load keep their surrounding resets; `_fail_open_prime` keeps `self._prime_skipped_count += 1`, its warning log and its `self._host._on_session_prime_complete(self)`). `teardown` additionally sets `self._rt_attach_pending = False` (the flag must not outlive the session). `_clear_prime_state()` has FOUR call sites: `teardown`, `prepare_load`, `_fail_open_prime`, `_on_disconnected`; the three-statement request transitions in `on_historical_data_end` / `on_historical_error` are exempt (they clear three statements and route an answer) - no OTHER full copy may remain. Then in `ui/main_window.py::_on_disconnected`, immediately BEFORE the stranded-wave loop - MARK FIRST, THEN CLEAR, because `_attach_live_feed` is the only other setter: `for session in list(self._sessions.values()): if (session._rt_req_id is None and session.symbol == self._current_symbol and (session._prime_timer.isActive() or session._prime_req_id is not None or session._prime_retry_pending)): session._rt_attach_pending = True` then `session._clear_prime_state()`, then `self._rt_retry_timer.stop()` with one comment (a pre-drop retry deadline must not act on a post-drop transport; the reconnect replay re-arms anything - S-P28-11). The three terms are the decision, stated in the docstring: CURRENT because `_on_session_prime_complete` attaches only `session.symbol == self._current_symbol` (a background session would be owed an attach nobody wants); NO LIVE LINE because a mid-prime reload can leave `_rt_req_id` live and flagging it would attach on a live line and bump `_rt_holders` a second time; IN-FLIGHT (armed backstop / prime reqId / deferred prime retry) because those are the three states that would have reached the attach on their own. A 200-rejected contract needs no term here (`_attach_deferred_rt_feeds` already skips it and clears the flag). Existing flags are never cleared there. 7. Two named re-baselines only: delete the case at `tests/test_p7_w4_streaming.py:243-262` (the `RealtimeBarsManager.replay_all` case) and drop its id from `STREAMING_IDS` in `tests/test_qt_app_import_invariant.py` (update the '13 cases' comment to twelve); no other id moves and `DEFERRAL_IDS` is untouched. 8. New suite `tests/test_d84_d88_readiness.py` (fake realtime manager recording `subscribe` calls, fake client with a settable `api_ready`, fake `md_manager` counting `req_historical_data`; for window-level cases a real `MainWindow` whose REAL predicate is exercised by setting both `win._ibkr_connected` and `win.ib_client._connected` - NO override in this suite): (a) AC-D84.3; (b) AC-D84.1 across the three arrivals and both flag combinations - THIS CASE IS LOAD-BEARING: it is what keeps the audited suites' `win._transport_ready = lambda: True` a harness stub rather than a hole; (c) AC-D84.2 plus `inspect.getsource` showing the three call sites; (d) Journey 74 / R175 - the drop owes the attach and the reconnect pays it, exactly once, plus the two negatives (background not flagged; already-live line not flagged and re-issued once by the replay, never through the deferred pass); (e) AC-D88.1; (f) the shared seam drives the option legs; (g) `teardown()` clears a set `_rt_attach_pending`. TWO SCOPING NOTES recorded by the validator: in case (d), 'a second `_on_connected()` adds nothing' is scoped to the DEFERRED PASS only - `_replay_subscriptions` re-issues the now-registered line, so the assertion is that no additional deferred attach happens and `_rt_holders` does not rise again; and the prime-clear sites are located BY SITE NAME, not by the plan's line ranges (the cited ranges stop one line short and include `_prime_reserved`). Do not: touch `ui/popout_window.py`; change `ensure_rt_subscribed`'s refcount or `release_rt`; add a timer, a singleShot or a status-line loop for the deferred attach; change `req_historical_data` or any `req_*` body (P27's ordering is frozen); make `replay_all` 'work' instead of deleting it; touch `SubscriptionManager`; edit any of the seventeen audited suites (that is P28-T3/T4/T5); clear `_rt_attach_pending` on the drop or set it for a non-current session or one whose line is live. Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
+      "description": "The production half of plan wave 02 (deliverables 1-5, 7, 8); the seventeen-suite harness seam (deliverable 6) is P28-T3/T4/T5 and must NOT be started here. 1. One readiness seam (S-P28-1): add `def require_api_ready(client) -> None:` to `ibkr/error_codes.py` carrying TODAY'S `MarketDataManager._require_api_ready` body VERBATIM (`hasattr client.api_ready` -> `elif hasattr client._connected` -> else return; callable => call; falsy => `raise IBKRNotReady(\"IBKR API not ready (handshake pending)\")`); `MarketDataManager._require_api_ready` becomes `require_api_ready(self.client)` with its signature and exception identity unchanged, its docstring keeping the D28 text plus 'the one seam; the realtime manager calls the same function'. 2. The realtime gate: `RealtimeBarsManager.subscribe`'s first statement is `require_api_ready(self.client)` - before pacing, before the id, so a not-ready transport allocates no reqId and records no pacing slot; nothing else in the method changes. 3. The dead replay goes (S-P28-10): delete `RealtimeBarsManager.replay_all` and state the single path in the class docstring (reconnect replay is `SubscriptionManager.replay_all`, which carries the reissue/rebind hooks; the realtime manager only subscribes, unsubscribes and cancels). 4. The window gate and the deferred attach: add `def _transport_ready(self) -> bool:` returning `bool(self._ibkr_connected and getattr(self.ib_client, \"api_ready\", True))`, docstring'd as the ONLY window-side readiness predicate for the realtime attach (the search/watchlist-add/option/backfill gates keep reading `_ibkr_connected` directly and this predicate does not replace them). In `_attach_live_feed`, after the 200-latch check: `if not self._transport_ready(): session._rt_attach_pending = True; return` - no singleShot, no status line (the reconnect path owns the retry). On a successful `ensure_rt_subscribed()` set `session._rt_attach_pending = False`. Add `def _attach_deferred_rt_feeds(self) -> None:` - for each session with `_rt_attach_pending` (iterate a copy): clear the flag, skip a 200-rejected contract, and call `_attach_live_feed(session.symbol, session._wave_contract or get_contract_for_symbol(session.symbol))`; call it in `_on_connected` immediately after `self._replay_subscriptions()`. 5. THE DROP OWES THE ATTACH (S-P28-2). `_rt_attach_pending` has exactly TWO setters: the readiness refusal above, and the drop. Extract `def _clear_prime_state(self) -> None:` in `ui/ticker_session.py` holding the six statements now copied THREE times - `self._prime_timer.stop()`, `self._prime_req_id = None`, `self._prime_period_start = None`, `self._prime_retry_pending = False`, `self._prime_retry_args = None`, `self._prime_reserved = False` - carrying the call sites' comments (Q-3/Q-12, P7-W2/S-P7-4) into the one docstring; `teardown`, `prepare_load` and `_fail_open_prime` each CALL IT IN PLACE OF their inline block and keep everything else and their order (teardown and prepare_load keep their surrounding resets; `_fail_open_prime` keeps `self._prime_skipped_count += 1`, its warning log and its `self._host._on_session_prime_complete(self)`). `teardown` additionally sets `self._rt_attach_pending = False` (the flag must not outlive the session). `_clear_prime_state()` has FOUR call sites: `teardown`, `prepare_load`, `_fail_open_prime`, `_on_disconnected`; the three-statement request transitions in `on_historical_data_end` / `on_historical_error` are exempt (they clear three statements and route an answer) - no OTHER full copy may remain. Then in `ui/main_window.py::_on_disconnected`, immediately BEFORE the stranded-wave loop - MARK FIRST, THEN CLEAR, because `_attach_live_feed` is the only other setter: `for session in list(self._sessions.values()): if (session._rt_req_id is None and session.symbol == self._current_symbol and (session._prime_timer.isActive() or session._prime_req_id is not None or session._prime_retry_pending)): session._rt_attach_pending = True` then `session._clear_prime_state()`, then `self._rt_retry_timer.stop()` with one comment (a pre-drop retry deadline must not act on a post-drop transport; the reconnect replay re-arms anything - S-P28-11). The three terms are the decision, stated in the docstring: CURRENT because `_on_session_prime_complete` attaches only `session.symbol == self._current_symbol` (a background session would be owed an attach nobody wants); NO LIVE LINE because a mid-prime reload can leave `_rt_req_id` live and flagging it would attach on a live line and bump `_rt_holders` a second time; IN-FLIGHT (armed backstop / prime reqId / deferred prime retry) because those are the three states that would have reached the attach on their own. A 200-rejected contract needs no term here (`_attach_deferred_rt_feeds` already skips it and clears the flag). Existing flags are never cleared there. 7. Two named re-baselines only: delete the case at `tests/test_p7_w4_streaming.py:243-262` (the `RealtimeBarsManager.replay_all` case) and drop its id from `STREAMING_IDS` in `tests/test_qt_app_import_invariant.py` (update the '13 cases' comment to twelve); no other id moves and `DEFERRAL_IDS` is untouched. 8. New suite `tests/test_d84_d88_readiness.py` (fake realtime manager recording `subscribe` calls, fake client with a settable `api_ready`, fake `md_manager` counting `req_historical_data`; for window-level cases a real `MainWindow` whose REAL predicate is exercised by setting both `win._ibkr_connected` and `win.ib_client._connected` - NO override in this suite): (a) AC-D84.3; (b) AC-D84.1 across the three arrivals and both flag combinations - THIS CASE IS LOAD-BEARING: it is what keeps the audited suites' `win._transport_ready = lambda: True` a harness stub rather than a hole; (c) AC-D84.2 plus `inspect.getsource` showing the three call sites; (d) Journey 74 / R175 - the drop owes the attach and the reconnect pays it, exactly once, plus the two negatives (background not flagged; already-live line not flagged and re-issued once by the replay, never through the deferred pass); (e) AC-D88.1 as a CODE-ONLY AST scan - attribute/name/definition nodes only, string constants and comments excluded - so `tests/test_p28_fence.py`'s module docstring (which names the symbol in prose) is not a hit and the fence is never edited; (f) the shared seam drives the option legs; (g) `teardown()` clears a set `_rt_attach_pending`. TWO SCOPING NOTES recorded by the validator: in case (d), 'a second `_on_connected()` adds nothing' is scoped to the DEFERRED PASS only - `_replay_subscriptions` re-issues the now-registered line, so the assertion is that no additional deferred attach happens and `_rt_holders` does not rise again; and the prime-clear sites are located BY SITE NAME, not by the plan's line ranges (the cited ranges stop one line short and include `_prime_reserved`). Do not: touch `ui/popout_window.py`; change `ensure_rt_subscribed`'s refcount or `release_rt`; add a timer, a singleShot or a status-line loop for the deferred attach; change `req_historical_data` or any `req_*` body (P27's ordering is frozen); make `replay_all` 'work' instead of deleting it; touch `SubscriptionManager`; edit `tests/test_p28_fence.py` (its docstring names the symbol in prose and its `not hasattr` assertion is the phase's negative assertion - both stay untouched); edit any of the seventeen audited suites (that is P28-T3/T4/T5); clear `_rt_attach_pending` on the drop or set it for a non-current session or one whose line is live. Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [],
@@ -200,7 +200,7 @@
         },
         {
           "id": "AC-D88.1",
-          "criterion": "Given the codebase after the change, Then `RealtimeBarsManager.replay_all` no longer exists (`not hasattr`), a static scan of `ui/`, `ibkr/` and `tests/` finds no `rt_manager.replay_all`/`RealtimeBarsManager.replay_all` reference, and no test pins the deleted behaviour."
+          "criterion": "Given the codebase after the change, Then `RealtimeBarsManager.replay_all` no longer exists (`not hasattr`), and a CODE-ONLY AST scan of every `.py` file under `ui/`, `ibkr/` and `tests/` finds no USE of the symbol: no `ast.Attribute` whose `attr` is `replay_all`, no `ast.Name` with that id, and no `ast.FunctionDef`/`ast.AsyncFunctionDef` with that name - so a prose mention in a docstring or comment, and a negative `not hasattr(X, \"replay_all\")` assertion (both of which `tests/test_p28_fence.py` contains and both of which stay untouched), are NOT hits, while a genuine reintroduction (`mgr.replay_all()`, `RealtimeBarsManager.replay_all(...)`, `def replay_all(...)`) reddens the case. No test pins the deleted behaviour."
         },
         {
           "id": "AC-P28-02-1",
@@ -259,8 +259,8 @@
             "AC-D88.1"
           ],
           "type": "unit",
-          "description": "Case (e): `not hasattr(RealtimeBarsManager, 'replay_all')` plus an AST/text static scan of `ui/`, `ibkr/` and `tests/` for `rt_manager.replay_all` / `RealtimeBarsManager.replay_all`.",
-          "expected_result": "The attribute is absent and the scan finds no reference anywhere in the three trees."
+          "description": "Case (e): `not hasattr(RealtimeBarsManager, 'replay_all')` plus a code-only AST scan of every `.py` file under `ui/`, `ibkr/` and `tests/` for USAGE nodes of the symbol (attribute access, bare name, function definition; string constants and comments excluded). `tests/test_p28_fence.py`'s module docstring and its `not hasattr` string are the reviewer's false positive and must NOT be flagged; that file is not edited. The case also scans two synthetic snippets to show the detector discriminates.",
+          "expected_result": "The attribute is absent; the AST scan over the three trees reports zero usage nodes - including in `tests/test_p28_fence.py`; and the same scanner flags a `mgr.replay_all()` snippet while leaving a docstring-only and a `not hasattr(X, \"replay_all\")` snippet clean. So the case reddens on a genuine reintroduction and stays green on prose. No RED->GREEN claim beyond the two re-baselines."
         },
         {
           "test_id": "P28-T2-06",
@@ -321,24 +321,34 @@
         "one replay path and two named re-baselines",
         "the readiness suite whose case (b) keeps the harness seam honest"
       ],
-      "status": "done",
+      "status": "in_progress",
       "size": "M",
       "context": {
         "read_files": [
           {
+            "path": "tests/test_d84_d88_readiness.py",
+            "lines": "318-345",
+            "why": "edit: `test_p28_t2_05_dead_replay_absent_everywhere`'s text scan becomes an AST usage scan; every other case stays byte-identical"
+          },
+          {
+            "path": "tests/test_p28_fence.py",
+            "lines": "1-30",
+            "why": "read-only: its module docstring names `RealtimeBarsManager.replay_all` in prose and its `not hasattr` assertion is the phase's negative assertion - this is the reviewer's false positive. Do NOT edit this file and do not weaken the fence."
+          },
+          {
+            "path": "ibkr/realtime_bars.py",
+            "lines": "1-30",
+            "why": "read-only: the class whose `replay_all` absence the case pins"
+          },
+          {
             "path": "ibkr/error_codes.py",
             "lines": "1-32",
-            "why": "edit: add `require_api_ready` with `IBKRNotReady` and `classify_error` byte-identical"
+            "why": "read-only: `require_api_ready`/`IBKRNotReady`, already landed - unchanged by this rework"
           },
           {
             "path": "ibkr/market_data.py",
             "lines": "22-45",
-            "why": "edit: `_require_api_ready` becomes one delegating call; the body moves verbatim to ibkr/error_codes.py"
-          },
-          {
-            "path": "ibkr/realtime_bars.py",
-            "lines": "1-62",
-            "why": "edit: the gate as `subscribe`'s first statement; `replay_all` deleted; the class docstring names the one replay"
+            "why": "read-only: `_require_api_ready` already delegates - unchanged by this rework"
           },
           {
             "path": "ui/ticker_session.py",
@@ -349,7 +359,7 @@
               "940-965",
               "1845-1873"
             ],
-            "why": "edit: the new `_rt_attach_pending` field, `_clear_prime_state()` and its three in-file call sites (locate the prime blocks BY SITE NAME - the plan's line ranges stop one line short and include `_prime_reserved`)"
+            "why": "read-only: `_rt_attach_pending`/`_clear_prime_state` and its call sites already landed - unchanged by this rework"
           },
           {
             "path": "ui/main_window.py",
@@ -359,22 +369,17 @@
               "3382-3432",
               "3974-4000"
             ],
-            "why": "edit: `_on_connected`'s deferred pass after the replay, `_on_disconnected`'s mark-then-clear plus the retry-timer stop, `_transport_ready`/the `_attach_live_feed` gate, and the prime-complete predicate the drop's first term mirrors"
+            "why": "read-only: `_transport_ready`, the attach gate and `_on_disconnected`'s mark-then-clear already landed - unchanged by this rework"
           },
           {
             "path": "tests/test_p7_w4_streaming.py",
             "lines": "240-270",
-            "why": "edit: delete ONLY the `replay_all` case (its line range starts at the case's own heading); every other case is untouched"
+            "why": "read-only: the retired `replay_all` case is already deleted and its id already removed from `STREAMING_IDS` - do not re-add either"
           },
           {
             "path": "tests/test_qt_app_import_invariant.py",
             "lines": "45-80",
-            "why": "edit: drop one id from `STREAMING_IDS` and update the '13 cases' comment to twelve; `DEFERRAL_IDS` untouched"
-          },
-          {
-            "path": "tests/test_d24_popouts.py",
-            "lines": "1-45",
-            "why": "read-only: the shipped window-factory convention (monkeypatched `connect`, unbounded id sources, `qapp.processEvents`) the new suite's window cases follow - do not change this file"
+            "why": "read-only: `STREAMING_IDS` (twelve entries) already updated - unchanged by this rework"
           }
         ],
         "contracts": [
@@ -472,6 +477,16 @@
             "status": "new",
             "module": "ibkr/realtime_bars.py",
             "signature": "class docstring states: reconnect replay is SubscriptionManager.replay_all; the realtime manager only subscribes, unsubscribes and cancels"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d84_d88_readiness.py",
+            "signature": "def _replay_all_usage(path: Path) -> list[str]:  # AST walk: flags ast.Attribute(attr='replay_all'), ast.Name(id='replay_all'), ast.FunctionDef/AsyncFunctionDef named 'replay_all'; never string literals or comments"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d84_d88_readiness.py",
+            "signature": "_USAGE_SNIPPETS = {'hit': 'mgr.replay_all()', 'clean_doc': '\"\"\"names RealtimeBarsManager.replay_all\"\"\"', 'clean_hasattr': 'assert not hasattr(RealtimeBarsManager, \"replay_all\")'}  # the detector's two-sided self-check"
           }
         ],
         "architecture_ref": "docs/architecture.md#Phase P28",
@@ -491,7 +506,8 @@
         ],
         "needs_graphify": false,
         "size": "M"
-      }
+      },
+      "generation": 1
     },
     {
       "id": "P28-T3",
@@ -856,7 +872,7 @@
     {
       "id": "P28-T6",
       "title": "P28-03 - the stream's own health and budget: one reset, a monotonic retry and a terminal state (D89, D90)",
-      "description": "In `ibkr/stream_health.py`: add `StreamState.EXHAUSTED = \"exhausted\"`; the module constant `MAX_RETRY_ATTEMPTS = 6` docstring'd with the progression it caps (`5/10/20/40/60/60 s` ~ 195 s) and the fact that only a reset clears it; `def mark_exhausted(self) -> None:` (state EXHAUSTED, keeps `fail_code` / `fail_message`); `retry_budget_spent` (property: `self.retry_attempt >= MAX_RETRY_ATTEMPTS`); `describe()` gains `\"stopped\"` for EXHAUSTED. `next_retry_delay_s` is UNTOUCHED (its arithmetic is pinned by `tests/test_d27_stream_health.py` and `tests/test_p7_w4_streaming.py`). In `ui/ticker_session.py::_reissue_rt`, after `_register_req_id`: `self.stream_health.mark_subscribed(reset_backoff=True)` and `self.stream_health_changed.emit()` - A236's rule ('a replayed subscription is a fresh subscription'), nameable in one sentence in the docstring. In `ui/main_window.py`: `_on_connected` stops `_rt_retry_timer` at the top of the method (before `_replay_subscriptions`), with the one-line reason (a pre-drop deadline must not act on a post-drop subscription; the replay's own reset is what re-arms anything); `_schedule_rt_retry` opens with `if self._rt_retry_timer.isActive(): return` (a scheduled retry is never moved - no `next_retry_delay_s()` call, so an error storm cannot inflate the attempt count either); `_on_rt_stream_error`'s primary-session branch, after `mark_failed`, adds: if the budget is spent then `mark_exhausted()`, `_update_stream_badge()`, one status line and `return` (no schedule); otherwise the existing message plus `_schedule_rt_retry()`; `_update_stream_badge` gains an EXHAUSTED branch (the LIVE/FAILED/awaiting texts keep their exact wording - `AC-D65` is untouched); `_retry_rt_subscribe`'s early return becomes 'no-op unless the state is FAILED' (EXHAUSTED can never retry - the recovery is the user's attach, not a timer), its disconnected branch reuses `_transport_ready()`, and `IBKRNotReady` joins the pacing branch so a not-ready refusal re-enters the same 'not ready' guard instead of escaping a Qt slot. AC-D90.3's RELOAD (S-P28-15, the decision the review rounds settled): in `TickerSession.ensure_rt_subscribed`, when `self._rt_req_id is not None` AND `self.stream_health.state == StreamState.EXHAUSTED`, unsubscribe then `self._subscribe_rt(reset_backoff=True)` BEFORE the existing `self._rt_holders += 1; return self._rt_req_id` (the same two mechanics `resubscribe_rt()` uses, with the reset this path needs; comment: 'AC-D90.3: the user's reload is the recovery - one fresh subscribe with the budget reset; a backoff retry never resets (Fix-B)'). The predicate is the terminal STATE, not `retry_budget_spent` (a FAILED stream mid-storm must not be silently recovered by an unrelated attach). `prepare_load` and `resubscribe_rt()` are explicitly NOT touched (`reset_backoff=False` is Fix-B's contract for `_retry_rt_subscribe`); the branch adds no holder statement; a `PacingExceeded` from the fresh subscribe propagates to the caller's existing deferral exactly as a first subscribe's does. Why this site and not `prepare_load`: `prepare_load` resets no health and has no subscribe authority - it runs before the transport gate, so a reset there would clear a terminal state for an attach the gate then refuses, and for a 200-rejected contract that never attaches at all; `ensure_rt_subscribed` is the one funnel every attach uses (main chart, pop-out, restore) and already owns 'reuse or subscribe'. New suite `tests/test_d89_d90_stream_budget.py` (a recording double for the timer - stop the real `QTimer` and drive `_retry_rt_subscribe` directly, the shipped suites' idiom - a fake client and a fake realtime manager). Do not change `next_retry_delay_s`'s signature, arithmetic or the `5/10/20/40/60/60 s` progression; do not change `mark_subscribed`'s `reset_backoff` semantics; do not reset health in `prepare_load`; do not use `retry_budget_spent` as the recovery predicate; do not touch `_reissue_rt`'s reqId mechanics or `SubscriptionManager`; add no second or repeating timer; do not change the FAILED badge text; do not make the terminal state reachable while disconnected (the reconnect replay is the reset). Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
+      "description": "In `ibkr/stream_health.py`: add `StreamState.EXHAUSTED = \"exhausted\"`; the module constant `MAX_RETRY_ATTEMPTS = 6` docstring'd with the progression it caps (`5/10/20/40/60/60 s` ~ 195 s) and the fact that only a reset clears it; `def mark_exhausted(self) -> None:` (state EXHAUSTED, keeps `fail_code` / `fail_message`); `retry_budget_spent` (property: `self.retry_attempt >= MAX_RETRY_ATTEMPTS`); `describe()` gains `\"stopped\"` for EXHAUSTED. `next_retry_delay_s` is UNTOUCHED (its arithmetic is pinned by `tests/test_d27_stream_health.py` and `tests/test_p7_w4_streaming.py`). In `ui/ticker_session.py::_reissue_rt`, after `_register_req_id`: `self.stream_health.mark_subscribed(reset_backoff=True)` and `self.stream_health_changed.emit()` - A236's rule ('a replayed subscription is a fresh subscription'), nameable in one sentence in the docstring. In `ui/main_window.py`: `_on_connected` stops `_rt_retry_timer` at the top of the method (before `_replay_subscriptions`), with the one-line reason (a pre-drop deadline must not act on a post-drop subscription; the replay's own reset is what re-arms anything); `_schedule_rt_retry` opens with `if self._rt_retry_timer.isActive(): return` (a scheduled retry is never moved - no `next_retry_delay_s()` call, so an error storm cannot inflate the attempt count either); `_on_rt_stream_error`'s primary-session branch, after `mark_failed`, adds: if the budget is spent then `mark_exhausted()`, `_update_stream_badge()`, one status line and `return` (no schedule); otherwise the existing message plus `_schedule_rt_retry()`; `_update_stream_badge` gains an EXHAUSTED branch (the LIVE/FAILED/awaiting texts keep their exact wording - `AC-D65` is untouched); `_retry_rt_subscribe`'s early return becomes 'no-op unless the state is FAILED' (EXHAUSTED can never retry - the recovery is the user's attach, not a timer), its disconnected branch reuses `_transport_ready()`, and `IBKRNotReady` joins the pacing branch so a not-ready refusal re-enters the same 'not ready' guard instead of escaping a Qt slot. AC-D90.3's RELOAD (S-P28-15, the decision the review rounds settled): in `TickerSession.ensure_rt_subscribed`, when `self._rt_req_id is not None` AND `self.stream_health.state == StreamState.EXHAUSTED`, unsubscribe then `self._subscribe_rt(reset_backoff=True)` BEFORE the existing `self._rt_holders += 1; return self._rt_req_id` (the same two mechanics `resubscribe_rt()` uses, with the reset this path needs; comment: 'AC-D90.3: the user's reload is the recovery - one fresh subscribe with the budget reset; a backoff retry never resets (Fix-B)'). The predicate is the terminal STATE, not `retry_budget_spent` (a FAILED stream mid-storm must not be silently recovered by an unrelated attach). `prepare_load` and `resubscribe_rt()` are explicitly NOT touched (`reset_backoff=False` is Fix-B's contract for `_retry_rt_subscribe`); the branch adds no holder statement; a `PacingExceeded` from the fresh subscribe propagates to the caller's existing deferral exactly as a first subscribe's does. Why this site and not `prepare_load`: `prepare_load` resets no health and has no subscribe authority - it runs before the transport gate, so a reset there would clear a terminal state for an attach the gate then refuses, and for a 200-rejected contract that never attaches at all; `ensure_rt_subscribed` is the one funnel every attach uses (main chart, pop-out, restore) and already owns 'reuse or subscribe'. New suite `tests/test_d89_d90_stream_budget.py` (a recording double for the timer - stop the real `QTimer` and drive `_retry_rt_subscribe` directly, the shipped suites' idiom - a fake client and a fake realtime manager). Do not change `next_retry_delay_s`'s signature, arithmetic or the `5/10/20/40/60/60 s` progression; do not change `mark_subscribed`'s `reset_backoff` semantics; do not reset health in `prepare_load`; do not use `retry_budget_spent` as the recovery predicate; do not touch `_reissue_rt`'s reqId mechanics or `SubscriptionManager`; add no second or repeating timer; do not change the FAILED badge text; do not make the terminal state reachable while disconnected (the reconnect replay is the reset) - now ENFORCED by AC-P28-03-4. ESC-135 (post-review; the badge was reachable, the state was not structural): (i) `_on_rt_stream_error`'s first statement AFTER the EXHAUSTED guard is `if not self._transport_ready(): return` - a post-drop echo neither marks the health, nor emits a line, nor schedules a retry, so it cannot spend an attempt or reach the terminal branch; (ii) `_retry_rt_subscribe`'s early return SPLITS: when `not self._transport_ready()` it does `self._rt_retry_timer.start(_RT_RECHECK_MS)` and returns - a transport-gated re-arm is not an attempt, because `next_retry_delay_s()` counts; the separate `not self._current_symbol` branch keeps the shipped `self._schedule_rt_retry()`; (iii) module constant `_RT_RECHECK_MS = 5_000` beside the other module constants, docstring'd as the non-spending re-check interval. Nothing else changes: `next_retry_delay_s`'s arithmetic, the 5/10/20/40/60/60 s progression and the connected-path behaviour pinned by P28-T6-01/02/08 stay exactly as they are. Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
       "agent": "build_worker",
       "task_type": "build",
       "dependencies": [
@@ -896,6 +912,10 @@
         {
           "id": "AC-P28-03-3",
           "criterion": "Given a callback fired for a stream that has since left FAILED (a reload, a live bar, or a terminal state), When `_retry_rt_subscribe` runs, Then it returns without issuing a subscribe or an unsubscribe and does not re-arm a timer."
+        },
+        {
+          "id": "AC-P28-03-4",
+          "criterion": "Given the transport is not ready (`_transport_ready()` is False), When a realtime error for the primary session arrives after a drop and `_retry_rt_subscribe` is driven repeatedly past the retry budget, Then no attempt is spent (`retry_attempt` unchanged), the state never becomes `StreamState.EXHAUSTED`, no terminal (or retrying) status line is emitted and no subscribe or unsubscribe is issued - so the terminal state is structurally unreachable while disconnected; and Given a ready transport, Then the connected path behaves exactly as P28-T6-01/P28-T6-02/P28-T6-08 pin it, with `next_retry_delay_s`'s arithmetic and the 5/10/20/40/60/60 s progression unchanged."
         }
       ],
       "tests": [
@@ -979,13 +999,23 @@
           "type": "unit",
           "description": "Read `next_retry_delay_s` off a fresh `StreamHealth` six times and run the shipped stream-health suite.",
           "expected_result": "The six delays are `5.0, 10.0, 20.0, 40.0, 60.0, 60.0`; `tests/test_d27_stream_health.py` passes unmodified, including `test_d27_4_stale_retry_after_reload_is_noop`."
+        },
+        {
+          "test_id": "P28-T6-10",
+          "linked_acceptance_criterion": [
+            "AC-P28-03-4"
+          ],
+          "type": "integration",
+          "description": "ESC-135: a primary session driven to FAILED with `retry_attempt == MAX_RETRY_ATTEMPTS - 1` through the ready path, then `win._ibkr_connected = False` via `win._on_disconnected()`, then six late errors through `_fail(win)` interleaved with `_fire(win)` (stop the recording timer, call `_retry_rt_subscribe`).",
+          "expected_result": "`retry_attempt` is unchanged at its pre-drop value, `state` is still `StreamState.FAILED` and never `EXHAUSTED`, the `_StatusSpy` records no terminal and no 'retrying' line for the late errors, `_wire_counts` is unchanged (no subscribe, no cancel), and every transport-gated re-arm starts the timer at `_RT_RECHECK_MS` (5000 ms) - i.e. the disconnected loop cannot walk the budget to the terminal branch, while the connected-path cases (T6-01/02/08) stay green unchanged."
         }
       ],
       "expected_artifacts": [
         "ibkr/stream_health.py - EXHAUSTED, MAX_RETRY_ATTEMPTS = 6, mark_exhausted, retry_budget_spent, describe's \"stopped\" branch",
         "ui/ticker_session.py - `_reissue_rt`'s health reset + signal; `ensure_rt_subscribed`'s terminal-recovery branch",
         "ui/main_window.py - `_on_connected`'s timer stop, the coalescing `_schedule_rt_retry`, the budget/terminal branch, the EXHAUSTED badge, the `_retry_rt_subscribe` guard",
-        "tests/test_d89_d90_stream_budget.py - cases (a)-(f)"
+        "tests/test_d89_d90_stream_budget.py - cases (a)-(f)",
+        "ui/main_window.py - the `_transport_ready()` guard at the head of `_on_rt_stream_error`, the split non-spending re-arm in `_retry_rt_subscribe`, and `_RT_RECHECK_MS = 5_000`"
       ],
       "touches_files": [
         "ibkr/stream_health.py",
@@ -1004,7 +1034,7 @@
         "one health-reset mechanism serving both recovery branches (reconnect through `_reissue_rt`, reload through `ensure_rt_subscribed`)",
         "retry callbacks that can never act on a superseded or terminal line"
       ],
-      "status": "done",
+      "status": "not_started",
       "size": "M",
       "context": {
         "read_files": [
@@ -1024,10 +1054,12 @@
           {
             "path": "ui/main_window.py",
             "lines": [
+              "134-140",
               "1810-1835",
-              "2767-2845"
+              "2843-2900",
+              "2903-2925"
             ],
-            "why": "edit: `_on_connected`'s timer stop at the top, the coalescing `_schedule_rt_retry`, the terminal branch in `_on_rt_stream_error`, the EXHAUSTED badge and the `_retry_rt_subscribe` guard"
+            "why": "edit: the new `_RT_RECHECK_MS` constant, `_on_connected`'s timer stop at the top, the `_transport_ready()` guard at the head of `_on_rt_stream_error`, its terminal branch, the EXHAUSTED badge, and `_retry_rt_subscribe`'s split non-spending re-arm"
           },
           {
             "path": "tests/test_d27_stream_health.py",
@@ -1043,6 +1075,11 @@
             "path": "tests/test_d71_replay_transaction.py",
             "lines": "1-40",
             "why": "read-only: the replay transaction's all-or-nothing contract and its reissue hook; only the health hook is added"
+          },
+          {
+            "path": "tests/test_d89_d90_stream_budget.py",
+            "lines": "80-230",
+            "why": "edit: the harness (`_make_window`, `_fail`, `_fire`, `_leave_failed`, `_wire_counts`) and the new case `P28-T6-10` beside T6-02 - every existing case stays byte-identical"
           }
         ],
         "contracts": [
@@ -1140,6 +1177,16 @@
             "status": "new",
             "module": "ui/main_window.py",
             "signature": "terminal status line, exactly once: f\"{session.symbol} \u2014 realtime stream stopped after {MAX_RETRY_ATTEMPTS} retries; reload the chart or wait for a reconnect.\" with 15000 ms"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "_RT_RECHECK_MS = 5_000  # the transport-gated re-check interval; re-arming at it spends no retry attempt (the ladder is advanced only for a request the transport can carry)"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "def _on_rt_stream_error(self, session, code, message) -> None:  # first statement after the EXHAUSTED guard is `if not self._transport_ready(): return`"
           }
         ],
         "architecture_ref": "docs/architecture.md#Phase P28",
@@ -1162,7 +1209,7 @@
         "needs_graphify": false,
         "size": "M"
       },
-      "generation": 2
+      "generation": 3
     },
     {
       "id": "P28-T7",
@@ -2191,6 +2238,157 @@
           "AC-D95.3"
         ],
         "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p28_fence.py -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P28-T12",
+      "title": "P28-02c - the seam inventory's last three suites and the diff-shape gate (ESC-134, ESC-136)",
+      "description": "Post-review seam repair (ESC-134) and the diff-shape gate that makes the seam groups' guarantee checkable (ESC-136); NO production code. 1. Three seam lines, one per suite, each in `_make_window` immediately after `win = MainWindow()`: `win._transport_ready = lambda: True` in `tests/test_p13_hold_probe.py` (`:48`), `tests/test_d41_removal.py` (`:256`) and `tests/test_p7_w2_prime.py` (`:38`) - the shipped shape and position of `tests/test_p13_hold_fix.py:67` and of the phase's other eighteen seamed suites. Nothing else in those files: no assertion, expected value, case name, fixture, monkeypatch target or import moves. 2. Why a seam and not a product fix: the reviewer proved the three reds are the readiness gate, not the product - the seam injected into the three UNMODIFIED files makes all 10 cases pass, and `_fail_open_prime -> _clear_prime_state -> _on_session_prime_complete` clears six prime markers and never `_rt_req_id` (so `tests/test_d41_removal.py`'s 'the RT bar line stopped issuing' and `tests/test_p7_w2_prime.py`'s `rt_req_id == 4242` are the prime path, not a defect). AC-D84.1 (P28-T2's case (b), which exercises the REAL predicate) is what keeps every override a harness stub rather than a hole. 3. New suite `tests/test_p28_seam_diff_shape.py`: one parametrized case over the 21-file audited seam set (named in AC-P28-02-S5) asserting, per file, that `git diff ef04c5a -- <file>` adds exactly the one seam line and removes nothing - the single exemption is `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case. This is the enforcement the seam ACs (AC-P28-02-S1/S2/S3) stated as prose and never checked: 'each changed file differs only by its seam assignment(s) - no assertion changed' is now a test, over all three seam groups plus this one. The case is PHASE-BOUNDED: it skips with a named reason once a commit outside the P28 family exists in `ef04c5a..HEAD`, because the fence's own precedent (S-P24-5, `tests/test_p28_fence.py`'s docstring) is that a git diff pinned against the base reddens every later phase; inside P28 it enforces, after P28 the phase diff is closed. 4. Inventory record (manual, AC-P28-02-S6): the measured population from the reviewer's instrumented run - 42 suites reach `MainWindow._attach_live_feed`; 21 need the seam (the 18 present at review plus these 3); 18 further suites get at least one refusal but assert nothing about the live RT line, so they can never redden on this gate; 1 refusal is by design (`tests/test_d84_d88_readiness.py` case (b)). Record it in the build result; do not seam an inert suite and do not add a runtime-instrumentation harness. Do not: edit any assertion, fixture, case name or monkeypatch target in the 21 suites; edit `tests/test_p28_fence.py`; edit production code (`ui/main_window.py` and `ui/ticker_session.py` are NOT in this task's footprint - there is no product defect here); widen P28-T2 or P28-T6; re-open decided P28 behaviour; pin a phase commit hash or a file/line count in the test (only the base `ef04c5a`); add a dependency (stdlib `subprocess`/`re` around `git` only). Standing P28 constraints: `config/instance_lock.py` is the ONLY new module; no new dependency (QLockFile ships with PyQt6/QtCore); no migration and no `popouts` UNIQUE constraint (FI-P28-3); no settings key; no reconnect-policy change; D1-P27 unopened apart from the declared `[revises P4/P7/P13/P16]` labels; G5 is owner-run and is never claimed by a suite.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P28-02-S4",
+          "criterion": "Given `tests/test_p13_hold_probe.py`, `tests/test_d41_removal.py` and `tests/test_p7_w2_prime.py`, When each `_make_window` gains the one seam line `win._transport_ready = lambda: True` immediately after `win = MainWindow()` and the three suites run against the landed readiness gate, Then every case passes (10 cases) with the real `_attach_live_feed` reaching a hold, and each file's diff against `ef04c5a` is exactly ONE added line - the seam assignment - with no assertion, expected value, case name, fixture or monkeypatch target changed."
+        },
+        {
+          "id": "AC-P28-02-S5",
+          "criterion": "Given the 21-file audited seam set (the 18 suites P28-T3/T4/T5/T7 already seam: `tests/test_p7_w4_deferral.py`, `tests/test_p7_w4_streaming.py`, `tests/test_d24_alarm_full_chain.py`, `tests/test_d24_popouts.py`, `tests/test_d24_smoke_gate.py`, `tests/test_d27_aggregator_priming.py`, `tests/test_d27_phantom_alarms.py`, `tests/test_d27_reconnect.py`, `tests/test_d27_stream_health.py`, `tests/test_d28_2_sessions.py`, `tests/test_d28_4_gate.py`, `tests/test_d28_pacing.py`, `tests/test_d28_tick_burst_baseline.py`, `tests/test_d68_hold_balance.py`, `tests/test_p13_hold_fix.py`, `tests/test_p13_restore.py`, `tests/test_phase3_fixpass.py`, `tests/test_p13_attach.py`, `tests/test_p13_hold_probe.py`, `tests/test_d41_removal.py`, `tests/test_p7_w2_prime.py`), When the diff-shape case runs `git diff ef04c5a -- <file>` for each member, Then every file has exactly ONE added line and it is the seam assignment (`win._transport_ready = lambda: True`, optionally with a trailing comment, or the `_transport_ready=lambda: True` stub keyword) and ZERO removed lines - with the single declared exemption `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case (headed by `def test_p7_t07_t11_manager_replay_rebounds_every_subscription`) and whose added line is still exactly one seam; the case also flags a synthetic `- assert a` / `+ assert b` patch and passes a docstring/no-op patch, so the detector discriminates; and once a commit outside the P28 family exists in `ef04c5a..HEAD` the case SKIPS with that named reason (the P28 phase diff is closed; a later phase's edits to those files are its own), so it can never redden P29+."
+        },
+        {
+          "id": "AC-P28-02-S6",
+          "criterion": "Given the finished repair, Then the build result records the measured seam inventory with its provenance: 42 suites reach `MainWindow._attach_live_feed`; 21 need the seam (the 18 present at review plus these 3); 18 further suites get at least one refusal but assert nothing about the live RT line (so they can never redden on this gate); and 1 refusal is by design (`tests/test_d84_d88_readiness.py` case (b) exercises the real predicate refusing) - so no member of the 21 is left unseamed and no inert suite is seamed."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P28-T12-01",
+          "linked_acceptance_criterion": [
+            "AC-P28-02-S4"
+          ],
+          "type": "integration",
+          "description": "Run the three suites, then read `git diff ef04c5a -- <each of the three files>`.",
+          "expected_result": "All 10 cases pass (the four `tests/test_p13_attach.py`-style hold cases now really acquire their hold); each of the three patches contains exactly one added line, it matches the seam assignment, and there are no removed lines - no assertion, fixture, case name or monkeypatch line touched."
+        },
+        {
+          "test_id": "P28-T12-02",
+          "linked_acceptance_criterion": [
+            "AC-P28-02-S5"
+          ],
+          "type": "unit",
+          "description": "The diff-shape case over all 21 members, plus its two-self checks: a synthetic `- assert a` / `+ assert b` patch must be flagged, a docstring-only addition must be flagged too (it is an added line), and the in-phase predicate must return False for a later-phase commit subject.",
+          "expected_result": "Each member: exactly one added seam line and zero removed lines, except `tests/test_p7_w4_streaming.py` whose removed lines are the 20 lines of the retired `replay_all` case and whose added line is the one seam; the synthetic assertion edit is flagged as a removal-plus-addition; a non-P28 commit subject in `ef04c5a..HEAD` makes the case skip with the named reason rather than fail."
+        },
+        {
+          "test_id": "P28-T12-03",
+          "linked_acceptance_criterion": [
+            "AC-P28-02-S6"
+          ],
+          "type": "manual",
+          "description": "Record the measured inventory (42 attach-reaching suites; 21 needing the seam = 18 + 3; 18 inert refusals; 1 by-design refusal) and its provenance (the reviewer's instrumented run, `docs/code_review/review_log_P28.md` section 3) in the build result.",
+          "expected_result": "The build result carries the four counts and the provenance; no runtime-instrumentation harness was added to the suite, and no inert suite received a seam."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p13_hold_probe.py - one seam line in `_make_window` after `MainWindow()`",
+        "tests/test_d41_removal.py - one seam line in `_make_window` after `MainWindow()`",
+        "tests/test_p7_w2_prime.py - one seam line in `_make_window` after `MainWindow()`",
+        "tests/test_p28_seam_diff_shape.py - the 21-member diff-shape case (ESC-136's enforcement)"
+      ],
+      "touches_files": [
+        "tests/test_p13_hold_probe.py",
+        "tests/test_d41_removal.py",
+        "tests/test_p7_w2_prime.py",
+        "tests/test_p28_seam_diff_shape.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ESC-134 (the three refusals the reviewer proved are the seam, not a product defect) and ESC-136 (the unenforced diff-shape guarantee)",
+        "docs/architecture.md section Phase P28 (the readiness predicate S-P28-1 and AC-D84.1's gate)",
+        "tests/test_p13_hold_fix.py:67 and the eighteen already-seamed suites - the seam's exact shape"
+      ],
+      "outputs": [
+        "the three remaining seam lines, so all 21 suites whose subject includes the live RT line carry the seam",
+        "a diff-shape case that enforces 'only the seam line was added' for all 21, phase-bounded so it cannot redden a later phase",
+        "a recorded inventory of the seam population with its provenance"
+      ],
+      "status": "in_progress",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p13_hold_probe.py",
+            "lines": "42-60",
+            "why": "edit: add `win._transport_ready = lambda: True` immediately after `win = MainWindow()` (`:48`); nothing else in this file changes"
+          },
+          {
+            "path": "tests/test_d41_removal.py",
+            "lines": "249-266",
+            "why": "edit: the same one line after `win = MainWindow()` (`:256`); its removal assertions (`:383` included) are untouched"
+          },
+          {
+            "path": "tests/test_p7_w2_prime.py",
+            "lines": "30-46",
+            "why": "edit: the same one line after `win = MainWindow()` (`:38`); `rt_req_id == 4242` and every other assertion stay byte-identical"
+          },
+          {
+            "path": "tests/test_p13_hold_fix.py",
+            "lines": "60-70",
+            "why": "read-only: the shipped seam shape and position (`:67`) to copy exactly - do not change this file"
+          },
+          {
+            "path": "tests/test_p28_fence.py",
+            "lines": "20-34",
+            "why": "read-only: the phase-diff-is-a-build-artefact precedent the new case must respect (S-P24-5) - do not edit this file"
+          }
+        ],
+        "contracts": [
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "PHASE_BASE = \"ef04c5a\"  # the phase base; no phase commit hash and no file/line count is pinned"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "SEAM_RE = re.compile(r\"^(win\\.)?_transport_ready\\s*=\\s*lambda:\\s*True\\b\")  # matches `win._transport_ready = lambda: True` (optionally with a comment) and the stub kwarg `_transport_ready=lambda: True,`"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "def _phase_diff(relpath: str) -> tuple[list[str], list[str]]:  # (added, removed) text lines from `git diff ef04c5a -- <relpath>`, '+++'/'---' markers excluded"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "AUDITED_SEAMS: tuple[str, ...] = <the 21 paths of AC-P28-02-S5>  # 18 already seamed + the 3 this task seams; the single exemption DECLARED_REMOVALS = {\"tests/test_p7_w4_streaming.py\": \"test_p7_t07_t11_manager_replay_rebounds_every_subscription\"}"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p28_seam_diff_shape.py",
+            "signature": "def _in_phase(subjects: list[str]) -> bool:  # False when any commit subject in `git log --format=%s ef04c5a..HEAD` does not start with \"P28\" -> the case skips with the named reason"
+          },
+          {
+            "ref": "ui/main_window.py:_transport_ready",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_attach_live_feed",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P28",
+        "plan_ref": "docs/plan.md#P28-02",
+        "requirement_ids": [
+          "AC-D84.1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p28_seam_diff_shape.py tests/test_p13_hold_probe.py tests/test_d41_removal.py tests/test_p7_w2_prime.py -q",
         "memory_refs": [
           "offscreen"
         ],

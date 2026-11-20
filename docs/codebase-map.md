@@ -622,18 +622,57 @@ The per-file deltas (what each site encodes today → what P28 changes) live in 
 `data/db.py` should select `test_port_guard`, `test_lwc_host_bootstrap`, the D65 backup suites and
 `test_d86_d94_startup`.
 
+**P29 note (2026-11-20) — D96–D100: persisted state and alarm evaluation; no new module.** Skeleton
+re-run at **HEAD `1404877`** (P28 build, base `ef04c5a`): **298 code files, 23 test-impact rows** (the
+drift since P28 is the built P28 files plus tests — `config/instance_lock.py` now appears in the generated
+index). **P29 adds no production module and no dependency, migration, settings key or wire-protocol
+change**, so the index is structurally unchanged. Edits land in place: `data/study_store.py` (rows
+serialized before the connection is touched; delete + insert inside one `with db.conn:` transaction),
+`data/drawing_store.py` (update_group derives columns, placeholders and values from one filtered pair list;
+unknown keys raise before any SQL; bool → int keyed on the field), `services/alarm_service.py`
+(`prev <= level < curr` / `prev >= level > curr`), `services/alarm_monitor.py` (added `begin_outage()` —
+which records nothing and arms nothing when no session exists, so a failed launch cannot wipe the cache seed;
+the per-symbol interval ledger is `_outage_start`, renamed from `_pause_start`; `resume_all` is called on both
+resume paths), `ui/main_window.py` (`_on_disconnected` records the interval before classification;
+`_on_connected` has one resume path — the `_resuming_from_pause` branch goes), `ui/lwc_bridge.py` (a
+page-ready transition discards the staging buffers and replays the log once; `set_ready` cannot emit), and
+`ui/lwc_host.py` (one comment word). Planned test modules (do not look for them yet, per the naming rule
+above): tests/test_d96_d100_store_atomicity.py, tests/test_d98_outage_baseline.py,
+tests/test_d99_page_ready_delivery.py, tests/test_p29_fence.py; three existing cases are the **named
+re-baselines** (tests/test_alarm_service.py::TestBoundaryAndState::test_exactly_on_alert_price_above_counts,
+tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui,
+tests/test_lwc_bridge.py::TestBatchShape::test_queue_until_ready_holds_pre_ready_ops), plus **five**
+`_pause_start` reads in four D40 cases — four renames (`:199`, `:364`, `:375`, `:402`) and one assertion
+whose value changes (`:445`, inside the re-baselined transient case). The per-file deltas live in
+`docs/architecture.md` § *Phase P29* § *Codebase Summary*; the decisions are S-P29-1…S-P29-5; the wave
+order is P29-01 ∥ P29-02 ∥ P29-04 → P29-03 → P29-05 (03 follows 02). **Selection:** a change to
+`data/study_store.py`/`data/drawing_store.py` should select `test_drawing_store`, `test_p9_recolor`,
+`test_p10_drag_commit`, `test_p10_lock_recolor`, `test_p9_group_dialog`, `test_p9_group_payload`,
+`test_p9_active_group`, `test_p10_groups_dialog_lock`, `test_lwc_studies`, `test_studies_dialog` and
+`test_db_schema`; a change to `services/alarm_service.py` or `services/alarm_monitor.py` /
+`ui/main_window.py`'s drop/connect block should select `test_alarm_service`, `test_alarm_d21`,
+`test_d24_alarm_full_chain`, `test_d25_alarm_monitor`, `test_d27_phantom_alarms`, `test_p9_alarm_persistence`,
+`test_d27_reconnect`, `test_d40_tws_lifecycle` and `test_d98_outage_baseline`; a change to
+`ui/lwc_bridge.py` should select the whole envelope set (`test_lwc_bridge`, `test_lwc_bridge_handshake`,
+`test_d69_d70_bridge_contract`, `test_lwc_page_wiring`, `test_lwc_time_parity`, `test_p7_w1_coalesce`, the
+LWC overlay/alarm/drawing/study suites) and `test_d99_page_ready_delivery`. **Generator note (standing):**
+the 2026-11-20 skeleton run still emits the root row as a slash-suffixed (root) token, which the map lint
+reads as a path and rejects; the row is kept in its slash-free form below — `update_codebase_map.py` should
+emit it that way.
+
+
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
 - (root) — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
 - `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, follow_offset.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, tz_format.test.js, volume_scale.test.js
-- `config/` — __init__.py, paths.py, settings.py
+- `config/` — __init__.py, instance_lock.py, paths.py, settings.py
 - `data/` — __init__.py, alarm_store.py, bar_aggregator.py, bar_cache.py, db.py, db_backup.py, drawing_store.py, models.py, popout_store.py, study_store.py
 - `ibkr/` — __init__.py, bridge.py, client.py, contracts.py, error_codes.py, id_manager.py, market_data.py, pacing.py, realtime_bars.py, stream_health.py, subscription_manager.py, utils.py
 - `packaging/` — __init__.py
 - `services/` — __init__.py, alarm_monitor.py, alarm_service.py, backfill_service.py, chart_model.py, contract_lookup_service.py, drawing_service.py, gap_vix_service.py, ict_service.py, indicator_service.py, market_calendar.py, md_line_guard.py, option_ladder.py, option_spread_engine.py, session_service.py, sound_service.py, symbol_search.py, time_collapse_service.py, volume_baseline.py
 - `spikes/lwc/` — spike_probe.py
-- `tests/` — conftest.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_aggregator_priming.py, test_d27_backfill_granularity.py, test_d27_et_anchoring.py, test_d27_phantom_alarms.py, test_d27_reconnect.py … (+173 more)
+- `tests/` — conftest.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_aggregator_priming.py, test_d27_backfill_granularity.py, test_d27_et_anchoring.py, test_d27_phantom_alarms.py, test_d27_reconnect.py … (+181 more)
 - `ui/` — __init__.py, add_symbol_dialog.py, alarm_dialog.py, alarm_edit_dialog.py, chart_controls.py, chart_mouse_router.py, chart_view.py, dock_layout.py, drawing_groups_dialog.py, drawing_settings_common.py, drawing_tools.py, horizontal_line_settings_dialog.py, lwc_bridge.py, lwc_host.py, lwc_view.py, main_window.py, option_spreads_panel.py, popout_window.py, studies_dialog.py, ticker_session.py, toast.py, visual_conventions.py, watchlist_panel.py, zone_settings_dialog.py
 - `ui/overlays/` — __init__.py
 

@@ -355,3 +355,124 @@ stamps `generation: 0`. Consolidation compares `_r_gen = 0` against `_g_gen = 0`
 blocked skeleton/selfcheck fast-path bump (L1845, L2247, L2316) — none of which is in play here.
 **Do not** run `reset` or `packfix` on T10 before it consolidates: either would bump it to
 `generation: 1` and stale the on-disk result.
+
+## P28 review rework — ESC-133…ESC-136 (2026-11-20, owner-approved)
+
+**Trigger.** The review ended `REVIEW_COMPLETE` on commit `1404877` with exactly four open entries;
+the owner approved all four on 2026-11-20. Routed: ESC-133 → BUILD **P28-T2**, ESC-135 → BUILD
+**P28-T6**, ESC-134 + ESC-136 → Task Manager. Graph change: **the two escalated tasks re-scoped and
+reset, plus one new task (P28-T12)**. No other task's ACs, tests, files, dependencies or status was
+touched — T1, T3–T5, T7–T11 remain `done`, asserted one by one against a pre-edit copy of the graph.
+
+### P28-T2 — ESC-133 (blocking): the dead-replay scan must detect USAGE, not prose
+
+- `AC-D88.1`, case `P28-T2-05` and description item (e) rewritten: the scan is a **code-only AST
+  walk** over every `.py` under `ui/`, `ibkr/`, `tests/`, flagging `ast.Attribute(attr='replay_all')`,
+  `ast.Name(id='replay_all')` and `ast.FunctionDef`/`AsyncFunctionDef` with that name — string
+  constants and comments excluded. The old text scan's single hit was
+  `tests/test_p28_fence.py`'s **module docstring**, which merely names the symbol as absent.
+- The fence stays unedited: a Do-not clause now names it (its docstring and its `not hasattr`
+  assertion are the phase's negative assertion), and the case gains a two-sided self-check — a
+  `mgr.replay_all()` snippet must be flagged, a docstring-only / `not hasattr` snippet must not — so a
+  genuine reintroduction still reddens.
+- Pack retargeted to the rework: `tests/test_d84_d88_readiness.py` is now a read/edit site (it was a
+  create-only file), the fence is a read-only entry, and the implementation files' `why`s read
+  "already landed — unchanged by this rework". Pack = 9 entries (8 `touches_files` + the fence); one
+  over the ~8 budget is deliberate, because the pinning rule is hard and the fence entry is the only
+  context for the false positive.
+
+### P28-T6 — ESC-135 (nice-to-have): no attempt is spent while the transport is not ready
+
+- New **`AC-P28-03-4`** and case **`P28-T6-10`**: the terminal state is structurally unreachable
+  while the transport is not ready.
+- Decided shape, two edits, no policy change: (i) `_on_rt_stream_error`'s first statement *after* the
+  EXHAUSTED guard is `if not self._transport_ready(): return` — a post-drop echo no longer marks the
+  health, emits a line or schedules a retry, so it can neither spend an attempt nor reach the terminal
+  branch; (ii) `_retry_rt_subscribe`'s early return **splits**: not-ready → the timer starts
+  `_RT_RECHECK_MS` (a transport-gated re-arm is not an attempt, because `next_retry_delay_s()`
+  counts), while the separate no-symbol branch keeps `self._schedule_rt_retry()`. New module constant
+  `_RT_RECHECK_MS = 5_000`.
+- Explicitly untouched: `next_retry_delay_s`'s arithmetic, the `5/10/20/40/60/60 s` progression, the
+  connected-path behaviour pinned by T6-01/02/08, and the `except IBKRNotReady` belt branch.
+- Pack updated: `ui/main_window.py` read ranges now cover the constant block and both handlers
+  (`134-140`, `1810-1835`, `2843-2900`, `2903-2925`); `tests/test_d89_d90_stream_budget.py` added as
+  an edit site (it was missing from `read_files` entirely).
+
+### P28-T12 (new, size S) — ESC-134 (blocking) and ESC-136 (nice-to-have)
+
+- **ESC-134 — the last three seams.** `tests/test_p13_hold_probe.py:48`,
+  `tests/test_d41_removal.py:256` and `tests/test_p7_w2_prime.py:38` each gain one line in
+  `_make_window`, immediately after `win = MainWindow()`: `win._transport_ready = lambda: True` — the
+  shipped shape and position of `tests/test_p13_hold_fix.py:67`. No assertion, expected value, case
+  name, fixture or monkeypatch target changes; the 10 cases go green. Pins the difference from a
+  product fix: the reviewer injected the seam into the *unmodified* files (10 passed) and traced
+  `_fail_open_prime → _clear_prime_state → _on_session_prime_complete` (six prime markers cleared,
+  `_rt_req_id` never touched). No production file is in T12's footprint; T2's case (b) keeps the
+  override a harness stub rather than a hole.
+- **Why a new task, not a widened T2/T6** (owner's scoping instruction): both escalated tasks are
+  already reset for their own fixes, and the three suites were in **no** task's `touches_files`, so no
+  re-dispatch could repair them without a footprint violation — widening would have duplicated work
+  exactly as P27's T7/T8 did.
+- **No dependency edge**, deliberately. T12's prerequisite — the readiness gate itself — landed in
+  `1404877`; T2's rework touches only `tests/test_d84_d88_readiness.py`, T6's only `ui/main_window.py`
+  and its own suite, so nothing T12 assumes is changed by either rework. All three file sets are
+  disjoint, so the three fixes can run in one wave. (An edge would only add a wave, not correctness.)
+- **ESC-136 — the diff-shape guarantee gets a test.** New suite
+  `tests/test_p28_seam_diff_shape.py`: one parametrized case over the **21-file** audited seam set
+  asserting, per file, that `git diff ef04c5a -- <file>` adds exactly one line, that it matches the
+  seam assignment (`win._transport_ready = lambda: True`, optional trailing comment, or the
+  `_transport_ready=lambda: True` stub keyword), and that it removes nothing. Single exemption:
+  `tests/test_p7_w4_streaming.py`, whose 20 removed lines are P28-T2's retired `replay_all` case and
+  whose added line is still exactly one seam. Two self-checks keep the detector honest (a synthetic
+  `- assert`/`+ assert` patch must be flagged; a docstring-only addition is still an added line), and
+  the case **skips with a named reason** once a commit outside the P28 family exists in
+  `ef04c5a..HEAD`.
+  - Why phase-bounded: the repo's own precedent (S-P24-5; `tests/test_p28_fence.py`'s docstring) is
+    that a git diff pinned against the phase base reddens every later phase. Inside P28 the guarantee
+    now enforces; after P28 the phase diff is closed and a later phase's edits to those files are its
+    own. Only the **base** `ef04c5a` is pinned — no phase commit hash, no file/line count.
+
+### The measured seam inventory (as instructed, recorded here)
+
+- **42** suites reach `MainWindow._attach_live_feed` at runtime; **21** need the readiness seam —
+  **18 present** at review (`test_p7_w4_deferral`, `test_p7_w4_streaming`, `test_d24_alarm_full_chain`,
+  `test_d24_popouts`, `test_d24_smoke_gate`, `test_d27_aggregator_priming`, `test_d27_phantom_alarms`,
+  `test_d27_reconnect`, `test_d27_stream_health`, `test_d28_2_sessions`, `test_d28_4_gate`,
+  `test_d28_pacing`, `test_d28_tick_burst_baseline`, `test_d68_hold_balance`, `test_p13_hold_fix`,
+  `test_p13_restore`, `test_phase3_fixpass`, `test_p13_attach`) and **3 missing**
+  (`test_p13_hold_probe`, `test_d41_removal`, `test_p7_w2_prime`).
+- **18 further suites** get at least one refusal but assert nothing about the live RT line
+  (`test_d24_9_popout_persistence`, `test_d28_2_load_chart_button`, `test_d42_depth_floor`,
+  `test_d45_removal`, `test_d48_mode_parity`, `test_history_backfill`,
+  `test_history_backfill_disconnect`, `test_history_backfill_loadpath`, `test_p13_host_error`,
+  `test_p14_cache_guard`, `test_p14_indicator`, `test_p14_lifecycle`, `test_p15_continue`,
+  `test_p15_expiry`, `test_p15_surfacing`, `test_p19_prefetch_wave`, `test_p7_w1_persist`,
+  `test_p7_w3_wide`) — they can never redden on this gate, and T12 seams none of them.
+- **1** refusal is by design: `tests/test_d84_d88_readiness.py` case (b) exercises the real predicate
+  refusing.
+- Provenance: the reviewer's instrumented full-suite run, `docs/code_review/review_log_P28.md`
+  section 3. T12 records the four counts in its build result (AC-P28-02-S6, manual) instead of
+  rebuilding the instrumented harness inside the suite.
+
+### Statuses, generations, loop mechanics
+
+- `P28-T2`, `P28-T6` and `P28-T12` are `not_started`; every other task keeps `done`.
+  `meta.status` = `READY_FOR_BUILD`.
+- `generation` bumped so a pre-rework `done` result can never consolidate as the fixed one: T2
+  absent → `1`, T6 `2` → `3` (status and `generation` are both excluded from `graph_struct_sha256`,
+  so `advance` will not refuse). Both on-disk results predate the escalations' `opened` timestamps
+  (2026-11-20T05:15/05:16), so the rework dispatch is not skipped by the freshness rule.
+- `check_tasks.py`: **OK — 12 tasks validated, `execution_graph.json` written**, 0 errors. The
+  warnings are the pre-existing pure-output-file notices (the new suite files their tasks create,
+  plus T12's new suite).
+
+**Lesson — the inventory, not the diff shape, was the failure; both are now closed.** This is the
+third inventory-by-count miss in the phase family (P28-02 counted 17 suites, the tree had 18; the
+review instrumented the population and found 3 more). ESC-136 is right that a diff-shape assertion
+alone would have caught none of it — but it is also right that "each changed file differs only by its
+seam assignment(s)" was prose nothing checked. Both are now in place: the **enforcement** is a
+diff-shape case enumerating all 21 (so a suite that later loses its seam line, or gains a second
+edited line, reddens), and the **population** is a recorded, provenance-carrying count. The rule to
+carry: an inventory AC must name the *set* (enumerated in the AC, asserted by a test), and any
+"nothing else changed" clause beside it needs a test or must be labelled a review-time check — never
+left as prose in an AC.

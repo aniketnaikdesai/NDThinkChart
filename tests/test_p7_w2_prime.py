@@ -36,6 +36,7 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    win._transport_ready = lambda: True
     win.rt_manager.subscribe = lambda *a, **k: 4242
     win.rt_manager.unsubscribe = lambda *a, **k: None
     win.rt_manager.cancel_all = lambda *a, **k: None
