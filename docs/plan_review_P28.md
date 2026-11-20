@@ -1,101 +1,200 @@
-# Plan Review — Phase P28 (D84–D95) — pass 2
+# Plan Review — Phase P28 (D84–D95) — pass 3
 
-Plan-Section-SHA256: 91bd8378c23448c0378f63e67d7da4db78bc538e6460a15e41b775f8ac076264
-Architecture-Section-SHA256: 85801886874898ffedbdf1647e31b2bdbdd9df83f58297bdf1009f50cc0c1c8b
+Plan-Section-SHA256: dd530773cd56f81491174b9b5f3769a8d107259af36a90b08612493d711e7748
+Architecture-Section-SHA256: 28d10ddc139266e133925608c66fd228afb75a12acd8d87efeb2db2fd7647b3b
 
-- **Phase:** P28 — connection, startup and window lifecycle (D84–D95), Journeys 74–77, `AC-D84.1`–`AC-D95.3`, G5.
-- **Pass type:** `retry_1_of_3` — targeted re-validation of the five `CHANGES_REQUIRED` items from pass 1. Revision notes were present (`docs/plan.md:8172-8178`), so the scope is: each required change verified against the tree, then consistency ripple on the areas the revision touched. Not a full re-validation.
-- **State validated:** `docs/plan.md` § P28 (8146–8361) `Status: READY_FOR_VALIDATION`; `docs/architecture.md` § P28 (11420–11708) incl. the new S-P28-15. `plan_lint` PASS (0/0) per the preamble.
-- **Evidence basis:** every site re-read in the working tree at HEAD `0ff7964` for the areas the revision touched; `verify_cache.py check --phase P28` was already `new`/`phase mismatch` for this surface in pass 1, and no cached claim was reused. P27's `REVIEW_COMPLETE` is the latest review log, so the phase gate remains open.
+**Review Status:** `Status: APPROVED`
 
-## 1. Review Status
+- **Phase:** P28 — connection, startup and window lifecycle (D84–D95), Journeys 74–77,
+  `AC-D84.1`–`AC-D95.3`, G5.
+- **Pass type:** `retry_2_of_3` — targeted re-validation of the three PLAN-owned items from
+  pass 2 (`RC-1b`, `RC-1c`, `RC-5b`). Revision notes were present
+  (`docs/plan.md:8182-8185`), so scope was: each required change verified against the tree,
+  then consistency ripple on the areas the revision touched (the `_on_disconnected` marking
+  rule, the prime-clear call sites, S-P28-15's label and every row restating them). Not a
+  full re-validation.
+- **State validated:** `docs/plan.md` § P28 (8146–8379) `Status: READY_FOR_TASK_MANAGER`
+  (flipped by this review — was `READY_FOR_VALIDATION`); `docs/architecture.md` § P28
+  (11420–11708) with S-P28-1/S-P28-2/AR-P28-1/AR-P28-3/Data Model/Codebase Summary updated.
+- **Phase gate: OPEN.** `docs/code_review/review_log_P27.md` ends `Status: REVIEW_COMPLETE`
+  (mtime 23:08:16) after `docs/build/build_log.md`'s last terminal status (22:59:43);
+  `docs/code_review/escalations.json` parses to **127 records, 0 open** (nothing
+  `routed_to: PLAN`). P27 is closed at `ef04c5a`; the P28 baseline `0ff7964` and HEAD agree
+  apart from the Plan's own two doc edits.
+- `docs/requirements/requirements.md` § *Phase P28* ends `Status: READY_FOR_PLAN` and is
+  **unchanged since the pass-2 review** (mtime 22:59:20 < the pass-2 review's 23:08:28), so
+  there is no requirements drift to re-check.
+- `plan_lint.py --phase P28`: **PASS**, 0 failures, 0 warnings (before and after activation).
+- `docs/pending_doc_sync.md`: absent (drained).
+- Evidence basis: every site below was re-read in the working tree at `ef04c5a` for the areas
+  the revision touched. No cached claim was reused for the three items under review.
 
-`Status: CHANGES_REQUIRED`
+---
 
-Four of the five pass-1 items are resolved and verified. **RC-1 is only half resolved**: the extraction and the three call sites landed, but the deferred attach is still not set by the *drop* — so Journey 74's postcondition ("reconnect attaches once") and the plan's own case (d) cannot be produced by the specified code, and the architecture's AR-P28-3 now asserts a rule no deliverable states. Two small factual/label corrections ride along.
+## 1. Required Changes — verdicts
 
-Three PLAN-owned items remain (one material, two editorial). No requirements escalation.
+| RC | Owner | Verdict | Evidence (re-proved this pass, not taken from the revision notes) |
+|---|---|---|---|
+| **RC-1b** — the drop must owe the attach | PLAN | **FIXED** | P28-02 deliverable 5 now marks before it clears, with the stated three-term condition (`docs/plan.md:8253-8265`); S-P28-2 carries it (`docs/architecture.md:11695`); AR-P28-3 (`:11681`), AR-P28-1 (`:11679`), the Data Model row (`:11628`), the Codebase Summary rows (`:11556-11558`), the Deferred-attach and Prime-lifetime decision rows (`:11592-11593`), AP-P28-2 (`docs/plan.md:8363`) and the `AC-D84.2` traceability row (`:8190`) now all describe that rule. Each term verified below; case (d) is rewritten as the drop → reconnect path with both negatives (`:8272`). |
+| **RC-1c** — three full copies, `_fail_open_prime` named | PLAN | **FIXED** | The deliverable, the architecture rows and the fence assertion all say **three** copies and name `_fail_open_prime` (`5276`/`8253`, `11555`, `11608`, `11695`; fence at `8353`); case (c) asserts the helper call at all three sites via `inspect.getsource` (`:8272`); the Do-not is narrowed to "any other **full** copy" and exempts the two ingress handlers with a stated reason (`:8274`). Counts verified in the tree (below). |
+| **RC-5b** — S-P28-15's label target | PLAN | **FIXED** | S-P28-15 now reads `[extends P25: the frozen ensure_rt_subscribed contract (architecture.md:10471) — signature and refcount unchanged, one branch added]` (`docs/architecture.md:11708`). `docs/architecture.md:10471` is the P25 section's `def ensure_rt_subscribed(self) -> int:` line (P25 header at `:10214`), and the label is the same `[extends P<m>: <component>]` form every other row uses. |
 
-## 2. Validation Summary (per pass-1 item)
+No item remains PLAN-owned. Nothing was added to the Required Changes list.
 
-| Pass-1 item | Verdict | Evidence |
+## 2. RC-1b — the drop-owes-the-attach rule, term by term
+
+- **Term 2 is the gate's own predicate.** `_on_session_prime_complete` (`ui/main_window.py:3974-3980`)
+  attaches only when `session.symbol == self._current_symbol` (`:3979`), and
+  `_attach_live_feed_if_current` repeats the comparison (`:3420`). `self._current_symbol` is
+  always uppercase (`load_chart` normalises at `:3052` before assigning at `:3229`) and
+  `session.symbol` is the uppercase registry key (`get_or_create_session`, `:1095-1108`), so
+  the planned comparison cannot misfire on case. A background session is therefore genuinely
+  excluded, exactly as the rationale says.
+- **Term 1 ("no live line") cannot miss a live line.** `_rt_req_id` is the session's only
+  subscription handle: it is assigned only by `_subscribe_rt` (`ui/ticker_session.py:597-601`)
+  and `_reissue_rt`, cleared only by `_unsubscribe_rt` (`:608-623`, which unregisters the
+  routing entry, `sub_manager` and the manager line before nulling it), and `release_rt`
+  reaches that clear only at zero holders (`:475-480`). A pop-out displaying the same symbol
+  shares the same `TickerSession` (`ui/popout_window.py:371`), so its hold also keeps
+  `_rt_req_id` non-None. There is no second "live" representation the predicate could miss;
+  flagging such a session would indeed attach on a live line and add a second holder, which
+  is what the term prevents.
+- **Term 3 is the right three states.** The attach is reachable from exactly: the prime's end
+  marker (`on_historical_data_end:1577-1582`), its error fail-open (`on_historical_error:1610-1632`),
+  the backstop (`_on_prime_timeout` → `_on_session_prime_timeout` → `_on_session_prime_complete`),
+  the deferred retry's failure (`_on_prime_retry:1885-1898` → `_fail_open_prime`), and the
+  immediate attach in `load_chart:3376-3379`. The first two are covered by `_prime_req_id`,
+  the backstop by `_prime_timer.isActive()` (single-shot `QTimer`, `:361-363`), and the
+  deferred retry by `_prime_retry_pending` — and that last one really does reach the attach:
+  `_on_prime_retry` clears the flag, re-enters `prime_aggregator(retrying=True)`, and on
+  `False` calls `_fail_open_prime` (`:1893-1898`), which calls
+  `self._host._on_session_prime_complete(self)`. A retry that *succeeds* instead leaves a
+  prime reqId/backstop, i.e. the states terms 3 already names. `_prime_retry_pending` and
+  `_prime_retry_args` are always set together when the retry is scheduled (`:1802-1803`), so
+  the term cannot fire on a retry that would return early with no args.
+- **The immediate-attach path adds no hole.** When `prime_aggregator` returns `False` the
+  attach happens synchronously; if the gate refuses it sets the flag itself, and the drop's
+  loop neither clears an existing flag nor needs to, which the deliverable states.
+- **Placement is safe.** The new loop runs before the stranded-wave loop; nothing in
+  `_finalize_stranded_history_wave` (`:2912-2950`) reads prime state, and
+  `_clear_prime_state()` per session is the same helper a reload already uses.
+- **Case (d) tests the true path, both negatives included.** Positive: flag set, prime
+  cleared, no subscribe on the drop, then `_on_connected()` attaches exactly once (one
+  subscribe, flag False, `_rt_holders` raised by one). Negative (i): a background session
+  with an armed prime is not flagged, its prime still cleared. Negative (ii): a live line
+  (`_rt_req_id` set) is not flagged; after `_on_connected` `_replay_subscriptions`
+  (`:2093-2142` → `SubscriptionManager.replay_all`, `ibkr/subscription_manager.py:135-170`)
+  re-issues it once through `_reissue_rt` and the deferred pass adds nothing —
+  `_rt_holders` unchanged, one subscribe recorded. That is the real mechanism, not a
+  pre-set flag.
+
+## 3. RC-1c — the copy count is now accurate
+
+- Full six-statement copies in the tree: `teardown` (`ui/ticker_session.py:510-519`),
+  `prepare_load` (`:953-961`), `_fail_open_prime` (`:1858-1863`). Three, as stated; the other
+  `_prime_timer.stop()` sites are not full copies (`on_historical_data_end:1577-1582` and
+  `on_historical_error:1610-1617` clear `_prime_req_id`, `_prime_period_start`, the timer —
+  three statements — and then route an answer; `_on_prime_timeout:1266-1274` clears three
+  and delegates the rest to the host; `prime_aggregator:1838` releases the reservation only).
+- The narrowed Do-not is honest: "any other **full** copy" leaves `_fail_open_prime` in the
+  call-site set, exempts the two request transitions for the reason given, and does not
+  require touching the partial clears. `_fail_open_prime` becoming the fourth call site
+  keeps its `+= 1`, its warning and its `_on_session_prime_complete` — the helper only
+  replaces the six statements above them, so no behaviour moves.
+- Fence and case (c) pin the three call sites (`docs/plan.md:8353`, `:8272`), so a later
+  worker cannot quietly leave one inline.
+
+## 4. RC-5b — label target verified
+
+`docs/architecture.md:10471` is `  \`def ensure_rt_subscribed(self) -> int:\` (refcounted;
+returns the reqId; may raise \`PacingExceeded\`)` inside P25's Frozen Interfaces (header at
+`:10214`). P28's own frozen entry (`:11652`) keeps the signature frozen and declares the
+terminal branch under **Not frozen** (`:11663`), so the label and the freeze are consistent:
+`[extends]` here means "same contract, one added branch".
+
+## 5. No-regression checks
+
+- **Four supersession targets still resolve as claimed:** `:5900-5902` (P7
+  `RealtimeBarsManager`/`StreamHealth` — `subscribe` precondition, `replay_all` deletion,
+  `EXHAUSTED`/`MAX_RETRY_ATTEMPTS`/`mark_exhausted`), `:2714` (P4 Teardown row, "Pop-outs are
+  Qt children destroyed with the parent"), `:6953` (S-P13-6 / D49.6 second save),
+  `:7523` (S-P16-2 / D55.4 guide phrasing). P4/D40 stays `[extends]` (`S-P28-8`).
+- **Frozen Interfaces:** still all `[existing]`, nothing under construction frozen, owning
+  modules resolve, no duplicate entries; the revision touched none of them. `subscribe`'s
+  signature stays frozen with the body under **Not frozen**.
+- **Scope envelope intact:** one new module (`config/instance_lock.py`); no new dependency
+  (`QLockFile` is QtCore); no migration, no `UNIQUE` on `popouts` (FI-P28-3); no new settings
+  key (S-P28-6 only makes the two existing env parses non-raising); no reconnect-policy
+  change (AP-P28-10); sizes S/M only (S, M, M, M, M, M, S, S); G5 owner-run and never claimed
+  (`:8216`, `:8305`, `:8356`, AP-P28-8).
+- **RC-2 / RC-3 / RC-4 untouched:** deliverable 6's seventeen-suite seam, the two named
+  re-baselines, P28-03 deliverable 6's terminal branch, and P28-04's `_discard_popout`
+  (None-tolerant, both sites pre-binding `popout = None`, case (g)) are unchanged in this
+  revision — the plan diff touches only deliverable 5, cases (c)/(d), the Do-not, the
+  `AC-D84.2` traceability row, the fence assertion, AP-P28-2 and the pass-3 notes.
+- **Existing-repo compliance / codebase map:** unchanged since pass 2 (both PASS then); the
+  architecture's Codebase Summary, labels and `[new in P28]` map row stand, and
+  `docs/codebase-map.md` was not touched by this revision.
+
+## 6. Validation steps — status
+
+| Step | Status | Basis |
 |---|---|---|
-| RC-1 — `AC-D84.2` implementation | **PARTIAL** | The helper, the three call sites, the teardown flag clear and case (c) are specified and correct; the drop does not mark the invalidated load owed (see RC-A), and the "six statements exist twice" claim is wrong (RC-B). |
-| RC-2 — attach-gate harness seam | **RESOLVED** | Seam is now the predicate the gate reads; seventeen suites enumerated correctly; the two dropped suites really do not reach the gate; `lambda: True` is a harness seam, not a hole (below). |
-| RC-3 — `AC-D90.3` reload | **RESOLVED** | S-P28-15 + deliverable 6 sit on the real `ensure_rt_subscribed`; refcount and double-subscribe behaviour verified (below). |
-| RC-4 — `_discard_popout` shape | **RESOLVED** | `None`-tolerant helper, both sites bind `popout = None` before the `try`, construction / `_ensure_restore_data_path` inside it, case (g) forces both shapes. |
-| RC-5 — doc/label reconciliation | **RESOLVED except two targets** | (a)–(e) all applied; S-P28-15's `[extends P7: …]` points at the wrong frozen row (RC-C). |
+| 1. Requirements coverage | PASS | `AC-D84.1`–`AC-D95.3`, Journeys 74–77, A235–A240, R175–R180 each map to a named wave and case; `AC-D84.2`'s postcondition is now delivered by code the plan specifies (RC-1b), and `AC-D90.3`'s reload branch by S-P28-15 (RC-5b). Requirements file unchanged since pass 2. |
+| 2. Architecture completeness | PASS | All sections present; the revised rows (S-P28-1/-2, AR-P28-1/-3, Data Model, Codebase Summary, decision rows) carry rationale and alternatives for the new rule. |
+| 3. Architecture consistency | PASS | The drop rule, the flag's two setters, AR-P28-3, the Data Model and AP-P28-2 agree; the copy count agrees across plan, architecture and the fence; S-P28-15 points at P25's row. No contradiction remains in this area. |
+| 4. Plan quality | PASS | Eight coarse waves with goals, coverage, dependencies and exit conditions; no task-level breakdown; the revised case (d) is a scenario, not a task. |
+| 5. Task Manager readiness | PASS | The missing rule (who sets the flag on a drop) is now stated; the three-term predicate, the call sites and the test are explicit, so no architectural decision is left to Task Manager. |
+| 6. Scope integrity | PASS | No product scope added or removed; the D90 budget and D95 lock branch are the requirements' own delegated choices; flagged issues stay non-blocking. |
+| 7. Existing repo compliance | PASS | Unchanged from pass 2 (Codebase Summary substantive, constrained stack first, labels complete, additive-only). |
+| 8. Frozen interfaces | PASS | Unchanged from pass 2; the one label defect (RC-5b) is fixed; nothing `[new]` frozen. |
+| 9. Codebase map | PASS | Unchanged; `config/instance_lock.py` row is `[new in P28]` and flagged planned. |
+| 10. Pending doc sync | PASS | `docs/pending_doc_sync.md` absent. |
 
-## 3. Requirements Coverage
+## 7. Build attention (non-blocking — no Plan change required)
 
-- `AC-D84.1`, `AC-D84.3`, `AC-D90.1`–`AC-D90.3`, `AC-D85.1`/`AC-D85.2`, `AC-D86.1`–`AC-D86.3`, `AC-D87.1`, `AC-D88.1`, `AC-D89.1`/`AC-D89.2`, `AC-D91.1`, `AC-D92.1`, `AC-D93.1`/`AC-D93.2`, `AC-D94.1`, `AC-D95.1`–`AC-D95.3` and Journeys 75–77 are delivered by a named wave and case.
-- **`AC-D84.2`** is delivered as *clearing* (no timer survives, no post-drop attach). Its companion promise — Journey 74's "reconnect (the next step) attaches once, with an id allocated at that point" — is **not** delivered for the drop-during-prime case: `_clear_prime_state()` stops the backstop, so no refusal occurs during the outage, so `_rt_attach_pending` is never set, so `_on_connected` → `_attach_deferred_rt_feeds()` finds nothing (RC-A).
-- `AC-D90.3`'s reload branch is now covered by S-P28-15 and is a genuine reset (`mark_subscribed(reset_backoff=True)` through `_subscribe_rt`), not a `resubscribe_rt` no-reset.
+- **Case (d)'s last clause.** "A second `_on_connected()` adds nothing" means the **deferred
+  pass** adds nothing (the flag is false, no new hold). It cannot mean "no subscribe at
+  all": a second connect runs `_replay_subscriptions` and re-issues the now-registered line
+  (as the case's own negative (ii) states). Scope that assertion to the deferred pass /
+  `_rt_holders`, not to the fake manager's total subscribe count.
+- **Cited line ranges are one line short.** `teardown`'s six statements span `:510-519`
+  (the plan says `:510-518`) and `prepare_load`'s span `:953-961` (the plan says `:953-960`);
+  `_fail_open_prime`'s `:1858-1863` is exact. The instruction is by site name and case (c)
+  asserts the helper call, so nothing depends on the ranges — noted so a worker reading the
+  ranges literally does not stop on the final `_prime_reserved = False`.
 
-## 4. Architecture Findings
+## 8. Requirements Escalations
 
-**Resolved / verified sound:**
+None. FI-P28-1/2/3 remain faithful readings of the requirements' own delegated choices.
 
-- **RC-2 seam.** `_transport_ready()` reads `self.ib_client.api_ready`, which *is* the client's `_connected` (`ibkr/client.py:104-106`), and `MainWindow.ib_client` is a real `IBApiClient` (`ui/main_window.py:802`); every window suite leaves `_connected` False, so overriding the predicate (`win._transport_ready = lambda: True`) is the only seam that actually opens the gate. The two suites dropped from the inventory are correctly dropped: `test_d67_forming_candle`'s only window case loads no chart (`:572-590`, `get_or_create_session` + `_wall_now`), and `test_p7_w1_coalesce` patches `TickerSession.ensure_rt_subscribed` (`:121`) so the gate only skips the patch — it asserts no RT state. The fifteen real-window suites named all call `load_chart` and depend on the attach (`test_d24_popouts:39`, `test_d27_aggregator_priming:88`, `test_d27_phantom_alarms:89`, `test_d28_4_gate:65`, `test_d28_tick_burst_baseline:47`, `test_d27_reconnect:195-205`, `test_d68_hold_balance:78`, `test_p13_hold_fix:102-198`, `test_p13_restore:54`), or patch `rt_manager.subscribe` so the manager gate is bypassed and only the window gate remains.
-  **Honesty of `lambda: True`:** it removes the gate from those cases by design, and it would also pass if the gate were deleted — but only those cases. The gate's existence is guarded by `tests/test_d84_d88_readiness.py` case (b), which sets the **real** predicate (`win._ibkr_connected` and `win.ib_client._connected`) and asserts zero subscribes; delete or neuter the gate and (b) reddens. So it is a seam, not a hole, provided case (b) is never weakened in the build — worth the Task Manager's attention because it is now the single guard.
-- **RC-3 / S-P28-15.** Against the real `ensure_rt_subscribed` (`ui/ticker_session.py:465-473`): `_unsubscribe_rt()` clears `_rt_req_id` and unregisters routing/`sub_manager`; `_subscribe_rt(reset_backoff=True)` subscribes, re-registers and calls `mark_subscribed(True)` (`:597-616`), synchronously moving the state off EXHAUSTED. The branch sits before the existing `_rt_holders += 1`, so the caller's hold is preserved and the count is not reset. A second holder in the same tick sees a non-EXHAUSTED state and takes the plain `+= 1` path — one subscribe, no double. If the fresh subscribe raises `PacingExceeded`, nothing has been held and `_rt_req_id` is None, so the caller's existing deferral re-enters the ordinary path, which also resets (`reset_backoff` defaults True). `resubscribe_rt()`'s Fix-B `reset_backoff=False` is untouched, and the predicate is the terminal state rather than `retry_budget_spent`, so a FAILED stream mid-storm is not silently recovered.
-- **RC-4.** `_discard_popout` is written to tolerate `None` and to report exactly once in both cases; `_open_popout`'s sequence (`ui/main_window.py:1224-1259`) and `_restore_popouts`' `try` (first statement `_ensure_restore_data_path`, `:1604`) are the two sites, and case (g) forces a constructor raise and a data-path raise.
-- **RC-5.** One shorthand everywhere (`5/10/20/40/60/60 s`, plan `:8264`, `:8273`, `:8347`; architecture `:11508`, `:11626`, `:11669`); P28-01 is `[extends P4/D40]` (`plan.md:8233`); `DB_PATH` is an absolute temp **file** (`tmp_path / "p28_instance.sqlite3"`); `_transport_ready()` is scoped "for the realtime attach" and names the six direct readers.
-- The four supersession targets still resolve and say what the plan claims: `architecture.md:5900-5902` (`RealtimeBarsManager`/`StreamHealth`, "the APIs do not change"), `:2714` ("Pop-outs are Qt children destroyed with the parent"), `:3321` (the D40 classification boundary — now correctly `[extends]`), S-P13-6 (`:6953`), D55.4 (`:7523`).
-- Frozen Interfaces: unchanged in the areas the revision touched; `ensure_rt_subscribed`'s signature is frozen with its new branch declared under **Not frozen** (`:11652`, `:11663`), and no `[new]` interface is frozen. No new module beyond `config/instance_lock.py`, no dependency (`QLockFile` is QtCore), no migration, no settings key, no reconnect-policy change, sizes S/M, G5 owner-run and never claimed.
+## 9. Findings owned outside Plan
 
-**Finding — the deferred-attach rule is contradicted inside the architecture (RC-A):**
-`AR-P28-3` now claims "no state is cleared that a reconnect needs (**`_rt_attach_pending` is set before the clear**)" (`architecture.md:262`), and the Deferred-attach decision row says the flag is "set where the gate refuses" (`:173`); the Data Model row says the same (`:209`). The first statement is not true of any deliverable, and the other two say why not — the flag is only set by a refusal, and a drop with an outstanding prime never reaches `_attach_live_feed`.
+None.
 
-**Finding — wrong frozen-row target (RC-C):** S-P28-15 carries `[extends P7: ensure_rt_subscribed's frozen signature, one added branch]` (`architecture.md:11708`), but `ensure_rt_subscribed`'s frozen contract is P25's (`architecture.md:10471`), not P7's RealtimeBarsManager/StreamHealth row (`:5900-5902`). The relation is `[extends P25: D68's session API — signature unchanged, one added branch]`.
+## 10. Task Manager Readiness
 
-## 5. Plan Findings
+**Yes.** A pack built from P28-02 now contains the rule that makes `_rt_attach_pending` true
+after a drop, its exact three-term scope, the four call sites of `_clear_prime_state()` and a
+case that fails if any of them is invented differently. No architectural decision is left to
+Task Manager.
 
-**RC-A (material) — the drop must owe the attach: `_rt_attach_pending` is never set on the drop path.**
-P28-02 deliverable 5 makes `_on_disconnected` clear every session's prime state and stop `_rt_retry_timer` — correctly. But deliverable 4 sets `_rt_attach_pending` only inside `_attach_live_feed` when the gate refuses. Trace a Journey-74 drop:
+## 11. Activation
 
-1. `load_chart` issues the prime and arms `_prime_timer` (`ui/ticker_session.py:1828-1842`); no RT subscription exists yet.
-2. The socket drops → `_on_disconnected` → `_clear_prime_state()` stops the timer and clears `_prime_req_id`.
-3. The clock advances: nothing fires (correct, `AC-D84.2`), so no refusal, so no flag.
-4. Reconnect → `_replay_subscriptions()` re-issues only *registered* subscriptions (there are none) → `_attach_deferred_rt_feeds()` finds no session owed → **no subscribe**.
-
-The chart therefore stays feedless after the reconnect. That is precisely the "R175's real risk, in the other direction" the S-P28-1 rationale names, and it is a regression against today's accidental recovery (the old backstop attached on a dead socket, which registered the line, which the replay then re-issued). It also makes the plan's own case (d) unimplementable: after case (c)'s drop there is nothing for `_on_connected()` to consume, yet (d) requires "attaches exactly once … one subscribe". A worker would have to invent both the rule and its scope.
-
-The fix is a decision Plan must state, not one Task Manager may take: in `_on_disconnected`, before `_clear_prime_state()`, mark the session whose in-flight load the drop invalidated (`_prime_timer.isActive()` or `_prime_req_id is not None`), scoped so it cannot (i) attach a non-current session that `_on_session_prime_complete` would never have attached, or (ii) add a holder for a session that already has a live line (a reload mid-prime leaves `_rt_req_id` non-None — an unconditional flag would call `_attach_live_feed` on a session whose replayed line exists and bump `_rt_holders` again). Then update the flag's meaning in the Data Model ("refused **or invalidated by a drop that removed the line**") and make AR-P28-3's sentence true. Case (d) should then be written as the drop → reconnect path, not as a pre-set flag.
-
-**RC-B (editorial) — "the six statements exist twice" is wrong; there are three full copies.**
-The tree has the six statements at `teardown` (`ui/ticker_session.py:510-518`), at `prepare_load` (`:953-960`), **and** at `_fail_open_prime` (`:1858-1863`). The deliverable says the helper holds "the six statements now copied at `teardown` … and `prepare_load`", while the same wave's **Do not** says "leave a third copy of the six prime statements anywhere". A worker following the deliverable literally leaves the third copy and breaches the Do-not; a worker following the Do-not touches a site the deliverable never names. Name `_fail_open_prime` as a call site (the six are identical and the helper is safe there — it is called from `_on_prime_retry` when the retry cannot issue, `:1897`), or state explicitly why it is excluded. The architecture's "the same six statements twice" (`:136`, `:174`) carries the same error.
-
-**RC-C (editorial) — retarget S-P28-15's relationship label** from P7 to P25 (see § 4).
-
-## 6. Existing Repo Compliance — PASS
-
-Codebase Summary substantive; constrained stack listed first; `[existing]`/`[new]`/`[new/changed]` labels complete; additive-only; `ui/popout_window.py`, `db_backup`, `popout_store`, `paths` correctly `[existing]`. The new `data` rows are consistent with the tree (`popouts.tz_offset` exists via `PopoutStore._ensure_tz_column`). No change since pass 1.
-
-## 7. Frozen Interfaces — PASS
-
-Pass-1 verbatim checks stand (all sampled contracts matched the tree). The revision changed only `ensure_rt_subscribed`'s body status and added S-P28-15; the signature stays frozen and the body is declared under **Not frozen**. Nothing `[new]` is in the frozen list; owning modules resolve; no duplicates. The only nit is the `[extends P7]` label target (RC-C).
-
-## 8. Codebase Map — PASS
-
-Unchanged since pass 1: skeleton at `0ff7964`, all module sections resolve, the planned `config/instance_lock.py` row sits outside the skeleton and is labelled `[new in P28]` with the not-yet-on-disk note, and no deleted-module entry remains. P28-08 remains a verify-and-refresh step.
-
-## 9. Required Changes
-
-1. **Make the drop owe the attach** — in `_on_disconnected`, set `_rt_attach_pending` for the session whose outstanding prime/load the drop invalidated **before** calling `_clear_prime_state()`, with a stated condition that (a) does not attach non-current sessions and (b) does not bump a holder for a session that already has a live line; rewrite case (d) as the drop → reconnect path; update the flag's meaning in the Data Model and AR-P28-3 so the architecture and the deliverable agree. `owner: PLAN`
-2. **Correct the prime-copy count and name the third site** — `_fail_open_prime` (`ui/ticker_session.py:1858-1863`) holds the same six statements; name it as a call site (or exclude it with a reason) in P28-02 deliverable 5 and in the architecture rows that say "twice". `owner: PLAN`
-3. **Retarget S-P28-15's relationship label** from `[extends P7]` to `[extends P25]` (the frozen `ensure_rt_subscribed` contract lives at `architecture.md:10471`). `owner: PLAN`
-
-## 10. Requirements Escalations
-
-None. FI-P28-1/2/3 remain faithful readings (unchanged from pass 1); no requirement needs redefinition for any item above.
-
-## 11. Task Manager Readiness
-
-**No.** A pack built from P28-02 as written would omit the rule that makes `_rt_attach_pending` true after a drop, and case (d) would either be written to pre-set the flag (testing nothing about the drop) or fail. Items 2 and 3 are one-line corrections that should land in the same revision.
+- `docs/plan.md` § P28's closing line flipped `READY_FOR_VALIDATION` → `READY_FOR_TASK_MANAGER`
+  (line 8379). That flip is the whole activation; nothing was copied or regenerated.
+- Cumulative updates verified as labelled: every `[new in P28]` / `[revises P…]` /
+  `[extends P…]` row sits in the P28 section (or, for the four supersessions, is recorded for
+  the earlier row at activation per the S-P24-6 marker convention), the Frozen Interfaces
+  entries are present with verbatim contracts, and no restated settled content needed
+  trimming.
+- Header stamps above are the post-activation section hashes (the P27 precedent), so
+  `pipeline_state.py` compares them against the current sections.
 
 ## 12. Final Decision
 
-`Status: CHANGES_REQUIRED`
+`Status: APPROVED`
 
-`docs/plan.md` § P28 remains `Status: READY_FOR_VALIDATION`; nothing was activated and neither canonical file was edited. RC-2 through RC-5 are verified resolved and need no further work. On revision, item 1 is the only substantive change; the next pass will be a targeted re-validation of items 1–3.
+All three Required Changes are resolved and verified against the tree, the revision's ripple
+is internally consistent, and the phase-gate is open, so this is a final approval rather than
+a provisional one. Task Manager may proceed.
