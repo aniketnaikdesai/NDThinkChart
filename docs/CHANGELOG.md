@@ -623,3 +623,41 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - 015e77d Q-66: toolbar scroll opens at its left edge (startup offset fix)
 - 1953386 Q-65: style the horizontal toolbar scrollbar to match the dark theme
 - 4ea1482 Q-64: derive toolbar row height from content sizeHint (36px floor)
+## P25 — 2026-11-20
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P25-T3 — D68: PopoutChartWindow now records the one RT hold it acquired in _hold_acquired and latches _closed in detach(); detach releases at most that hold, attach's unwind reads the instance latch, and a post-close retry acquires nothing. New tests/test_d68_hold_balance.py (5 tests / 6 cases, both close orders) green, P13 hold fence untouched and green.
+- P25-T1 — P25-T1 done: envelope.js and ui/lwc_bridge.py accept the set_partial directive (int ts, bool partial, no series/cols) and chart.js lifts it before describeOp and re-applies one guarded createSeriesMarkers marker after every rows application; suite green (117 node, 19 pytest) with the @pytest.mark.webengine case excluded by repo convention (it aborts on macOS offscreen even on unmodified HEAD — pre-existing environment defect, not this task's code).
+- P25-T2 — D67 part 2: week/month forming candle adopts the rendered current-period row as the aggregator base, skips the prime when based, stamps Bar.partial from covering_since vs the first session open, and drives one set_partial marker from the view; new suite green.
+- P25-T4 — Re-verified the existing D69/D70 implementation (arrival-ordered flush with one replace per series; one whitespace predicate ˋopen is None or close is Noneˋ shared by both Python reconstruction branches and the single exported envelope.js::isWhitespaceRow that chart.js reuses): 12 Python tests + 127 node tests pass; re-submitted with generation 2 (the prior result was archived only for a wrong generation value).
+- P25-T5 — worker completed the fence suite and self-check but exhausted its step budget before writing the result; orchestrator records it from the worker's verbatim stamp, with the gate re-run green after Q-79
+- P25-T6 — ESC-126: both P7-W4 suites no longer build a QApplication at import (the dead module-level _APP/APP is replaced by a session-scoped autouse _qt_app fixture creating the app at test time), and new tests/test_qt_app_import_invariant.py pins the tree-wide module-scope AST invariant, the two escalated collection orders, and all 20 pre-rework test ids; note AC3's pre-fix red is not reproducible here because ui/lwc_host.py guards its QtWebEngineWidgets import (HAS_WEBENGINE just goes false), so the red/green signal lives in the AC1/AC2 static cases.
+- P25-T8 — ESC-128: usage.md now documents the amber partial marker on a forming 1 week/1 month candle (bullet under Weekly & Monthly Timeframes) and distinguishes it as a data-completeness cue in the Event Markers note; new tests/test_p25_usage_doc.py.
+- P25-T7 — Single-sourced the candle whitespace predicate per side: Python now has one module-level _candle_row_is_whitespace called by both apply_ops_to_bars branches (no close-only test left), envelope.js exports the one isWhitespaceRow used by mergeRows and delegated to by chart.js; added the AC1 source-structure fence, the AC2 both-shapes/both-deliveries case, the ESC-127 close-null update parity fixture, and the fold's mirror case.
+
+### User-facing / documented-behavior changes (doc_required)
+- P25-T8
+
+### Recent commits (unscoped)
+- a22ecf6 P25 rework: single-sourced whitespace predicate, import-time QApplication invariant, partial-marker docs (ESC-126/127/128)
+- 7d93819 Q-79: drop the dead module-level QApplication in the forming-candle suite (import-order fix)
+- 76713af P25 build: period base + forming-candle marker, pop-out hold latches, arrival-ordered flush, one whitespace rule
+- 08cade8 P25: plan approved (D67-D70 silent-wrong-data); Batch-38 requirements recorded as phases P25-P30
+- 94d6119 Q-76/77/78: expiry renders Nov19, silence bound scales with chunk shape, ResizeObserver work coalesced
+- 9418a54 P24 close-out: changelog, review log, PRE-021 addressed
+- 246e5df P24: PCS per-side offsets + reversed row order (D66); fixtures re-derived, delta fence
+- f9bb73c P24: requirements + plan approved (D66 PCS ordering delta); ESC-123/124/125 closed; acceptance record names db21672
+- db21672 P23 rework: restore the install guard (ESC-124); surface the IB chain error code and stop claiming no-0DTE on failure (Q-74)
+- 39856b0 P23 cleanup: delete 18 test-only symbols, wire AC-D65.4 into evaluate(), harden the residue gate (ESC-121/122), live-TWS acceptance record
+- c04cc03 Q-73: usage docs cover the D65 badge, STALE/freeze and no-0DTE empty state
+- a6800b2 P23 T17: residue gate censuses class methods with cited framework exemptions
+- c2fc2af P23 T16: engine-owned reset_session, live toggle_off, no constructor re-entry
+- bb5d540 P23 rework: ESC-116 contract re-point, ESC-117 OFF/cutoff session reset, ESC-118 dead alias + allowlist tighten
+- 82b82fd P23 build: Option Spreads panel, chain/greeks, engine, live wiring, Portfolio stack removal, schema drop (10 waves)
+- 4bb01e9 P23: plan approved after owner review (10 waves, RC-1..RC-16)
+- e27c03b D65 amended for owner review; plan revised to 10 waves (FI-P23-2/3 resolved)
+- 337221e Q-72: CI parity gate reads the archived matrix path
+- 153c317 Archive reference docs; D65 amended per owner review (Q-71)
+- 99bd362 Archive review logs, plan reviews and probe records (Q-68..Q-70)

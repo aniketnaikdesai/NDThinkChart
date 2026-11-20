@@ -134,3 +134,93 @@ Every claim below was checked against the diff, not against the worker's prose. 
 ---
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Re-review pass — P25 rework (`a22ecf6`)
+
+**Pass type:** phase-final → **full pass** (mandatory on the phase-final pass regardless of tier; independently, the precheck's four cross-task overlaps on shared files — `envelope.js`, `envelope.test.js`, `tests/test_d69_d70_bridge_contract.py`, `ui/lwc_bridge.py` — rule a light pass out).
+**Scope (incremental):** P25-T4 (rework, wave 398), P25-T6, P25-T7, P25-T8. T1/T2/T3/T5 are **confirmed unchanged** (§6) and not reopened.
+**Tree:** `a22ecf6` (*P25 rework: single-sourced whitespace predicate, import-time QApplication invariant, partial-marker docs*) on top of `76713af` + `7d93819`; working tree clean.
+**Inputs:** `precheck.json` (2026-11-19T23:56:43Z, `fail_fast: []`, no `PRE-*`), `test_verification.json` (**verdict pass, exit 0, 207.8 s**, newer than `build_log.md`), `build_log.md` waves 395–399, the four archived results, `task-graph.json` P25-T6/T7/T8 ACs, `usage.md`, `escalations.json`.
+**Result: all three escalations closed (`addressed`). No new finding, no new escalation. Owner gates G1/G2 still NOT run — named, not claimed.**
+
+---
+
+## 1. Close-out summary
+
+| id | task | route | what was claimed | verdict |
+|---|---|---|---|---|
+| ESC-126 | P25-Q79 | TASK_MANAGER → fixed by P25-T6 | both dead module-level `QApplication`s replaced by session-scoped autouse fixtures; tree-wide AST invariant + escalated-order regression | **addressed** — verified, including a challenge of the scanner |
+| ESC-127 | P25-T4 | BUILD → fixed by T4 rework + P25-T7 | one predicate per side, both branches, no surviving duplicate; both discriminating shapes covered | **addressed** — verified by grep + structural fence + green parity runs |
+| ESC-128 | P25-T2 | TASK_MANAGER → fixed by P25-T8 | `usage.md` documents the amber marker and distinguishes it from event markers | **addressed** — verified against the live document and the implementation |
+
+---
+
+## 2. ESC-126 — import-time `QApplication`, closed by P25-T6
+
+- **Dead module-level apps are gone.** `grep -n '\bAPP\b|_APP'` over `tests/test_p7_w4_streaming.py` and `tests/test_p7_w4_deferral.py` → **0 matches**. Each module now declares `@pytest.fixture(scope="session", autouse=True) def _qt_app()` that calls `QApplication.instance()` and constructs `QApplication(["pytest"])` only **at test time** (`deferral.py:32-46`, `streaming.py:39-53`). The fixture docstrings name the smoke suite's raw `QtWebEngineWidgets` import and why a real `argv[0]` is used.
+- **My own strict module-scope AST scan** (walks module-level statements, never descends into `FunctionDef`/`AsyncFunctionDef`/`ClassDef`/`Lambda`) over every `tests/*.py` → **0 application constructions**. `tests/conftest.py`'s app is inside its `qapp` fixture, so it is correctly not counted.
+- **Scanner challenged, as asked:**
+  - It **catches the original Q-79 shape**: `_APP = QApplication.instance() or QApplication([])` — the `or` operand is a `Call` reached by the expression-deep walk; the suite's own `test_scan_catches_boolop_ternary_and_module_level_if` pins exactly that line (expects `[1,2,4]` for direct-assignment / ternary / module-level-`if`). A plain `APP = QApplication([])` assignment is caught the same way.
+  - It catches the attribute form (`QtWidgets.QApplication(...)`) because `_callee_name` reads `ast.Attribute.attr`, and it includes `QGuiApplication` alongside `QApplication`/`QCoreApplication`.
+  - `QApplication.instance()` **alone** is correctly *not* a construction (it creates nothing when no instance exists) — only constructions break the `QtWebEngineWidgets` import.
+  - **Nothing is exempted by name or path.** The scan is `TESTS_DIR.glob("*.py")`, i.e. every test module including `conftest.py`; there are no nested test packages (`find tests -type d` → `tests`, `tests/__pycache__`).
+- **The escalated orders re-run as real runs, not `--collect-only`:** `pytest -q -m 'not webengine' tests/test_p7_w4_streaming.py tests/test_lwc_render_smoke.py` → **EXIT 0**; `... tests/test_p7_w4_deferral.py tests/test_lwc_render_smoke.py` → **EXIT 0**. These are the exact commands that produced the `ImportError` at `test_lwc_render_smoke.py:665` before the rework.
+- `tests/test_qt_app_import_invariant.py` → **9 passed**. AC4's hard-coded 20 pre-rework ids are an intentional anti-weakening fence; both suites still collect them.
+
+## 3. ESC-127 — one whitespace predicate per side, closed by the T4 rework + P25-T7
+
+- **Python:** `ui/lwc_bridge.py` states `_candle_row_is_whitespace(o, c) -> bool` **once** (`:246-260`, `return o is None or c is None`), and `apply_ops_to_bars` has exactly **two** call sites — the `set_bars` loop (`:306`) and the `update_bar` branch (`:312`). The old close-only forms are gone: `cols["close"][0] is None` and `if c is not None` both grep to zero. No other candle null test survives in `ui/`, `data/` or `services/`.
+- **Page:** `envelope.js::isWhitespaceRow` is stated once (`:160-167`), used by `mergeRows` in both branches, and exported (`:207-212`). `chart.js`'s helper of the same name (`:481-483`) is a **pure delegation** to `window.LwEnvelope.isWhitespaceRow`; its body contains none of `open`, `close`, `=== null`, `== null`. `test_p25_t7_ac1` asserts exactly that structurally (count fences + token absence), so a future re-inline fails the suite.
+- **No test fixture re-implements the rule.** `tests/test_d69_d70_bridge_contract.py` builds rows through `_whitespace` / `_open_gap` / `_close_gap` and only *quotes* the rule inside assertions.
+- **Both discriminating shapes are covered**, which was the substance of the finding: `open=None`/`close=2.0` (`_open_gap`) and the mirror `close=None`/`open=1.0` (`_close_gap`, the ESC-127 op `{open: 1, close: None, high: 2.0, low: 0.5}`) each run through **both** deliveries (`set_bars` row and `update_bar`) in `test_ac3_every_whitespace_shape_obeys_the_one_predicate` and `test_p25_t7_ac2`, and through the real `lwApplyOps`/`lwSnapshot()` in AC4's **six** fixtures (`upsert`, `replace`, `open_gap_upsert`, `open_gap_replace`, `close_gap_replace`, `close_gap_upsert`). The JS side adds the open-null case to `chart.test.js` (replace + update) and both shapes to `envelope.test.js`.
+- **No production risk:** `apply_ops_to_bars` is a reconstruction helper used only by tests; the page's live `mergeRows` already used the open-or-close rule, so adopting it in Python changes no emitted shape (`build_series_ops` nulls all four slots together).
+
+## 4. ESC-128 — `usage.md`, closed by P25-T8
+
+- Verified in the **live document**, not from the test: the new bullet under `### Weekly & Monthly Timeframes (Phase D48)` says the forming `1 week`/`1 month` candle carries "a small amber dot above it whenever the loaded history cannot cover the whole period", that its OHLCV are "the aggregate of the bars actually available", and that "the dot disappears once the new period's data covers the period". That matches `_stamp_partial` (partial iff `covering_since > first_session_open(period_start)`), the `aboveBar` position and `PARTIAL_MARKER_COLOR = "#fbbf24"`.
+- The `### Event Markers (removed — Q-34 …)` note keeps the D38 removal record and adds the distinction ("a data-completeness marker — not an event marker"). Diff is exactly those two spots (+2/−1).
+- `tests/test_p25_usage_doc.py` reads the live file and scopes each assertion to its section, so a claim elsewhere cannot satisfy it — **2 passed**.
+
+## 5. T4 generation and record
+
+- `docs/build/results/_archive/wave398_P25-T4.json`: `status: done`, **`generation: 2`**, `footprint_flags: []`, `files_changed` = the six P25 files, `selfcheck.verdict: pass` with the verbatim tail (`# tests 127 / # pass 127 / # fail 0`), and **all five ACs `pass`**. The blocked wave-395 attempt and the stale wave-396 record are archived separately and are not the live result.
+- **Record nit (no escalation):** AC4's note says "5 fixtures" while the parity set now holds **six** (`upsert`, `replace`, `open_gap_upsert`, `open_gap_replace`, `close_gap_replace`, `close_gap_upsert`). The note enumerates only three of them ("incl. …"), and the substance — every fixture compared through the real page — is true and green. A count typo in an archived note cannot be fixed without rewriting a record, and re-running T4 would rebuild nothing.
+- T6/T7/T8 results: `done`, `selfcheck.verdict: pass`, `footprint_flags: []`, `files_changed` exactly the precheck's `files_verified`.
+
+## 6. Standing duties
+
+- **Mock-endpoint containment (B.6, blocking, not droppable):** the rework's production diff (`ui/lwc_bridge.py`, `chart_assets/lwc/envelope.js`, `chart_assets/lwc/chart.js`) grepped for `mock|fake|stub|simulat` crossed with `endpoint|client|service|server|api|harness` → **0 matches**. No production module imports a test fake; no endpoint/client/server was introduced. **Clean.** (The T6/T7 test files use no simulated endpoint either — `test_qt_app_import_invariant.py` uses a real subprocess pytest invocation.)
+- **Usage-doc judgment:** the only user-facing change in the phase is D67's amber partial marker, and it is now documented (§4). `USAGE.txt` is a pointer to `usage.md` ("This is the short pointer. The canonical full guide is usage.md") and is correctly untouched; `docs/` needed nothing. **No user-facing doc is left stale.**
+- **Owner gates:** T5's results still record **G1** (D67 forming week/month candle) and **G2** (D68 pop-out close with the live feed) as `status: "owner-run"`, `claimed: false`, "not run". I ran neither and claim neither. `AC-D67.2`/`AC-D68.1` remain offscreen-asserted only.
+- **Delta scope:** the rework commit touches only P25 files plus the three findings' artefacts (`tests/test_p7_w4_{streaming,deferral}.py`, `tests/test_qt_app_import_invariant.py`, `tests/test_p25_usage_doc.py`, `usage.md`, `docs/`). **`docs/requirements/**` and `tests/test_lwc_render_smoke.py` are untouched by `a22ecf6`** (`git show --name-only a22ecf6` → no match for either). `docs/requirements/requirements.md` appears in the full phase delta `08cade8..a22ecf6` only via `76713af`'s pure block move, verified span-identical in the previous pass.
+- **Unchanged tasks:** no file in T1/T2/T3/T5's footprints changed in the rework (`data/`, `services/`, `ui/ticker_session.py`, `ui/main_window.py`, `ui/lwc_view.py`, `ui/popout_window.py`, `tests/test_d67_forming_candle.py`, `tests/test_d68_hold_balance.py`, `tests/test_p25_fence.py` all absent from the commit). `chart.js`/`envelope.js`/`ui/lwc_bridge.py` are T1's shared files but the rework changes there are confined to the whitespace predicate — no `set_partial`/marker code was touched. No new evidence, not reopened.
+- **Pack-prose spot-check (new packs sampled):** P25-T6/T7/T8 descriptions, plus P25-T1 (first task in the graph, unchanged). No prose contradicts an AC and no guarantee is stated without an enforcing test — T6's "do not edit `tests/test_lwc_render_smoke.py`" is honoured in the commit; T7's "chart.js … delegates … with no second open/close comparison" is exactly what `test_p25_t7_ac1` enforces; T8's two-spots constraint is the diff. **Clean.**
+
+## 7. Adjudicated, not escalated
+
+- **The AST invariant has one theoretical blind spot:** `_module_level_constructor_calls` skips the whole `FunctionDef` node, so a module-level `def f(app=QApplication([]))` default or a decorator expression constructing an app at import would not be seen. Neither shape exists in the tree, no AC requires it (P25-T6-AC2 names BoolOp / ternary / module-level `if`, all covered), and it is not a realistic third case — the realistic regression (`instance() or QApplication([])`) is caught and pinned. No action; recorded so a future widening of the scan is a known, cheap extension.
+- **Three places create the test app:** `tests/conftest.py::qapp`, plus the two module-level `_qt_app` fixtures. The duplication is AC-mandated (a session-scoped **autouse** fixture per module; `conftest.qapp` is session-scoped but opt-in), and both fixtures go through `QApplication.instance()` first, so only one app ever exists.
+- **T4's AC4 note count** (§5) and **`owner_gates` being absent from T6/T7/T8 results** (it is carried by T5's result, which is where the phase records G1/G2) are record-shape observations only.
+
+## 8. Independent runs (mine, this pass)
+
+| command | result |
+|---|---|
+| `pytest -q -m 'not webengine' tests/test_p7_w4_streaming.py tests/test_lwc_render_smoke.py` (ESC-126 order) | **EXIT 0** |
+| `pytest -q -m 'not webengine' tests/test_p7_w4_deferral.py tests/test_lwc_render_smoke.py` (ESC-126 order) | **EXIT 0** |
+| `pytest -q -m 'not webengine' tests/test_qt_app_import_invariant.py tests/test_d69_d70_bridge_contract.py tests/test_p25_usage_doc.py` | **EXIT 0, 25 passed** (9 invariant + 14 contract + 2 usage) |
+| `node --test chart_assets/lwc/` | **128 pass, 0 fail** |
+| my strict module-scope AST scan over `tests/*.py` | **0 constructions** |
+| `grep '\bAPP\b\|_APP'` on both P7-W4 suites | **0 matches** |
+| Orchestrator's full suite (`test_verification.json`) | pass, exit 0, **207.8 s** — ground truth for "the suite passed" |
+
+## 9. Escalation close-out
+
+- **ESC-126 → `addressed`** — re-verified on the live tree: source, my own scan, and the two formerly-failing orders green.
+- **ESC-127 → `addressed`** — re-verified: one predicate per side, no surviving duplicate (including fixtures), both discriminating shapes covered in both deliveries and in the real-page parity fixtures.
+- **ESC-128 → `addressed`** — re-verified: the document says what the implementation does, and the test asserts both sections.
+- No other entry is open; no new entry was opened.
+
+Status: REVIEW_COMPLETE
