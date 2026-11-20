@@ -147,7 +147,7 @@ until it reconnects.
 ### Chart Controls & Pan / Zoom (Phase D101)
 1. Four controls sit in the chart's top-right corner, just left of the price scale: **−** zoom out, **+** zoom in, **⌕** the magnifier, and **Reset** (back to the fresh framing for the loaded symbol)
 2. The **magnifier** is a toggle — with it on, drag a region on the chart to zoom into it. Its highlighted state says whether it is actually on, not merely what was last clicked: if the chart cannot honour the switch, the button does not claim it did
-3. A control that cannot act right now reports instead of pretending: while alarm placement is armed, zooming is refused and the status bar reads `Finish or cancel alarm placement before zooming` for a few seconds
+3. A control that cannot act right now reports instead of pretending: while alarm placement is armed, the ⌕ magnifier and the pointer wheel / drag zoom are refused, and the status bar reads `Finish or cancel alarm placement before zooming` for a few seconds (the − / + buttons and the keyboard + / − keys still zoom, so the view can be reframed without leaving placement).
 4. The chart's own gestures keep working outside those modes: drag to pan, scroll to zoom, double-click an axis to reset it; with the chart focused, the arrow keys pan, `+` / `-` zoom and `Esc` gives focus back to the app
 
 ### Collapse / Expand the Watchlist (Phase D44)

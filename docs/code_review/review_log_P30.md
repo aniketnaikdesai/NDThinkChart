@@ -183,3 +183,129 @@ findings are record/consistency gaps (one should-fix PLAN, three nice-to-have) t
 behaviour. The Orchestrator should summarise the open escalations to the user before closing the fold-in.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# P30 — Rework verification pass (ESC-140…ESC-143)
+
+**Pass type:** rework verification (not the phase-final decision — that stays the previous pass and is re-affirmed
+below). **Tier: FULL on the rework delta** — two scoped tasks (P30-T3 rework, P30-T8) plus four escalation
+close-outs, each needing line-level judgment that precheck facts cannot settle.
+**Rework commit:** `0348a62` (phase build `f68b00b`). **Facts consumed:** `precheck.json` — 2 scoped tasks, 0
+`fail_fast`, 0 `escalation_entries`, no overlaps, `unattributed_working_tree_changes: ["usage.md"]`;
+`test_verification.json` — **verdict `pass`, exit 0, 259.46 s, TWS listening**, newer than `build_log.md`.
+I re-ran the four phase suites this delta touches (`test_p30_fence`, `test_p14_cache_guard`,
+`test_p15_surfacing`, `test_d104_stale_claims`): **41 passed, exit 0**.
+
+**What moved in `0348a62` (12 files, three owners + the Task Manager + my own files swept in):** Plan —
+`docs/codebase-map.md`, `usage.md`; Requirements Analyst — `docs/requirements/requirements.md` (2 hunks);
+Build — `tests/test_p30_fence.py`, `tests/test_p14_cache_guard.py`, `tests/test_p15_surfacing.py`,
+`ui/lwc_view.py` (docstring only); Task Manager — `docs/tasks/task-graph.json`, `execution_graph.json`,
+`task_manager_notes_P30.md`; plus the previous pass's `escalations.json` / `review_log_P30.md`. No production
+executable line changed; no new file, module, dependency, migration or settings key. `usage.md` is the precheck's
+"unattributed" path and is correctly a **Plan** write (AC-P30-08-SCOPE names it, with the map and everything under
+`docs/requirements/`, as other agents' files; Build's `files_changed` are exactly its four declared paths).
+
+## 1. ESC-140 — map claim + fence lockstep — **addressed**
+
+- **Map:** `docs/codebase-map.md:690` now opens "**Three existing suites are edited** *(corrected 2026-11-20 per
+  `ESC-140`: this paragraph previously claimed both that no existing case was re-baselined and that no existing
+  suite was edited — both halves were false)*", names `tests/test_d64_batch_gate.py` (T6's phase-base derivation)
+  and both history fences (T7's re-pin to `4de9f5642c…`, with the owner-approved RG closure named as the
+  authorisation), and the "six suites are planned, not yet on disk" sentence is gone.
+- **Fence re-pointed, not deleted:** `test_the_map_carries_the_p30_note_and_every_prior_annotation` replaces the old
+  `assert "no existing suite is edited" in note` with `_p30_note_problems(note)` — corrected claim present, both
+  fence filenames present, digest fragment present, withdrawn claim absent — and keeps every other assertion in the
+  case (six suite names, `chart.test.js` / "harness is untouched", G7, prior note markers).
+- **Not tautological:** `test_the_map_note_check_reddens_on_the_withdrawn_claim` replaces the corrected sentence
+  with the withdrawn one and requires **both** "corrected claim missing" and "withdrawn claim still present"; I ran
+  the helper over the live note (passes) and over the withdrawn sentence (fails both), and it would also redden on
+  the pre-fix note. The forbidden string is **present tense only** ("no existing suite is edited"); the corrected
+  note's past-tense quote ("no existing suite **was** edited") is not caught.
+- **One new inaccuracy in the same paragraph** — see ESC-144 below.
+
+## 2. ESC-141 — requirements record — **addressed**
+
+- **AC-D104.3 restated** (`requirements.md:7657`): the marker sentence is "present and **byte-identical**"; the
+  Current Tech Stack and the rest of the section are unchanged **apart from the 2026-11-20 owner-approved
+  RG-P7-1/RG-P7-2/RG-D23-1 corrections** the pin authorises and the audit comments disclose; and — corrected or
+  not — exactly one chart engine, no pyqtgraph reintroduction, no second engine, no selector.
+- **Stale flag corrected** (`requirements.md:6045`): now "No restatement of `AC-D16.8` **in this phase** …
+  **[CORRECTED 2026-11-20 — ESC-141: `RG-P7-1` is no longer open — closed `Status: addressed — 2026-11-20` …]**".
+- **Span did not move:** recomputed `sha256` over `text.index("This is an existing repository.")` :
+  `text.index("\n### D53 ")` = `4de9f5642c8eb4ce497478380635f1f6e165d5216690d85c1974ea7a0b845ede`, **532,623
+  bytes**; both edits sit after the span end, so no re-pin was needed and all three literals still read
+  `4de9f5642c…`.
+- **Diff scope:** exactly two hunks — the P16 non-goal line and AC-D104.3. No other `AC-*`, Journey, A/R line or
+  phase status changed.
+
+## 3. ESC-142 — `memory_bytes` docstring — **addressed**
+
+`ui/lwc_view.py:3511-3524` now calls the replay log "the one traffic-growing structure **among these buckets**"
+(scoped, supportable), adds "The five per-channel replay logs are not counted here (AR-P30-6);
+`release_resources` clears them on close", and uses no unsupported superlative. The diff is docstring-only: the
+bucket dict, `replay_log()`/`counters()` and the returned keys are byte-identical, so the
+`tests/test_lwc_popouts.py` ledger shape is untouched.
+
+## 4. ESC-143 — `usage.md` — **addressed (with one wording defect filed)**
+
+The new "Chart Controls & Pan / Zoom (Phase D101)" section matches the code on every checked point: four controls
+in the top-right price-scale gutter (`#controls`, `right: 80px`, `top: 6px`) in zoom-out / zoom-in / magnifier /
+reset order; Reset → `fitAndFollow()`; the magnifier's pressed state is answer-driven ("not merely what was last
+clicked" — accurate, and "does not claim it did" on a refusal); the refusal text is verbatim
+`ui/main_window.py:886` at 4000 ms; the pan/zoom gesture list is the shipped page surface; the header date moved
+2026-11-17 → 2026-11-20; no internals (no router/AR/aria/TR ids; the phase label follows the guide's convention).
+**But step 3's "zooming is refused" is broader than the code** — see ESC-145.
+
+## 5. The three pin comments — **verified**
+
+`tests/test_p14_cache_guard.py` (both sites) and `tests/test_p15_surfacing.py` now say the **preamble sentence
+adjacent to** the marker was corrected and that the **marker sentence itself is byte-identical**; the phrase
+"marker sentence was restated" is absent from all three blocks (and from the two files entirely), enforced by the
+new `test_the_repin_comments_say_the_marker_is_byte_identical` (digest fragment + "preamble sentence" +
+"byte-identical" present, the stale phrase absent). The three digest literals, both `start =` / `span =` boundary
+expressions and the exact-equality comparison are byte-identical; the four P30-T7 guard nodes stay green.
+
+## 6. New findings (introduced by this rework)
+
+| id | route | severity | finding |
+|---|---|---|---|
+| **ESC-144** | PLAN | nice-to-have | `docs/codebase-map.md:699-700` says the re-pin was authorised because "the existing-repository marker sentence **was restated**" — false, and it contradicts the same commit's corrected pin comments and AC-D104.3. The requirements diff shows the marker sentence byte-identical; only the following sentence changed. The note ESC-140 asked to be made truthful now carries the exact imprecision ESC-141 removed from the comments. One-clause fix; no fence change needed. |
+| **ESC-145** | PLAN | nice-to-have | `usage.md` step 3: "while alarm placement is armed, zooming is refused" — only the magnifier (TR-9) and the pointer wheel/drag pan-zoom are refused; the ± buttons and keyboard ± still zoom (`chart.js::controlPressed` zooms unconditionally; `handle_control`'s zoom-in/out branch never consults the router; `bindKeyboard` has no mode check). User-facing overstatement. One-clause fix; no test lockstep. |
+
+**Reviewed and accepted (no escalation):** AC-D104.3's restated *Measurable* names "a Current-Tech-Stack read"
+and "a diff-scope check" that are not automated. The substantive properties are enforced — the Current Tech Stack
+sits inside the `PROTECTED_SPAN_SHA256` span, the fence pins the engine/control signatures, and
+`tests/test_d104_stale_claims.py` sweeps the production modules — and the latter clause is the build-artefact
+delta check the fence docstring already designates as "not a test". Likewise, `task-graph.json`'s P30-T4 copy of
+AC-D104.3 remains the planning-time text: the graph is a per-phase working artefact and `requirements.md` is
+canonical (the graph does annotate the one AC whose *fence test* moved, AC-P30-04-MAP). Recorded so a later reader
+knows both were examined rather than missed.
+
+## 7. Standing duties
+
+- **G7:** still owner-run and unclaimed. T8's new cases are text/AST checks on the map note and the comment blocks;
+  no suite starts a `QWebEngineView` or asserts a painted page.
+- **No new module / dependency / migration / settings key:** `0348a62` adds no file; `requirements.txt`, the
+  schema, `QSettings` keys and `ENVELOPE_VERSION` are untouched.
+- **`docs/requirements/**`:** edited only by the Analyst, two hunks, both past `### D53 `, no criterion but the
+  intended AC-D104.3 restatement; Build's pack forbids those files and its result confirms the footprint.
+- **Behaviour:** unchanged — the only production file touched (`ui/lwc_view.py`) changed inside a docstring.
+
+## 8. Close-out
+
+| id | verdict |
+|---|---|
+| ESC-140 | **addressed** — map corrected, fence re-pointed (not deleted), non-tautology proven, present-tense-only ban |
+| ESC-141 | **addressed** — AC restated with the authorised carve-out, stale RG-P7-1 flag corrected, span digest unchanged at `4de9f5642c…` |
+| ESC-142 | **addressed** — scoped docstring, AR-P30-6 named, buckets/return keys unchanged |
+| ESC-143 | **addressed** — guide matches the shipped cluster and gestures |
+| ESC-144 | **open** — map's "marker sentence was restated" clause (new) |
+| ESC-145 | **open** — usage's "zooming is refused" breadth (new) |
+
+`escalations.json`: 140 entries, **138 addressed, 2 open** (ESC-144, ESC-145 — both PLAN, both nice-to-have,
+both one-clause doc edits). **Zero `PRE-*` entries.** The previously declared P30 findings are all closed; the two
+remaining items are record/user-doc truthfulness, not behaviour, so P30 is **behaviourally complete and suite-green
+but not yet zero-open**: one short Plan pass on `docs/codebase-map.md` + `usage.md` closes it.
+
+Status: REVIEW_COMPLETE

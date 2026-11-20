@@ -696,8 +696,8 @@ pre-phase point. **P30-T7** re-pinned the two history fences — `tests/test_p14
 (`PROTECTED_SPAN_SHA256` plus one live-span `expected`) and `tests/test_p15_surfacing.py`
 (`PROTECTED_SPAN_SHA256`) — to `4de9f5642c…`; the re-pin was authorised because the owner-approved RG-P7-1 /
 RG-P7-2 / RG-D23-1 record correction changed the protected requirements span itself (the Current Tech Stack
-and Constraints rows now record the shipped LWC-only engine end state, the existing-repository marker sentence
-was restated, and the D23.1 record carries its reconciliation). Only the digest literal and its comment moved:
+and Constraints rows now record the shipped LWC-only engine end state, the preamble sentence adjacent to the existing-repository marker was corrected — the marker sentence itself,
+`This is an existing repository.`, is byte-identical — and the D23.1 record carries its reconciliation). Only the digest literal and its comment moved:
 the span boundaries, span-extraction expressions and exact-equality comparison are byte-identical.
 **No behavioural expectation was re-baselined.** The page-glue evidence lands in two new node suites,
 `chart_assets/lwc/interaction.controls.test.js` and `chart_assets/lwc/controls.test.js` (both on disk since the
