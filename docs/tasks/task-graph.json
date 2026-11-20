@@ -1072,6 +1072,188 @@
         "size": "S"
       },
       "generation": 1
+    },
+    {
+      "id": "P29-T6",
+      "title": "P29-06 - hermetic connect guard: the offscreen suite must not need TWS to be closed",
+      "description": "Make the offscreen suite hermetic against a running TWS, with no change to production code. `tests/conftest.py` gains one session-scoped autouse fixture that replaces `ibapi.connection.Connection.connect` with a function that raises `ConnectionRefusedError` before any socket exists, so `EClient.connect`'s own `except socket.error` path runs unchanged (wrapper error 502, then `connectionClosed()`, client reset to DISCONNECTED) on every connect attempt in the session - the exact environment every green run has today with TWS stopped - and no ibapi reader thread can start. A new self-check module `tests/test_p29_hermetic_connect_guard.py` proves the guard is installed for a plain test and that a test's own `monkeypatch.setattr` on `EClient.connect` or `IBApiClient.connect` still wins and is restored afterwards. Prove it both ways: with TWS listening on 127.0.0.1:7496 the full suite must finish on its own well inside 600 s, and the four connect-asserting suites must pass unmodified. Do not weaken, delete or skip any existing assertion, and do not touch a production file.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P29-T1",
+        "P29-T2",
+        "P29-T3",
+        "P29-T4",
+        "P29-T5"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC-P29-06-GUARD",
+          "criterion": "Given the shared test session (one session-scoped autouse fixture in `tests/conftest.py`), When any test - including one that constructs a real `MainWindow` - attempts an IBKR connect, Then the attempt is refused before a socket exists: `ibapi.connection.Connection.connect` raises `ConnectionRefusedError` (an `OSError`, i.e. `socket.error`) on entry, `EClient.connect`'s own `except socket.error` path then emits `error(502, \"Couldn't connect to TWS\")` to the wrapper followed by `connectionClosed()`, the client ends `DISCONNECTED` with `conn is None`, no ibapi reader thread is created and no `CONNECTED` state is ever reached - for every attempt in the session, whether or not TWS is listening."
+        },
+        {
+          "id": "AC-P29-06-PRECEDENCE",
+          "criterion": "Given a test that patches `ibapi.client.EClient.connect` or `ibkr.client.IBApiClient.connect` itself with `monkeypatch.setattr`, When that test runs, Then its patch is the effective implementation for its duration (the guard raises nothing, the test's recorder receives the call, no error 502 is emitted), and when the test ends the guard is still installed for the tests that follow."
+        },
+        {
+          "id": "AC-P29-06-CONNECT-SUITES",
+          "criterion": "Given `tests/test_d27_reconnect.py`, `tests/test_d87_d93_client_lifecycle.py`, `tests/test_d98_outage_baseline.py` and `tests/test_ibkr_handshake_gate.py` on disk unchanged, When they run with the guard installed, Then every case passes (pytest exit 0) and none of the four files is modified."
+        },
+        {
+          "id": "AC-P29-06-TWS-UP",
+          "criterion": "Given TWS listening on 127.0.0.1:7496 (`lsof -nP -iTCP:7496` shows a LISTEN line), When the full offscreen suite runs, Then it exits 0 with every test passing in a wall-clock time well inside the 600 s verify budget (the same tree ran ~218 s with TWS closed), and the interpreter terminates on its own after the last test - no hang in `threading._shutdown` waiting on an ibapi reader thread."
+        },
+        {
+          "id": "AC-P29-06-SCOPE",
+          "criterion": "Given the working tree after the task, Then the only changed or added paths are `tests/conftest.py` and the new `tests/test_p29_hermetic_connect_guard.py`: no production file, no other test file, `pytest.ini` unchanged, nothing under `docs/requirements/`, `docs/plan.md`, `docs/architecture.md` or `docs/codebase-map.md` modified, and no case skipped or deselected to obtain a green run."
+        }
+      ],
+      "tests": [
+        {
+          "test_id": "P29-T6-01",
+          "linked_acceptance_criterion": [
+            "AC-P29-06-GUARD"
+          ],
+          "type": "unit",
+          "description": "`test_guard_refuses_before_a_socket_exists` in `tests/test_p29_hermetic_connect_guard.py`: with no monkeypatch of its own, drive a real `EClient` whose wrapper records `error` and `connectionClosed`, calling `.connect(\"127.0.0.1\", 7496, 1)`.",
+          "expected_result": "`Connection.connect` raises on entry so `socket.socket()` never runs; the wrapper records exactly one error whose code is 502 and exactly one `connectionClosed()`; `client.isConnected() is False`, `client.conn is None`, `client.connState == EClient.DISCONNECTED`; `threading.active_count()` after the call equals the count before it. The asserted state is the refused-connect outcome, identical whether or not TWS is listening."
+        },
+        {
+          "test_id": "P29-T6-02",
+          "linked_acceptance_criterion": [
+            "AC-P29-06-PRECEDENCE"
+          ],
+          "type": "unit",
+          "description": "`test_a_test_own_patch_wins_and_the_guard_returns`, parametrized over the two patch sites the shipped suites use (`EClient.connect` as in `test_d87_d93_client_lifecycle.py`, `IBApiClient.connect` as in `test_d98_outage_baseline.py::_make_window`): inside `pytest.MonkeyPatch.context()` install a recorder and call it, then leave the context and connect again through a fresh real `EClient`.",
+          "expected_result": "Inside the context the recorder receives `(\"127.0.0.1\", 7496, n)` and the recording wrapper sees no error and no `connectionClosed`; after the context, `Connection.connect` still carries the guard marker and the fresh `EClient(...).connect(...)` is refused (one error 502, `isConnected() is False`)."
+        },
+        {
+          "test_id": "P29-T6-03",
+          "linked_acceptance_criterion": [
+            "AC-P29-06-CONNECT-SUITES"
+          ],
+          "type": "integration",
+          "description": "Run the four connect-asserting suites unchanged: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_reconnect.py tests/test_d87_d93_client_lifecycle.py tests/test_d98_outage_baseline.py tests/test_ibkr_handshake_gate.py -q`.",
+          "expected_result": "pytest exit 0 with every case green, and `git diff --name-only 3b92ce6 -- <those four paths>` prints nothing."
+        },
+        {
+          "test_id": "P29-T6-04",
+          "linked_acceptance_criterion": [
+            "AC-P29-06-TWS-UP"
+          ],
+          "type": "manual",
+          "description": "Two-way proof on a host where TWS is running: first record `lsof -nP -iTCP:7496` (a LISTEN line), then run the whole suite bounded so a regression kills the run instead of the worker: `QT_QPA_PLATFORM=offscreen perl -e 'alarm 540; exec @ARGV' .venv/bin/python -m pytest -q`. Record the elapsed wall clock, the exit code, the pytest summary line and the `lsof` line in the result.",
+          "expected_result": "Exit 0 with the full suite green and a wall clock well under 540 s (baseline ~218 s with TWS closed); the process exits on its own after the last test. A signal kill (exit 142), a timeout, or a traceback naming `threading._shutdown` fails this case. Recorded context: the same run without the guard reaches 100% and then hangs, which is the defect this task fixes."
+        },
+        {
+          "test_id": "P29-T6-05",
+          "linked_acceptance_criterion": [
+            "AC-P29-06-SCOPE"
+          ],
+          "type": "manual",
+          "description": "Audit the delta: `git status --porcelain` and `git diff --name-only 3b92ce6`; confirm no case was skipped or deselected (`grep -n \"skip\" tests/test_p29_hermetic_connect_guard.py` shows only the module's own comments; the four connect suites' `git diff` is empty; `pytest.ini` unchanged).",
+          "expected_result": "The only changed or added paths are `tests/conftest.py` and `tests/test_p29_hermetic_connect_guard.py`; no production file, no other test file, no file under the canonical planning set."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/conftest.py - one session-scoped autouse guard fixture with its saved original beside `_isolate_test_db` and `_reset_pacing_state`; every existing fixture and env default unchanged",
+        "tests/test_p29_hermetic_connect_guard.py - the guard self-check and the precedence check",
+        "the result's two-way proof record: `lsof` line, wall clock, exit code, pytest summary line"
+      ],
+      "touches_files": [
+        "tests/conftest.py",
+        "tests/test_p29_hermetic_connect_guard.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "`ibapi` 9.81.1.post1: `EClient.connect` creates `Connection`, calls `conn.connect()`, and on a `socket.error` reaching its own `except` emits `wrapper.error(-1, ..., 502, ...)` then `disconnect()`; `EClient.disconnect` emits `wrapper.connectionClosed()` when `self.conn is not None` and calls `reset()`; `Connection.disconnect` guards `socket is None`",
+        "`ibkr/client.py::IBApiClient.connect` sets CONNECTING, remembers the params, calls `super().connect(...)` then `start_polling()` - the wrapper bookkeeping the guard must leave intact",
+        "`ui/main_window.py:1042` - the one real connect call, made inside `MainWindow.__init__`, followed by a daemon reader thread",
+        "TWS listening on 127.0.0.1:7496 at task-scope time (`lsof -nP -iTCP:7496` -> JavaApplication `*:7496 (LISTEN)`)"
+      ],
+      "outputs": [
+        "one session-scoped autouse guard in `tests/conftest.py` - no narrower scope, so a test cannot construct a window before it is installed",
+        "`tests/test_p29_hermetic_connect_guard.py` with the guard and precedence checks",
+        "a recorded two-way proof: full suite green with TWS up, and the four connect suites green unmodified"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/conftest.py",
+            "lines": "1-134",
+            "why": "edit: the 134-line harness - env preamble (`QT_QPA_PLATFORM`, per-process `DB_PATH`), `qapp`, and the two existing autouse fixtures the new session-scoped guard joins"
+          },
+          {
+            "path": "ibkr/client.py",
+            "lines": "72-95",
+            "why": "read-only: `IBApiClient.connect` - state, remembered params and `start_polling()` must keep running; the guard intercepts only the socket layer reached through `super().connect`"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1038-1048",
+            "why": "read-only: the single `ib_client.connect(...)` in `MainWindow.__init__` and the daemon reader thread - the call that must never reach TWS"
+          },
+          {
+            "path": "tests/test_d87_d93_client_lifecycle.py",
+            "lines": "55-100",
+            "why": "read-only: the `monkeypatch.setattr(EClient, \"connect\", fake_connect)` recorder pattern the guard must not disturb"
+          },
+          {
+            "path": "tests/test_d98_outage_baseline.py",
+            "lines": "124-152",
+            "why": "read-only: `_make_window` patches `IBApiClient.connect` then constructs `MainWindow` - the wrapper-level precedence case"
+          },
+          {
+            "path": "tests/test_d92_honest_description.py",
+            "lines": "42-60",
+            "why": "read-only: the construct-then-assert window test that hangs alone with TWS up today; it must pass unchanged"
+          },
+          {
+            "path": "tests/test_d27_reconnect.py",
+            "lines": "50-95",
+            "why": "read-only: the recorder and `_boom` connect patches that assert the failure and backoff path"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/client.py:connect",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/conftest.py",
+            "signature": "@pytest.fixture(scope=\"session\", autouse=True)\ndef _hermetic_ibkr_connect() -> Iterator[None]:"
+          },
+          {
+            "status": "new",
+            "module": "tests/conftest.py",
+            "signature": "def _refused_connection_connect(self) -> None:\n    raise ConnectionRefusedError(\"hermetic test guard: no TWS socket\")\n\n_refused_connection_connect._hermetic_guard = True"
+          },
+          {
+            "status": "new",
+            "module": "tests/conftest.py",
+            "signature": "_real = ibapi.connection.Connection.connect\nibapi.connection.Connection.connect = _refused_connection_connect\ntry:\n    yield\nfinally:\n    ibapi.connection.Connection.connect = _real"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P29",
+        "plan_ref": "docs/plan.md#Phase P29",
+        "requirement_ids": [
+          "AC-D96.1",
+          "AC-D97.1",
+          "AC-D98.1",
+          "AC-D99.1",
+          "AC-D100.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p29_hermetic_connect_guard.py -q",
+        "memory_refs": [
+          "offscreen",
+          "ibapi"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
     }
   ]
 }

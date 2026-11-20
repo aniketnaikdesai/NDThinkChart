@@ -1,6 +1,7 @@
 # Task Manager notes — Phase P29 (D96–D100)
 
-**Graph:** `docs/tasks/task-graph.json` (5 tasks) · `docs/tasks/execution_graph.json` (3 waves) ·
+**Graph:** `docs/tasks/task-graph.json` (5 phase tasks + `P29-T6`, the hermetic-suite task added by the
+addendum at the end of this file) · `docs/tasks/execution_graph.json` ·
 `check_tasks.py` PASS (only the expected "new suite not yet on disk" pure-output warnings).
 **Baseline for the delta record:** `3b92ce6` (P28 close-out, pushed). Plan approved and activated at
 `e7ac594`, wording amendment `RG-P29-1` at `2bb9a62`. No `ESCALATED_TO_PLAN` open.
@@ -164,3 +165,73 @@ baseline, (c) does each `touches_files` entry sit inside the assigned agent's pe
 
 **Graph check.** `check_tasks.py` → `OK: 5 tasks validated`, exit 0; `execution_graph.json` regenerated. The
 only output is the four pre-existing "new suite not yet on disk" pure-output warnings.
+
+---
+
+## Addendum 2026-11-20 — `ESC-P29-HERMETIC`: the offscreen suite is not hermetic while TWS is running
+
+**Trigger.** Orchestrator-raised BLOCKING escalation (no `escalations.json` entry — nothing routed to me to
+flip `addressed`). P29's gate could not run: `verify_tests.py` hit its 600 s timeout twice, on code that had
+passed in ~218 s the same day.
+
+**Evidence (gathered and reproduced by the orchestrator; not re-derived here).** The suite reaches 100% —
+every test executes and passes — and then never exits. `faulthandler.dump_traceback_later(300)` puts the main
+thread in `threading._shutdown` waiting on a live ibapi reader thread (`ibapi/connection.py:133 _recvAllMsg`
+→ `reader.py:39 run`) plus the EClient queue thread (`ibapi/client.py:593 run`). `lsof -nP -iTCP:7496` shows
+TWS listening; every green run that day happened after midnight with TWS closed. Mechanism:
+`ui/main_window.py:1042` calls `self.ib_client.connect(settings.IBKR_HOST, settings.IBKR_PORT,
+settings.IBKR_CLIENT_ID)` inside `MainWindow.__init__`; with TWS down the attempt was refused instantly (no
+thread survived), with TWS up the handshake completes, ibapi's `EReader` thread starts and blocks in `recv`,
+and CPython's shutdown waits on it forever. `tests/test_d92_honest_description.py::
+test_p28_t10_01_window_title_is_the_one_owner_string` hangs alone; with `EClient.connect` stubbed it passes
+immediately. The P29 changes are not implicated.
+
+**Scope: one task, `P29-T6` (size S).** `touches_files` = `tests/conftest.py` +
+`tests/test_p29_hermetic_connect_guard.py` (the permitted self-check). Dependencies = all five phase tasks:
+its proof is the phase's *whole* suite, so it must not run against a half-built phase. Wave frontier is
+`P29-T6` alone (T1–T5 are `done`). No production file, no other test file, no skip and no deselection.
+
+### The design decision carried into the pack (why not a bare `EClient.connect` no-op)
+
+The escalation's suggested direction ("monkeypatch `EClient.connect` to a no-op recorder") is **narrowed** in
+the pack: the guard patches `ibapi.connection.Connection.connect` to raise `ConnectionRefusedError` before the
+socket object exists. Read off the pinned `ibapi` 9.81.1.post1 source:
+
+- `EClient.connect` creates `self.conn = Connection(...)` and *then* calls `self.conn.connect()`. Raising
+  there lands in EClient's own `except socket.error` handler → `wrapper.error(-1, …, 502, "Couldn't connect to
+  TWS")` → `self.disconnect()` → `EClient.disconnect` emits `wrapper.connectionClosed()` (because `conn` is
+  not None) → `reset()` → `connState = DISCONNECTED`, `conn = None`. That is exactly the outcome every green
+  run has today with TWS stopped.
+- A bare no-op on `EClient.connect` would skip all of it: no 502, no `connectionClosed()`, and a freshly
+  constructed window would sit in **CONNECTING** — a state no green run has ever seen at construction. That is
+  a new third environment, which is the very class of accidental dependence this task removes.
+- `ConnectionRefusedError` is an `OSError`, i.e. `socket.error`, so EClient's handler catches it unchanged;
+  `Connection.disconnect` guards `socket is None`, so the teardown cannot raise.
+- Wrapper bookkeeping is untouched: `IBApiClient.connect` still sets CONNECTING, remembers the params and
+  calls `start_polling()`, so the D27/D93 suites keep exercising their real logic.
+- Precedence holds for both patch sites the shipped suites use (`EClient.connect` in
+  `test_d87_d93_client_lifecycle.py`, `IBApiClient.connect` in `test_d98_outage_baseline.py::_make_window`):
+  a test's later `monkeypatch.setattr` wins inside its scope and the guard is restored after it.
+
+The two-way proof is runnable **now**: at task-scope time TWS was listening on `127.0.0.1:7496`
+(JavaApplication PID 1283, `*:7496 (LISTEN)`), so `P29-T6-04` runs against the real hang condition. It is
+bounded with `perl -e 'alarm 540; exec @ARGV' …` — verified on this host that the alarm survives `exec`, so a
+regression dies at 540 s with exit 142 instead of consuming the worker's steps.
+
+### The rule this run adds to the graph-authoring contract
+
+**An offscreen suite must never depend on the ABSENCE of the app's backend.** A test that only passes because
+a local server is down is not hermetic, and the failure mode is a hang at interpreter shutdown — not a red
+test. So it is invisible to anything that only reads an exit code inside its timeout, and it flips the moment
+the owner launches the app's backend. Read every later phase's packs against this: if a task's suite
+constructs a real window/client and its pack does not pin "no network", the pack is defective even while the
+task is green on this machine.
+
+**Graph check.** `check_tasks.py` → `OK: 6 tasks validated, execution_graph.json written`, exit 0; the only
+output is the five "touches_files not in read_files (pure-output)" warnings, one per suite a task creates
+(four pre-existing + `P29-T6`'s own new module).
+
+**Not done here (out of scope, still open).** `ESC-138` (D98's transient-reconnect wording missing from
+`usage.md:172`) is still `open` and routed to TASK_MANAGER; it is a documentation change to a Plan-owned file
+and is not part of this blocking fix. It must be picked up on the next run that touches P29's record — it is
+recorded here so it is not lost in this addendum.

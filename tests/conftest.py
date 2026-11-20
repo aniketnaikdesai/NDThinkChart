@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from collections.abc import Iterator
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -132,3 +133,45 @@ def _reset_pacing_state():
     pacing_mod.pacing_manager.reset_for_tests()
     yield
     pacing_mod.pacing_manager.reset_for_tests()
+
+
+def _refused_connection_connect(self) -> None:
+    """Refuse a TCP connect before a socket exists (P29-06)."""
+    raise ConnectionRefusedError("hermetic test guard: no TWS socket")
+
+
+_refused_connection_connect._hermetic_guard = True
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_ibkr_connect() -> Iterator[None]:
+    """Make the offscreen suite independent of whether TWS is running (P29-06).
+
+    ``MainWindow.__init__`` calls ``ib_client.connect(...)``, so with TWS
+    listening every test that builds a real window opens a live socket and
+    the ibapi reader thread keeps the interpreter alive in
+    ``threading._shutdown``. The suite must never depend on the backend
+    being DOWN.
+
+    The guard is installed at the **socket layer**: ``Connection.connect``
+    raises ``ConnectionRefusedError`` (a ``socket.error``) on entry, so
+    ``EClient.connect``'s own ``except socket.error`` path runs unchanged
+    (wrapper error 502, ``disconnect()``, ``connectionClosed()``, client
+    reset to DISCONNECTED) while ``IBApiClient.connect``'s bookkeeping
+    still runs. Replacing ``EClient.connect`` with a no-op instead would
+    leave a fresh window in CONNECTING with no 502, no ``connectionClosed``
+    and no reset - a state no green run has ever occupied.
+
+    A test's own ``monkeypatch.setattr`` on ``EClient.connect`` or
+    ``IBApiClient.connect`` still wins for its duration; this fixture only
+    owns the base-class socket layer and restores it after the session.
+    """
+    import ibapi.connection
+
+    _real = ibapi.connection.Connection.connect
+    ibapi.connection.Connection.connect = _refused_connection_connect
+    try:
+        yield
+    finally:
+        ibapi.connection.Connection.connect = _real
+

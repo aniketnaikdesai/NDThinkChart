@@ -19,6 +19,10 @@
     {
       "id": "P29-T5",
       "type": "Task"
+    },
+    {
+      "id": "P29-T6",
+      "type": "Task"
     }
   ],
   "edges": [
@@ -46,7 +50,32 @@
       "from": "P29-T4",
       "to": "P29-T5",
       "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P29-T1",
+      "to": "P29-T6",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P29-T2",
+      "to": "P29-T6",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P29-T3",
+      "to": "P29-T6",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P29-T4",
+      "to": "P29-T6",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P29-T5",
+      "to": "P29-T6",
+      "type": "DEPENDS_ON"
     }
   ],
-  "graph_struct_sha256": "1f592cfa8d2205555776eb5da1ea957fa9ca488620dadf1af5c99c5f354178f3"
+  "graph_struct_sha256": "60451adeee2ca81ef4b5a8d5c27679a53c2b6fe5df840d0c68be7a02e50e90f0"
 }
