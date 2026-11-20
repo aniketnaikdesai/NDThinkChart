@@ -7394,3 +7394,332 @@ in parallel with either. Exactly one wave (P25-01) changes user-visible data beh
   heavier cue, it is a constant in `chart.js` plus one fence assertion — no architecture change.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P26 — Reconnect replay and backfill-wave lifecycle: all-or-nothing replay, cap-yield parking, retry bookkeeping (D71–D76) — drafted 2026-11-19
+
+> Companion: `docs/architecture.md` § *Phase P26* (Relationship to prior phases, Codebase Summary,
+> tech-stack decisions, System Components, frozen interfaces, Non-Functional Approach,
+> AR-P26-1…AR-P26-8, S-P26-1…S-P26-7). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P26 (D71–D76), Journeys
+> 68–70, `AC-D71.1`–`AC-D76.3`**, A225–A229, R165–R169, gates **G3**/**G4** (owner-run),
+> `design_gaps.md` DG130/DG131.
+>
+> **Baseline: HEAD `629be4a`**, tree clean, P25/D67–D70 shipped. The work is three seams around two
+> lifecycle contracts that are already written down (the replay's "all-or-nothing under pacing
+> pressure", the wave's "park and resume") plus one bookkeeping rule: **one replay transaction**
+> (D71), **one parked-wave state** (D72/D75/D76 together — two faces of "a cap-parked wave must stay
+> healthy"), and **one retry/ledger rule** (D73/D74). Hard constraints: D1–P25 read-only; **no
+> production behaviour outside these six defects**; no new module, dependency, migration or settings
+> constant; sizes S/M only; the two live checks are **named gates**, never suite gates.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey | Architecture | Wave |
+|---|---|---|
+| **AC-D71.1** — with entries of more than one type and a pacing manager that refuses after the first send, one pass attempts **zero** reissues, schedules exactly one retry for the reported wait, and after the wait one pass reissues every entry once | **S-P26-1** (union pre-check + one transaction), **S-P26-2** (batch reservation), *Data Model* (`generic_n`/`rt_n`), AR-P26-1 | **P26-01** |
+| **AC-D71.2** — after a completed replay the live count equals the pre-replay count, each old reqId is retired exactly once, no new reqId is registered twice; a second replay from the settled state gives the same numbers | **S-P26-3** (per-type retire resolver), *Integration Points* (TWS line count), AR-P26-3 | **P26-01** |
+| **AC-D71.3** — a pressure-free replay is byte-identical in outcome to the pre-change behaviour (same entries, same rebinds, one pass); the existing replay suites stay green | **S-P26-1**/*Frozen Interfaces* (`replay_all` signature + return shape), AP-P26-6 | **P26-01** |
+| **AC-D72.1** — a cap-yielded wave is never strand-finalised, the queue is intact, the D53 indicator reports the parked/queued state, no timeout shortfall is recorded | **S-P26-4** (parked state + settle rule + derived marker), **S-P26-7** (resume) | **P26-02** |
+| **AC-D72.2** — a genuinely stalled in-flight member is finalised **once** with the stranded reason and the `AC-D16.4` shortfall, queue dropped as today | **S-P26-4** (disarm requires `not _history_req_ids`), AR-P26-4 | **P26-02** |
+| **AC-D72.3** — a parked wave's next load issues the oldest queued plan, the indicator leaves the parked state, and the total issued across both loads stays inside the pacing budget | **S-P26-7** (coalesce-resume), **S-P26-4** (parked flag cleared) | **P26-02**; live arm **G4** (owner-run) |
+| **AC-D73.1 / AC-D73.2** — after a 162 retry each timestamp appears once in `_pending_bars` and the persisted count equals the distinct timestamps; the silence path gives the identical post-condition | **S-P26-5** (one surrender helper, both paths) | **P26-03** |
+| **AC-D74.1** — the cancel-tag set is bounded (constant / live-wave window, not linear in wave count) **and** a current-wave late ack still classifies as superseded (debug, no status-bar error) | **S-P26-6** (generation-windowed tags; two-batch window), AR-P26-7 | **P26-03** |
+| **AC-D74.2** — wave A's two failures do not leak into wave B's shortfall; the failure set is empty after B | **S-P26-6** (per-wave reset in `queue_wave_plans`) | **P26-03** |
+| **AC-D75.1 / AC-D75.2** — a parked (queue-only) wave coalesces (no cancel, queue survives, `_pending_prefetch` survives, no duplicate request); a genuine triple change still cancels and re-plans | **S-P26-7** (gate widened; resume), AP-P26-5 | **P26-02** |
+| **AC-D76.1 / AC-D76.2** — an indefinitely not-ready transport cannot loop past the bound: either one finalise with a surfaced reason or a bounded retry count, never indefinite rescheduling; a short not-ready period converges with one continuation and the bound armed for the deferral it covers | **S-P26-4** (readiness episode armed once, transport-named reason), AR-P26-6 | **P26-02** |
+| **AC-D76.3** — `### D41`–`### D70`, `AC-D1.1`–`AC-D70.3`, A1–A224, R1–R164, the existing-repository sentence and the Current Tech Stack unchanged and present | *Relationship to prior phases* (`[existing]`, read-only inputs); **P26-04**'s fence | **P26-04** |
+| **Journey 68** — reconnect with the option panel ON and two lines pacing-gated | S-P26-1, S-P26-2, S-P26-3 | **P26-01**; live arm **G3** (owner-run) |
+| **Journey 69** — park a wave at the per-load cap and leave it alone; reload resumes | S-P26-4, S-P26-7 | **P26-02**; live arm **G4** (owner-run) |
+| **Journey 70** — retries, tags and a parked reload | S-P26-5, S-P26-6, S-P26-7 | **P26-02/P26-03** |
+| A225/A226/A227/A228/A229, DG130, DG131 | S-P26-1…S-P26-7 (each names the assumption it implements) | 01/02/03 |
+| R165–R169 | *Architecture Risks* AR-P26-1…AR-P26-8 | all waves |
+
+### Phases
+
+Dependency shape: **P26-01 → P26-02 → P26-03 → P26-04**. All four are sequential because two files
+(`ui/ticker_session.py`, `ui/main_window.py`) carry every wave's edits; there is no parallel branch.
+Exactly two waves change user-visible behaviour (P26-01 the reconnect settle, P26-02 the parked state
+and its indicator word); P26-03 is invisible bookkeeping and P26-04 is the record.
+
+#### P26-01 — D71: the reconnect replay is one transaction over a union budget — size M
+
+- **Covers:** AC-D71.1, AC-D71.2, AC-D71.3, Journey 68 (offscreen legs), A225/A226, DG131, R165.
+- **Depends on:** nothing.
+- **Files:** `ibkr/subscription_manager.py`, `ibkr/pacing.py`, `ui/main_window.py` (the replay body,
+  the resolver registrations in `__init__`, and the option reissue/rebind map cleanup), a new
+  `tests/test_d71_replay_transaction.py`.
+- **Deliverables, in this order:**
+  1. **The batch reservation (S-P26-2).** `ibkr/pacing.py`: `generic_wait_for_batch(count) -> float`
+     (pure: `0.0` when `count <= 1`, else
+     `max(0.0, (count - 1) * (1.0 / settings.MAX_REQ_PER_SEC) - (now - self._last_req_time))` under the
+     lock) and `generic_batch(count)` — a `contextlib.contextmanager` that re-checks the wait (raising
+     `PacingExceeded(wait)` from inside `__enter__`, so the body never runs), sets
+     `self._batch_remaining = int(count)`, and in `finally` clears it and calls
+     `self.record_request_slot()`. `throttle()` gains one branch **before** the clock read:
+     `if self._batch_remaining > 0: self._batch_remaining -= 1; return`. `reset_for_tests` clears the
+     counter. Every other member, constant and docstring claim is untouched; the docstring states that
+     the batch is the pass's reservation and that an over-spend falls through to the unchanged gate.
+  2. **The transactional pass (S-P26-1) and the retire resolvers (S-P26-3).**
+     `ibkr/subscription_manager.py`: add `self._cancel_hooks: dict[str, Callable[[int], None]] = {}`
+     and `set_cancel_hook(req_type, fn)`. Rewrite `replay_all`'s body into three phases — union
+     pre-check (`rt_n`, `generic_n = len(pending) - rt_n`, one `PacingExceeded(max(rt_wait,
+     generic_wait))` before any mutation) → reissue every pending entry in registry order inside
+     `with pacing_manager.generic_batch(generic_n):` (on any raise: retire every new id via its
+     resolver, `rebind(old_id)` for each successful entry, then re-raise) → rebind, retire the old id
+     through `self._cancel_hooks.get(entry.req_type)` (best-effort, debug-logged), move the registry
+     key. Keep the signature, the return shape and the `include_types` filter. Restate the class
+     docstring: the contract, DG131's global coupling, and why a split pass is forbidden.
+  3. **The window's wiring.** Install the two resolvers immediately after
+     `self.sub_manager = SubscriptionManager()`: `RT_BARS` → `self._unregister_req_id(old)` +
+     `self.rt_manager.unsubscribe(old)`; `OPTION_LEGS` → `self._option_req_ids.pop(old, None)` +
+     `self.md_manager.cancel_mkt_data(old)`. `_option_reissue_leg` keeps repointing its maps but no
+     longer needs to "silently drop" the old id — say so in its docstring. Make
+     `_replay_subscriptions`'s deferral replaceable: keep the single
+     `QTimer.singleShot(int(e.wait_seconds * 1000), …)` call (its shape is pinned by
+     `test_p7_t07_t13_replay_all_defers_via_singleshot`), but schedule an epoch-guarded callback
+     (`self._replay_serial`, read with `getattr` so a stub window works) that returns immediately when
+     a newer call has superseded it, and restate the method's docstring (union budget, one deferral,
+     no stacked retries).
+  4. **The suite** `tests/test_d71_replay_transaction.py` — fake resolve/parse-free fixtures: a fake
+     `md_manager` counting `req_mkt_data`/`cancel_mkt_data` per id, a fake `rt_manager` counting
+     subscribe/unsubscribe, a fake pacing object exposing `realtime_wait_for_slots` +
+     `generic_wait_for_batch`/`generic_batch`, and a registry with one RT entry plus two
+     `OPTION_LEGS` entries carrying `reissue`/`rebind`. Cases: (a) AC-D71.1 — the fake refuses the
+     generic batch ⇒ zero reissue calls, registry byte-identical, exactly one deferral for the reported
+     wait; then admit ⇒ one pass reissues all three once, in registration order. (b) AC-D71.2 — the
+     live set's size equals the pre-pass size, each old id retired exactly once, no new id registered
+     twice, and a second pass from the settled state reproduces the numbers. (c) AC-D71.3 — with both
+     budgets open the pass yields the same `[(old, new)]` pairs and one rebind per entry. (d) unwind —
+     the second entry's `reissue` raises `IBKRNotReady`: every new id retired, routing rebound to the
+     old ids, registry byte-identical, the exception propagates. (e) Journey 68's edges — a second
+     disconnect during the deferral leaves one scheduled callback that actually runs (epoch), and an
+     RT-only pass is unaffected by a throttled generic gate. (f) the gate's own contract —
+     `throttle()` raises after a batch has closed, and an over-spend inside a batch raises.
+- **Exit condition:** the new suite green **and** `tests/test_d28_pacing.py
+  tests/test_p7_w4_streaming.py tests/test_p7_w4_deferral.py tests/test_d65_option_stream.py
+  tests/test_d27_reconnect.py tests/test_d40_tws_lifecycle.py tests/test_d24_popouts.py` green,
+  unchanged; `git diff --name-only` ⊆ the three production files + the new suite.
+- **Do not:** change `SubscriptionManager.subscribe`'s signature or `_Entry`'s fields; change the
+  `include_types` set the window passes; touch `ibkr/realtime_bars.py`, `ibkr/market_data.py`,
+  `ui/ticker_session.py` or `ui/watchlist_panel.py`; add a `cancel` keyword to `subscribe`; raise
+  `MAX_REQ_PER_SEC` or any pacing constant; split the pass by type; make the replay sleep or wait.
+
+#### P26-02 — D72 + D75 + D76: a cap-parked wave is a healthy state, and it resumes — size M
+
+- **Covers:** AC-D72.1, AC-D72.2, AC-D72.3, AC-D75.1, AC-D75.2, AC-D76.1, AC-D76.2, Journey 69,
+  R166, R169, A227, DG130.
+- **Depends on:** P26-01 (same two files; and the replay's deferral shape must already be settled).
+- **Files:** `ui/ticker_session.py`, `ui/main_window.py`, a new
+  `tests/test_d72_d75_d76_parked_wave.py`.
+- **Deliverables, in this order:**
+  1. **Parked state and the settle rule (S-P26-4).** `ui/ticker_session.py`: `_wave_parked` and
+     `_settle_parked_wave()` (disarm the watchdog and stop `_wave_continue_timer` when
+     `_wave_parked and not self._history_req_ids`; return whether it settled). The cap branch in
+     `_issue_wave_chunks` sets `_wave_parked = True` after the unchanged status message and calls the
+     settle step (it will normally not settle — members are in flight); `on_historical_data_end` and
+     `on_historical_error` call it before their `_wave_may_complete()` checks; the D72 defect's second
+     site (the end marker that "cannot complete the wave") is therefore where the bound is released.
+     Clear `_wave_parked` in `queue_wave_plans`, `_cancel_history_requests` and
+     `_finalize_history_wave`. Do **not** change `_wave_may_complete`'s definition.
+  2. **The readiness episode (S-P26-4's second half).** Split `_issue_wave_chunks`'s single
+     `except (PacingExceeded, IBKRNotReady)` into two: `PacingExceeded` → unchanged
+     `_schedule_wave_continuation(wait)`; `IBKRNotReady` → set `_wave_deferral_reason = "IBKR not
+     ready"`, arm the watchdog **only if `not self._history_wave_timer.isActive()`** (base bound, no
+     wait), surface one status line per episode (`_wave_not_ready_announced`), and start the
+     continuation timer at the unchanged 1 s fallback without re-arming. A successful issue clears the
+     reason and the announced latch. Same split in `_retry_silent_chunk`. `_schedule_wave_continuation`
+     gains one keyword-only `transport_not_ready: bool = False` (the default path is byte-identical,
+     which is what `test_p7_w2_watchdog.py::test_t11_watchdog_covers_pacing_deferral` pins). The bound
+     formula and both window fractions are untouched.
+  3. **The window half (S-P26-4's timeout guard + S-P26-7).** `_on_session_history_wave_timeout`
+     returns without stranding when `session._wave_parked and not session._history_req_ids` (and
+     because the session already disarmed, it normally never fires); otherwise it finalises as today,
+     passing `"IBKR not ready"` when the session's `_wave_deferral_reason` names the transport, else
+     `"Historical backfill timed out"`. Widen `_load_chart_resolved`'s coalesce gate to
+     `(bool(new_session._history_req_ids) or bool(new_session._wave_plan_queue))` and same triple; in
+     the coalesce branch, when the session is parked, reset `_wave_issued_this_load = 0`, clear
+     `_wave_parked`, re-arm the watchdog (`_arm_history_wave_watchdog()`), call
+     `_issue_wave_chunks()`, then refresh the indicator — leave the queue's identity intact (no
+     `list(...)` copy, no clear); an in-flight coalesce keeps today's no-op. Add one derived marker to
+     `set_backfill_state` (`parked`, from a `_backfill_parked` latch set by
+     `_refresh_backfill_indicator` as `session._wave_parked and not session._history_req_ids` and
+     cleared in `clear_backfill_indicator`); signature, keys and idle line unchanged.
+  4. **The suite** `tests/test_d72_d75_d76_parked_wave.py` — a clock-controlled host (`_now_ts`, the
+     session's timers driven directly) and a stub `md_manager` recording issue order. Cases:
+     (a) AC-D72.1 — a plan list longer than `per_load_historical_cap()`, end every issued chunk, then
+     advance past twice the bound: the finalise spy is never called, `_wave_plan_queue`'s length is
+     unchanged, `_history_wave_timer.isActive()` is False and the indicator text contains `parked`.
+     (b) AC-D72.2 — a cap-yielded wave with one member that never answers: the bound elapses, exactly
+     one stranded finalise with the reason and the `AC-D16.4` line, queue dropped.
+     (c) AC-D72.3 + AC-D75.1 — park, then load the identical triple: the cancel spy is not called, the
+     queue's head object is the plan issued first, `_pending_prefetch` survives, the indicator leaves
+     `parked`, and the issued count across both loads stays inside the pacing budget.
+     (d) AC-D75.2 — a different symbol/timeframe/mode while parked: the cancel path runs, the
+     generation advances and the old queue is cleared. (e) AC-D76.1 — an indefinitely not-ready
+     client: the bound is armed once (`_history_wave_bound_ms` equals the base) and time past it
+     produces one finalise naming the transport, never a growing retry count.
+     (f) AC-D76.2 — not-ready for two seconds then ready: one continuation at a time, the issue lands
+     as readiness arrives, and the arm arguments are the base bound. (g) Journey 69's edges — cap
+     reached on the first issue call; a disconnect while parked drops the queue (unchanged); a resumed
+     wave that then stalls is still bounded.
+- **Exit condition:** the new suite green **and** `tests/test_p7_w1_cap.py
+  tests/test_p7_w1_coalesce.py tests/test_p7_w1_persist.py tests/test_p7_w2_watchdog.py
+  tests/test_p7_w2_prime.py tests/test_p14_indicator.py tests/test_p14_lifecycle.py
+  tests/test_p15_continue.py tests/test_p15_expiry.py tests/test_p15_surfacing.py
+  tests/test_history_backfill.py tests/test_history_backfill_disconnect.py
+  tests/test_history_backfill_loadpath.py tests/test_p19_prefetch_wave.py` green, unchanged;
+  `git diff --name-only` ⊆ the two production files + the new suite.
+- **Do not:** change the bound formula, `_WATCHDOG_BASE_WINDOW_FRACTION`,
+  `_WATCHDOG_MARGIN_WINDOW_FRACTION`, `per_load_historical_cap()` or `MAX_HISTORICAL_PER_600S`; touch
+  the D54 expiry block (`_on_backfill_expiry`, `_BACKFILL_EXPIRY_BOUND_MS`, `_backfill_expiry_missed`)
+  or `set_backfill_state`'s signature; add a widget, a window or a second indicator; change
+  `_wave_may_complete`; cancel on a coalesce (except a genuine triple change); re-plan on a resume;
+  reset the D53 elapsed baseline on a resume.
+
+#### P26-03 — D73 + D74: one surrender rule, one wave-scoped ledger — size S
+
+- **Covers:** AC-D73.1, AC-D73.2, AC-D74.1, AC-D74.2, Journey 70, A228, A229, R168.
+- **Depends on:** P26-02 (same two files; the park's resets and the resume must already exist).
+- **Files:** `ui/ticker_session.py`, `ui/main_window.py`, a new
+  `tests/test_d73_d74_retry_ledger.py`.
+- **Deliverables, in this order:**
+  1. **The surrender helper (S-P26-5).** Extract `_surrender_chunk_bars(req_id)` — pop
+     `_req_bars[req_id]` and drop exactly those `Bar` objects from `_pending_bars` by `id()` — and call
+     it from `_retry_silent_chunk` (replacing its inline block, behaviour identical) and from
+     `on_historical_error`'s `code == 162` branch **before** the plan is re-queued. Nothing else in
+     either path changes: the cancel, the tag, the post-issue slot, the `_retried_plans` allowance and
+     the continuation/arm behaviour stay as they are.
+  2. **The wave-scoped ledger (S-P26-6).** `queue_wave_plans` also resets
+     `self._backfill_failed_req_ids = set()` (per wave, beside `_retried_plans`) and calls the new
+     prune. Tag bookkeeping: `_cancelled_history_gen: dict[int, int]` records `_history_generation` at
+     each `_cancelled_history_req_ids.add(...)` site (cancel path and silence retry);
+     `_register_history_request`'s existing `discard` also pops the gen entry; a `_prune_cancel_tags()`
+     keeps ids whose tagged generation is `>= _history_generation - 1` and runs at the start of
+     `queue_wave_plans`. `is_superseded` stays a set-membership read. In `ui/main_window.py`,
+     `_teardown_session` merges each batch into `_superseded_history_windows` (keep the last two) and
+     rebuilds `_superseded_history_reqs` as their union, so the attribute's name and meaning survive.
+  3. **The suite** `tests/test_d73_d74_retry_ledger.py` — a stub `md_manager` whose `req` can return a
+     chosen set of bars per reqId, a controllable `_silence_now`. Cases: (a) AC-D73.1 — five bars then
+     a 162, the retry delivering the same five plus five more: `_pending_bars`'s per-timestamp
+     multiset is all ones, and the cache row count equals the distinct timestamps.
+     (b) AC-D73.2 — the identical scenario driven through the silence path: the same invariant, asserted
+     by the same helper in the test (not two different expectations). (c) edges — a retry refused
+     twice finalises short with the partial bars surrendered; a 162 with zero partial bars is a no-op
+     surrender. (d) AC-D74.1 — many waves in one session: the tag set's size is bounded by the ids
+     cancelled in the last two generations and does not grow with the wave count, while an ack for a
+     current-wave id still classifies debug-only through `win._on_error` (no status-bar error).
+     (e) AC-D74.2 — wave A with two failures then wave B with none: B's shortfall reports zero and the
+     set is empty. (f) edge — a prefetch wave immediately after a failed load reports only its own
+     failures.
+- **Exit condition:** the new suite green **and** `tests/test_d56_silence_retry.py
+  tests/test_d56_fencing.py tests/test_d56_taxonomy_pacing.py tests/test_d56_retry_indicator.py
+  tests/test_p19_prefetch_depth.py tests/test_p19_prefetch_honesty.py
+  tests/test_history_backfill_loadpath.py tests/test_d28_3_historical_pacing.py` green, unchanged;
+  `git diff --name-only` ⊆ the two production files + the new suite.
+- **Do not:** dedupe `_pending_bars` by timestamp anywhere else; change `_persist_chunk_bars`,
+  `flush_pending_bars` or the finalise accounting; change `_retried_plans`' once-only rule; clear
+  cancel tags for the *current* generation; introduce a TTL, an LRU or a numeric cap for the tag set;
+  touch `_SUPERSEDED_HISTORICAL_ACK_CODES` or `is_superseded`'s answer.
+
+#### P26-04 — records and the phase fence — size S
+
+- **Covers:** AC-D76.3, the phase's own evidence record.
+- **Depends on:** P26-01, P26-02, P26-03.
+- **Files:** a new `tests/test_p26_fence.py`; `docs/` records; `docs/codebase-map.md`'s P26 note.
+  **No production file.**
+- **Deliverables:**
+  1. **The fence suite** `tests/test_p26_fence.py`, one assertion per named artefact:
+     `requirements.md` still carries `This is an existing repository.`, the `D41`–`D70` record (presence
+     per id in a heading — the record is mixed, exactly as P25-04 records), P26's own `#### D71`–`#### D76`
+     entries, `Journey 68`–`Journey 70`, `AC-D1.1`–`AC-D70.3` **plus** `AC-D71.1`–`AC-D76.3`,
+     `A1`–`A224` plus `A225`–`A229`, `R1`–`R164` plus `R165`–`R169`, and the `Current Tech Stack`
+     section.
+  2. **The pinning assertions** (read off the modules, not off prose): `per_load_historical_cap() ==
+     max(1, settings.MAX_HISTORICAL_PER_600S // 4)`; `_WATCHDOG_BASE_WINDOW_FRACTION == 1 / 5` and
+     `_WATCHDOG_MARGIN_WINDOW_FRACTION == 1 / 20`; `_history_wave_watchdog_bound_ms()` at a zero wait
+     equals `int(pacing_manager._hist_window * 1000 / 5)`; the four tags' values; the
+     `include_types` set `_replay_subscriptions` passes; and `TIMEFRAME_CONFIG`'s keys unchanged. No
+     literal file/line counts, no phase-commit hash.
+  3. **The delta-scope record** — a build-record artefact (P24/P25 precedent), not a hash-pinned test:
+     the wave records `git diff --name-only 629be4a` and requires it to be a subset of
+     {`ibkr/subscription_manager.py`, `ibkr/pacing.py`, `ui/ticker_session.py`, `ui/main_window.py`,
+     the four new suites, `docs/`}. Anything else is a scope breach to escalate, not to justify.
+  4. **Full offscreen suite green** recorded in the wave result, plus the two owner gates **G3**/**G4**
+     listed as *named, not run*.
+- **Exit condition:** the fence suite green, the full offscreen suite green, the recorded diff listing
+  matches the allowlist exactly, and the result names both gates as owner-run.
+- **Do not:** edit `docs/requirements/**`; assert a phase commit hash or a file/line count; add an
+  assertion that a later phase (P27's planner work) would redden.
+
+### Assumptions
+
+- **AP-P26-1 — baseline and delta.** The build starts from HEAD `629be4a` (or a descendant that changes
+  nothing this phase reads). The production delta is four modules (`ibkr/subscription_manager.py`,
+  `ibkr/pacing.py`, `ui/ticker_session.py`, `ui/main_window.py`); everything else is tests and records.
+  No new module, dependency, migration, wire change or settings constant.
+- **AP-P26-2 — the union gate is global on purpose.** A throttled generic gate defers an RT-containing
+  pass as a whole (DG131/R165). This is the documented contract, not an oversight: it is written into
+  `replay_all`'s class docstring and S-P26-1, and it is exercised by a suite case. Per-type progress
+  would need its own requirement, not a quiet split.
+- **AP-P26-3 — "parked" means cap-yielded with nothing in flight.** The cap-yield marks the queue
+  parked *immediately* (so the indicator can say so), but the watchdog is released only when the last
+  member ends; while members are outstanding the bound still applies (R166). A resumed wave re-arms
+  the bound in the same step that clears the flag.
+- **AP-P26-4 — the D54 T0+10 s verdict is not suppressed.** `AC-D54.*` is explicitly out of scope
+  (Non-Goals): a parked wave still receives the 10 s "partial" verdict and, when spans remain missing,
+  the `AC-D16.4` missing-days line — which is a **different** statement from the watchdog's
+  `"Historical backfill timed out"` reason that `AC-D72.1` measures (finalise spy + queue length).
+  P26 adds the `parked` word beside `partial`; it does not silence the D54 line. Recorded as
+  FI-P26-2 for the owner.
+- **AP-P26-5 — AC-D75.1's "no new request is issued for the parked plans" is read as "no duplicate or
+  extra request".** The resume issues exactly the queued plans, once, in order, and re-plans nothing —
+  which is what `AC-D72.3`'s measurable ("the oldest queued plan is issued") requires. The alternative
+  literal reading (issue nothing at all) makes the two criteria jointly unsatisfiable and would turn
+  the park into a silent stop. Recorded as FI-P26-1 so the analyst can confirm the wording.
+- **AP-P26-6 — the existing suites stay green as they are.** No assertion is re-baselined. In
+  particular `test_d28_pacing.py`'s replay case (RT-only, so `generic_n = 0`) and
+  `test_p7_w4_streaming.py::test_p7_t07_t13_replay_all_defers_via_singleshot` (which pins one
+  `QTimer.singleShot` call at `2000` ms) stay unchanged — that is why the replay's deferral keeps its
+  `singleShot` shape and the retirement is per-type rather than a `subscribe` keyword (four test
+  doubles carry the five-argument `subscribe`). If a pre-existing expectation must be re-baselined,
+  the wave stops and escalates to Plan.
+- **AP-P26-7 — G3 and G4 stay owner-run.** Every AC is offscreen-assertable with fakes; the live
+  reconnect settle (**G3**) and the four-minute idle parked wave plus its reload (**G4**) are named
+  gates the build lists and does not claim.
+- **AP-P26-8 — the four waves are strictly sequential.** `ui/ticker_session.py` and
+  `ui/main_window.py` are edited by 01, 02 and 03; P26-04 edits only tests and docs. There is no
+  disjoint parallel branch, and `touches_files` overlap must serialise them in that order.
+- **AP-P26-9 — no new tunable.** The readiness episode is bounded by the existing watchdog bound; the
+  park uses `per_load_historical_cap()`; the batch arithmetic is `(n − 1)` intervals of
+  `1 / MAX_REQ_PER_SEC`. No constant is added to `config/settings.py`.
+- **AP-P26-10 — one new user-visible word, no new surface.** `parked` on the existing D53 label is the
+  only addition; the per-load-budget message, the "pacing-limited, continuing backfill…" line, the
+  reconnect "retrying in Ns…" line and the `AC-D16.4` shortfall keep their wording, with the `[reason]`
+  suffix naming the transport for a readiness episode.
+
+### Flagged Issues
+
+- **FI-P26-1 — AC-D75.1's last clause contradicts AC-D72.3 as literally written (non-blocking if the
+  reading in AP-P26-5 is accepted).** `AC-D75.1` says an identical-triple reload issues "no new request
+  … for the parked plans"; `AC-D72.3` says the same load "issues the oldest queued plan" and its
+  measurable is "issued-plan order + pacing-manager call log". Both cannot hold literally. Plan adopts
+  the reading under which the reload **resumes** the parked queue (no cancel, no re-plan, no duplicate,
+  no extra request beyond the queued plans themselves), which satisfies both ACs' measurables
+  (`AC-D75.1`'s measurable names only the cancel spy, the queue and `_pending_prefetch`). Suggested
+  direction: the analyst confirms the wording ("no *duplicate* request") when the batch closes; a
+  different reading would need `AC-D72.3` restated, which is not Plan's act.
+- **FI-P26-2 — a parked wave still surfaces the D54 T0+10 s verdict and its missing-days line
+  (non-blocking, boundary).** `AC-D54.*` is out of scope by this phase's Non-Goals, so P26 cannot
+  suppress it; the line is a genuine incompleteness report about a chart whose remainder is queued, and
+  it is **not** the watchdog's `"Historical backfill timed out"` reason `AC-D72.1` measures. If the
+  owner reads D72's "never a shortfall" as covering the D54 line too, that is a new requirement
+  (suppress/soften the 10 s verdict for a parked wave) and would reopen `AC-D54.*`.
+- **FI-P26-3 — parked work survives a same-triple reload, not a session teardown (non-blocking,
+  boundary).** A symbol switch away (or any path that tears the session down) drops the parked queue by
+  design — Journey 69's disconnect edge says so, and the planner re-derives the remainder from the
+  persisted cache on the next load, so no fetched data is lost and the per-load cap applies again.
+  What is **not** preserved is the queue's identity and the `_pending_prefetch` marker across a
+  teardown; P26 does not extend the park's lifetime beyond the session, because that would need
+  persisted wave state (a migration this phase forbids).
+
+Status: READY_FOR_TASK_MANAGER

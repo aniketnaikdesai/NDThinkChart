@@ -10604,3 +10604,376 @@ changes a P25 decision).
   a **wave** request of `30 D` / `1 min` completes, so D67's fix is motivated by `AC-D67.3`'s cap on the
   **priming** request and by the prime's own `1 D` clamp — not by a claim that 1-minute bars cannot span
   more than a day in any path. P25 neither retunes the bound nor widens a wave.
+
+## Phase P26 — Reconnect replay and backfill-wave lifecycle: all-or-nothing replay, cap-yield parking, retry bookkeeping (D71–D76) — drafted 2026-11-19
+
+> Companion: `docs/plan.md` § *Phase P26* (traceability, four waves, assumptions, flagged issues).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P26
+> (D71–D76), Journeys 68–70, `AC-D71.1`–`AC-D76.3`**, A225–A229, R165–R169, gates **G3**/**G4**
+> (owner-run), `design_gaps.md` DG130/DG131.
+> **Baseline: HEAD `629be4a`** (P25/D67–D70 shipped; tree clean). Existing-repo run: every item below
+> carries `[existing]`, `[new]` or `[new/changed]`; every decision carries `[new in P26]`,
+> `[revises P<m>: …]` or `[extends P<m>: …]`. Sizes S/M only; **no new production module, no new
+> dependency, no migration, no settings constant.**
+
+### Relationship to prior phases
+
+Six defects, three seams, stated once so nothing is silently revised:
+
+- **`[new in P26: the replay is one transaction over a union budget]`** — `replay_all` today asks the
+  realtime budget for the RT entries only (`rt_needed`) and then issues every pending entry in a
+  synchronous loop; each option/S0 reissue goes through `MarketDataManager.req_mkt_data` →
+  `pacing_manager.throttle()`, whose minimum-interval gate (20 ms at `MAX_REQ_PER_SEC = 50`) refuses
+  from the second send onward. Nothing in the current design can make a mixed pass "zero or all": the
+  budget that gates it is not the budget it spends.
+- **`[new in P26: parked is a session state]`** — the per-load cap yield is a *designed* outcome
+  (`per_load_historical_cap()` = `floor(MAX_HISTORICAL_PER_600S / 4)` = 25), but the session has no
+  word for it: the yield returns with the watchdog still armed, the next load cancels the queue, and
+  the D53 indicator can only say in-flight / queued / elapsed.
+- **`[revises P7: S-P7-1's "resume on a later load" mechanism]`** — S-P7-1 promises the remainder
+  "resumes on a later load (replanned from the persisted cache)". It does not: the next load takes the
+  cancel branch (`_cancel_history_requests` clears `_wave_plan_queue`), so the queue is destroyed and
+  the "resume" is a replan that spends new requests. P26 makes the queue itself survive the load
+  (D75's coalesce gate) and resume from it, oldest-first.
+- **`[revises P7: S-P7-3's watchdog arming rule for a deferral]`** — S-P7-3 re-arms the strand bound on
+  every `_schedule_wave_continuation` call, which is correct for a *pacing* deferral (the wait is
+  authoritative and may be long) and pathological for an `IBKRNotReady` fallback: a fixed 1 s tick
+  re-arms a 120 s bound every second, so the bound never elapses. P26 arms a readiness episode once;
+  **the bound formula is untouched** (`max(base, wait + margin)`, currently `120_000` ms base and
+  `30_000` ms margin — a P26 non-goal).
+- **`[revises P23: the OPTION_LEGS replay entries leave no superseded line live]`** — P23-05 added the
+  `OPTION_LEGS` tag and the `reissue`/`rebind` hooks; `_option_reissue_leg` drops the old reqId from
+  its own maps but never calls `cancel_mkt_data`, so every replay adds a live TWS line. The
+  `MARKET_DATA` watchlist hook (`ui/watchlist_panel.py`) is unchanged: that type stays excluded from
+  the reconnect replay (pinned by `AC-D22.7.2` and by
+  `tests/test_d65_option_stream.py::…types == {RT_BARS, S0_TICKS, OPTION_LEGS}`).
+- **`[extends P7-W1: S-P7-2's per-chunk persist-and-render]`** — a chunk that will be re-requested
+  surrenders its in-memory partial bars (D73); the per-chunk `save_bars` already happened for
+  *completed* chunks and its mode-aware PK makes the surrender lossless. P26 neither changes the
+  persisting sites nor the flush/finalise accounting.
+- **`[extends P17: the silence retry's surrender block]`** — `_retry_silent_chunk` already pops
+  `_req_bars[req_id]` and identity-removes those bars from `_pending_bars`. P26 extracts exactly that
+  block into one helper and calls it from the error-162 branch too, so the two retry paths are
+  identical by construction (`AC-D73.2`) rather than by review.
+- **`[extends P14/P15: the D53 indicator's state vocabulary]`** — the permanent label already carries
+  a marker list (`partial`, `retry`); P26 adds one word (`parked`) to the same list. DG130's
+  suggestion is followed literally: the *vocabulary* grows, no widget, no window, no second surface.
+- **`[existing]` — unchanged and consulted, never reshaped:** the planner
+  (`services/backfill_service.py::find_missing_spans` / `plan_requests`), `TIMEFRAME_CONFIG` and every
+  request shape (P27 owns them), `BarCache` (schema, mode key, `INSERT OR REPLACE`), `data/db.py`,
+  `ibkr/realtime_bars.py`'s budget arithmetic, the generation-fencing rule, the D54 T0+10 s expiry
+  (`AC-D54.*`), and every D1–P25 criterion.
+- **`[existing]` — the D28.1 no-sleep contract:** `PacingExceeded` carries `wait_seconds` and every
+  deferral is a `QTimer`; P26 adds no sleep, no blocking wait and no thread.
+
+An unlabeled decision below is `[new in P26]`.
+
+### Codebase Summary (existing repository — P26 surface; pointer + deltas)
+
+The module index lives in `docs/codebase-map.md` (skeleton regenerated 2026-11-19: **280 code files,
+23 test-impact rows**; a **P26 note** is appended there; no production module is added, so the
+generated index is structurally unchanged). What this phase touches, and what each site *encodes*
+today:
+
+| Site | What it encodes today | P26 disposition |
+|---|---|---|
+| `ibkr/subscription_manager.py::SubscriptionManager.replay_all` | pre-check = `realtime_wait_for_slots(rt_needed)` counting **RT_BARS only**; then a synchronous loop over every pending entry calling `entry.reissue()`; the registry key moves only after a successful reissue, and the old reqId is never cancelled; its docstring claims "all-or-nothing under pacing pressure" | `[new/changed]` — union pre-check (RT slots **and** the generic interval batch), one transaction (reissue all → rebind+retire all → move keys), unwind on any raise, plus a per-type retire resolver |
+| `ibkr/subscription_manager.py` tags/`_Entry` | `RT_BARS` / `MARKET_DATA` / `S0_TICKS` / `OPTION_LEGS`; `_Entry(symbol, req_type, reissue, rebind)`; `subscribe`/`unsubscribe`/`unsubscribe_all_of_type`/`has_subscription`/`entries_of_type` | `[existing]` — `_Entry` and `subscribe` are **not** changed (see S-P26-3); `S0_TICKS` is declared and included but **nothing in production registers under it** (verified 2026-11-19) — it therefore contributes nothing to the union, which is computed from the pending list and stays correct if a hook is ever added |
+| `ibkr/pacing.py::PacingManager` | `throttle()` = the minimum-interval gate (`1/MAX_REQ_PER_SEC` = 20 ms), raises `PacingExceeded`; separate rolling windows for realtime bars (60/600 s) and historical requests (100/600 s + 0.5 s interval); `refund_historical_slot`; `reset_for_tests` | `[new/changed]` — one batch reservation (`generic_wait_for_batch`, `generic_batch`) and a reservation branch in `throttle()`; every other member byte-identical |
+| `ui/main_window.py::MainWindow._replay_subscriptions` | one `replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS})`, and on `PacingExceeded` a `QTimer.singleShot(ms, self._replay_subscriptions)` that re-runs the **whole** pass; no de-duplication of stacked deferrals | `[new/changed]` — a replaceable deferral (an epoch token in front of the same `QTimer.singleShot`) and the retire resolvers installed once in `__init__` beside `self.sub_manager = SubscriptionManager()` |
+| `ui/main_window.py::_option_reissue_spot` / `::_option_reissue_leg` / `::_option_rebind_*` | reissue hooks issue a fresh `req_mkt_data` and repoint the leg/spot maps; the old reqId is dropped from `_option_req_ids` and never cancelled | `[new/changed]` — the replay retires the old id (the maps' own cleanup stays); a spot/leg reissue that raises leaves nothing half-applied |
+| `ui/main_window.py::_load_chart_resolved` (coalesce gate) | `bool(new_session._history_req_ids) and symbol == _current_symbol and timeframe == _current_tf and extended_hours == session._wave_extended_hours`; otherwise `flush_pending_bars` → `_cancel_history_requests` → `_history_generation += 1` → replan | `[new/changed]` — the gate also accepts a non-empty `_wave_plan_queue`; the coalesce branch resumes a parked wave instead of returning |
+| `ui/main_window.py::_finalize_stranded_history_wave` / `::_on_session_history_wave_timeout` | stranding clears the queue, advances the generation and finalises once with a reason string; the timeout handler passes `"Historical backfill timed out"` unconditionally | `[new/changed]` — refuses to strand a parked-and-idle wave; the reason names the transport when the episode was a readiness deferral |
+| `ui/main_window.py::set_backfill_state` / `::_refresh_backfill_indicator` / `::clear_backfill_indicator` | one permanent `QLabel`; `_backfill_state` dict with `in_flight/queued/elapsed_s/req_ids/retry/retry_req_ids`; a marker list rendered as `Backfill (partial, retry): …`; latches die only at the terminal clear | `[new/changed]` — one added marker word `parked`, derived from session state on every refresh (no latched caller), cleared with the existing latches; every other key, the signature and the idle line unchanged |
+| `ui/main_window.py::_teardown_session` | `self._superseded_history_reqs |= session._cancelled_history_req_ids` — a window-lifetime set that only grows | `[new/changed]` — the merge keeps the last two teardown batches; `_superseded_history_reqs` stays the flattened union (same name, same read) |
+| `ui/ticker_session.py::_issue_wave_chunks` | per-load cap branch returns after a status message (no disarm, no timer stop, no state); the pacing branch schedules a continuation; `IBKRNotReady` falls back to `wait = 1.0` | `[new/changed]` — the cap branch marks the queue parked and settles the watchdog when nothing is in flight; the readiness branch arms once per episode |
+| `ui/ticker_session.py::_schedule_wave_continuation` / `::_arm_history_wave_watchdog` / `::_history_wave_watchdog_bound_ms` | continuation shows the status line, re-arms the bound for `wait + margin`, starts the single-shot timer; the bound is `max(base, wait_ms + margin_ms)` from window fractions (1/5, 1/20) | `[new/changed]` — one keyword (`transport_not_ready`) selects the episode rule; **the bound formula and both fractions are unchanged** |
+| `ui/ticker_session.py::on_historical_data_end` / `::on_historical_error` (162 branch) | end: persist the chunk, `if not self._wave_may_complete(): return`; 162: pop the plan, drop the reqId, re-queue at the front, arm the continuation — **without** popping `_req_bars[req_id]` or removing those bars from `_pending_bars` | `[new/changed]` — the end/error paths settle a parked wave; the 162 branch calls the extracted surrender helper first |
+| `ui/ticker_session.py::_retry_silent_chunk` | already pops the chunk and identity-filters `_pending_bars`; cancels, tags, keeps the post-issue slot, re-issues under the shared `_retried_plans` allowance | `[new/changed]` — the inline block becomes a shared helper (behaviour identical); its own `(PacingExceeded, IBKRNotReady)` catch splits so a readiness failure uses the episode rule |
+| `ui/ticker_session.py::queue_wave_plans` | resets `_retried_plans`, `_req_bars`, `_history_req_issued`, `_history_req_last_activity`, `_wave_issued_this_load`; stamps `_wave_start_ts` once; stamps nothing else | `[new/changed]` — also resets `_backfill_failed_req_ids`, clears `_wave_parked`/the deferral reason, and prunes cancel tags older than the previous generation |
+| `ui/ticker_session.py::_cancel_history_requests` / `::_register_history_request` / `::is_superseded` | tags every cancelled reqId in one set that lives for the session; `_register_history_request` discards a re-entering id's tag; `is_superseded` is a set membership read | `[new/changed]` — tags carry the generation they were added at; membership answers unchanged for the current and previous generation |
+| `ui/ticker_session.py::_subscribe_rt` / `::_reissue_rt` / `::_rebind_rt_req_id` | subscribe registers `RT_BARS` with reissue/rebind; `_reissue_rt` re-subscribes and re-registers routing; the old realtime line is never cancelled | `[existing]` behaviour kept; the replay retires the old id through `MainWindow`'s resolver (no signature change here) |
+| `tests/test_d28_pacing.py::test_replay_all_defers_without_partial_reissue` | two RT entries, realtime budget exhausted by 0.3 s → nothing reissued, "pacing-limited" line, then exactly two reissues after the deferral | `[existing]` — stays green unchanged (RT-only pass: the generic batch count is 0) |
+| `tests/test_p7_w4_streaming.py::test_p7_t07_t13_replay_all_defers_via_singleshot` | monkeypatches `QTimer.singleShot` and asserts one call with `2000` ms, then a second pass calling `replay_all` once | `[existing]` — stays green: the deferral stays a `QTimer.singleShot` with `int(wait_seconds * 1000)` |
+| `tests/test_d65_option_stream.py` (replay recorder), `tests/test_p7_w1_*`, `tests/test_p7_w2_watchdog.py`, `tests/test_p14_*`, `tests/test_p15_*`, `tests/test_d56_*`, `tests/test_p19_prefetch_*`, `tests/test_history_backfill*.py` | the replay recorder asserts the exact `include_types` set; the wave suites pin the cap, the coalesce keep, the watchdog bound arithmetic, the indicator text, the expiry verdict, the silence-retry ledger and the prefetch marker | `[existing]` — all stay green unchanged; each wave's exit condition names the subset it must keep green |
+
+### Summary
+
+D71 makes the reconnect replay what its docstring already claims: one pass that either reissues
+nothing (deferred by the *union* of the budgets it will spend — realtime slots **and** the generic
+minimum-interval gate, reserved as one batch) or reissues every eligible entry once, after which every
+superseded reqId has been retired and no TWS line is duplicated. D72/D75/D76 make the per-load-cap
+yield a first-class **parked** state: the queue survives, the watchdog stops bounding work that is not
+stalled, the indicator says `parked`, and the identical reload resumes the queue instead of cancelling
+it — while a genuinely stalled member is still finalised once. D73 makes both retry paths surrender a
+re-chunked plan's partial bars before re-issuing, and D74 scopes the cancel-tag and failure sets to a
+bounded generation window. Three seams, one new word in an existing label, no new surface.
+
+### Tech Stack Decisions
+
+Constrained (existing) choices first — every one is a hard input, none is re-opened:
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / runtime | `[existing]` Python 3.11+ in the repo `.venv`, macOS arm64; **no new dependency** | all six fixes are edits inside modules that already exist (`contextlib` is stdlib) | — |
+| Broker / transport | `[existing]` `ibapi` against live TWS; `MarketDataManager.req_mkt_data` / `req_historical_data` are the only request paths; `RealtimeBarsManager.subscribe` the only realtime path | the phase issues **no new request**; it removes duplicate live lines | a second request path (rejected — memory: "anything that issues historical requests must go through `req_historical_data`; do not add a second path") |
+| Pacing | `[existing]` `PacingManager` as the single owner; `PacingExceeded.wait_seconds` + `QTimer` deferrals; never sleep on the GUI thread | D28.1's contract is the whole reason the replay can be deferred at all | a replay-local limiter (rejected — a second pacing owner is exactly what D28.1 forbids); `time.sleep` (forbidden) |
+| Storage | `[existing]` SQLite via `BarCache`; mode-aware PK `(symbol, timeframe, ext_hours, ts)`; `INSERT OR REPLACE` | the surrender rule (D73) is lossless **because** the PK makes a re-fetch idempotent; nothing is persisted, migrated or re-keyed this phase | a dedupe pass over `_pending_bars` before persist (rejected — hides an accounting error and would mask planner duplicates P27 owns) |
+| Test harness | `[existing]` pytest + `pytest-qt` offscreen; injected stub managers (`_ReqStub`-style) and the existing clock seams (`TickerSession._silence_now`, `MainWindow._now_ts`) | every criterion is offscreen-assertable; the two live checks are named gates (G3/G4), not suite gates | a live-TWS suite (rejected — G3/G4 are owner-run) |
+| Replay budget model `[new in P26]` | **one union pre-check and one batch reservation**: RT slots via `realtime_wait_for_slots(rt_n)`, generic sends via a new `generic_wait_for_batch(generic_n)` = `max(0, (n−1)·interval − since_last_send)`; the pass raises `PacingExceeded(max(...))` before touching anything, then issues inside `pacing_manager.generic_batch(generic_n)` | A225 names the union as the only admissible reading of "all-or-nothing"; the batch is the only way n back-to-back sends can pass a 20 ms spacing gate without sleeping, and it keeps the manager the single owner of the budget | counting option legs into the realtime budget (rejected — R165: it would spend realtime slots for market-data lines and change a different budget); raising `MAX_REQ_PER_SEC` for replay (rejected — a global weakening to fix one pass); an async one-per-interval replay (rejected — "a single pass reissues every entry once" is the criterion) |
+| Retirement of superseded lines `[new in P26]` | **the replay retires them, through a per-type resolver** installed once by `MainWindow` (`RT_BARS` → `rt_manager.unsubscribe(old)` + routing unregister; `OPTION_LEGS` → `md_manager.cancel_mkt_data(old)` + `_option_req_ids.pop(old)`) | the registry is the single source of truth for what is live, so it must be able to retire what it replays; per-type keeps `SubscriptionManager.subscribe` frozen, so every existing test double still constructs it | a `cancel=` keyword on `subscribe` (rejected — four test doubles carry the five-argument shape and `AC-D71.3` asks the replay suites to stay unchanged); each reissue hook cancelling its own predecessor (rejected — the old line's death would be invisible to the registry, and the unwind would have nothing to restore) |
+| Parked-state surface `[new in P26]` | **one marker word on the existing D53 label** — `Backfill (parked): 0 in flight, N queued, …`, derived from session state on every refresh | A227/DG130: parking must be distinguishable from in-flight and from stalled without reading logs, and the surface already exists | a new widget/status line (rejected — A227: P26 adds no widget); a second indicator (rejected — two surfaces for one wave); reusing `partial` (rejected — that word already means "T0+10 s missed") |
+| Watchdog arming `[new in P26]` | **arm for waiting work, disarm for parked work**: the cap yield marks the queue parked and settles the bound once nothing is in flight; a readiness deferral arms once per episode and never re-arms on the fixed 1 s tick | D72 and D76 are one rule (R166: a premature disarm would hide a real stall); the bound formula and its fractions stay untouched (non-goal) | disarming at the cap-yield return itself (rejected — in-flight members still exist at that instant and R166 names exactly that hazard); a new not-ready retry constant (rejected — no settings key this phase, and the existing bound already measures the episode) |
+| Retry ledger scoping `[new in P26]` | **generation-windowed**: cancel tags keep the current + previous generation; the failure set resets per wave; the window's merged tags keep the last two teardowns | A229's "bounded does not mean small" plus `AC-D74.1`'s second clause (a current-wave ack must still classify as superseded) | clearing the tag set on every wave (rejected — R168: a benign ack becomes a user-visible error); an LRU of N ids (rejected — an arbitrary N with no relation to a wave); a wall-clock TTL (rejected — the generation already orders the waves) |
+
+### System Components
+
+- `[new/changed] ibkr/subscription_manager.py` — `replay_all(include_types=None)` keeps its signature and
+  its `[(old_id, new_id)]` return, and becomes one transaction:
+  1. **pre-check** — `pending` is computed once (type filter + `reissue is not None`), then
+     `rt_n = count(RT_BARS)`, `generic_n = len(pending) - rt_n`;
+     `wait = max(pacing_manager.realtime_wait_for_slots(rt_n),
+     pacing_manager.generic_wait_for_batch(generic_n))`; `wait > 0` ⇒ `raise PacingExceeded(wait)`
+     **before any reissue and before any registry mutation**;
+  2. **reissue phase** — `with pacing_manager.generic_batch(generic_n):` every pending entry's
+     `reissue()` is called in **registry order** (dict insertion order = registration order, stated in
+     the docstring); if any call raises, every new reqId issued so far is retired through its resolver,
+     each successful entry's `rebind(old_id)` restores routing, and the exception re-raises — the
+     registry is byte-identical to its pre-pass state and every old line is still live;
+  3. **retire phase** — for each entry: `rebind(new_id)`, then the resolver for its `req_type` retires
+     the old id (best-effort, logged), then the registry key moves.
+  A new `cancel_hooks: dict[str, Callable[[int], None]]` plus `set_cancel_hook(req_type, fn)` (set once
+  by the window; absent ⇒ the replay retires nothing for that type and says so in the docstring).
+  `subscribe`, `unsubscribe`, `unsubscribe_all_of_type`, `has_subscription`, `entries_of_type` and
+  `_Entry` are unchanged. The class docstring records DG131's coupling: **a deferred pass is one
+  deferral for the whole registry, by design** — one throttled option leg defers the RT lines too,
+  because splitting the pass is what recreates the partial replay this contract exists to prevent.
+- `[new/changed] ibkr/pacing.py` — `generic_wait_for_batch(count: int) -> float` (pure: `0.0` for
+  `count <= 1`, else `max(0.0, (count - 1) * interval - (now - _last_req_time))` with
+  `interval = 1 / settings.MAX_REQ_PER_SEC`) and a `generic_batch(count)` context manager that
+  re-checks the wait (raising `PacingExceeded` if it is still positive), sets `_batch_remaining =
+  count`, and in its `finally` clears it and stamps the interval clock once
+  (`record_request_slot()`). `throttle()` gains one branch in front of the clock read: while
+  `_batch_remaining > 0` it decrements and returns (the send is inside the reservation); the
+  (n+1)-th send therefore falls through to the unchanged gate — admitted only if the interval has
+  genuinely elapsed since the last real stamp, and raising otherwise — so the reservation itself is
+  **fail-closed**: it can never be spent twice.
+  `reset_for_tests` also clears `_batch_remaining`. Everything else — the realtime window, the
+  historical window and interval, `refund_historical_slot`, `request_wait_seconds` — is byte-identical.
+- `[new/changed] ui/main_window.py` —
+  (a) two `set_cancel_hook` registrations beside `self.sub_manager = SubscriptionManager()`
+  (`RT_BARS` → unregister routing + `rt_manager.unsubscribe`; `OPTION_LEGS` → `_option_req_ids.pop` +
+  `md_manager.cancel_mkt_data`), each best-effort;
+  (b) `_replay_subscriptions` keeps its shape — one `replay_all(include_types={RT_BARS, S0_TICKS,
+  OPTION_LEGS})` (the set is asserted verbatim by two suites) and, on `PacingExceeded`, one
+  `QTimer.singleShot(int(e.wait_seconds * 1000), …)` — but the scheduled callback is guarded by an
+  epoch (`_replay_serial`): a newer call replaces the pending deferral instead of stacking with it,
+  and the callback returns immediately when its epoch is stale;
+  (c) the coalesce gate accepts a non-empty `_wave_plan_queue`, and the coalesce branch resumes a
+  parked wave (reset `_wave_issued_this_load`, clear `_wave_parked`, re-arm the watchdog, call
+  `_issue_wave_chunks()`, refresh the indicator) instead of only messaging;
+  (d) `_on_session_history_wave_timeout` refuses to strand a parked wave with nothing in flight —
+  the guard lives in the timeout handler, so `_finalize_stranded_history_wave` stays unchanged and a
+  disconnect still strands the wave and drops the parked queue (Journey 69's edge) — and the reason
+  names the transport for a readiness episode;
+  (e) `set_backfill_state` keeps its signature and renders one extra marker word from a
+  `_backfill_parked` latch that `_refresh_backfill_indicator` derives from session state (died with the
+  other latches in `clear_backfill_indicator`);
+  (f) `_teardown_session` merges into a two-batch window and keeps `_superseded_history_reqs` as the
+  flattened union.
+- `[new/changed] ui/ticker_session.py` — `_wave_parked` (set at the cap-yield branch; cleared by
+  `queue_wave_plans`, `_cancel_history_requests`, `_finalize_history_wave`), `_settle_parked_wave()`
+  (disarm + stop the continuation timer when `_wave_parked and not _history_req_ids`; returns whether
+  it settled), the readiness episode (`_wave_deferral_reason`, `_wave_not_ready_announced`, and
+  `_schedule_wave_continuation(wait_s, *, transport_not_ready=False)` arming the bound only when the
+  timer is not already active), `_surrender_chunk_bars(req_id)` (the extracted silence-path block),
+  the 162 branch calling it, the failure-set reset in `queue_wave_plans`, and generation-tagged cancel
+  tags (`_cancelled_history_gen`) pruned to the current + previous generation at each new wave.
+  `_wave_may_complete`, `on_historical_bar`'s routing, `_persist_chunk_bars` and the priming path are
+  unchanged.
+- `[existing]` untouched: `services/backfill_service.py`, `data/bar_cache.py`, `data/db.py`,
+  `data/models.py`, `config/settings.py` (**no new constant**), `ibkr/realtime_bars.py`,
+  `ibkr/market_data.py`, `ibkr/id_manager.py`, `ui/watchlist_panel.py`, `services/md_line_guard.py`,
+  and the D54 expiry block in `ui/main_window.py`.
+- `[new]` test suites (no production import): `tests/test_d71_replay_transaction.py`,
+  `tests/test_d72_d75_d76_parked_wave.py`, `tests/test_d73_d74_retry_ledger.py`, and
+  `tests/test_p26_fence.py`.
+
+### Data Model
+
+No persisted entity changes and no migration. The phase adds only **in-memory** wave/registry state:
+
+| Item | Shape | Notes |
+|---|---|---|
+| `SubscriptionManager._cancel_hooks` | `[new]` `dict[str, Callable[[int], None]]` | one resolver per replayed tag, installed once; the replay never invents a cancel path |
+| `PacingManager._batch_remaining` | `[new]` `int` | the open reservation's unspent units; non-zero only inside `generic_batch`; cleared in `finally` and by `reset_for_tests` |
+| `TickerSession._wave_parked` | `[new]` `bool` | the queue yielded at the per-load cap; cleared by the three wave-lifecycle resets |
+| `TickerSession._wave_deferral_reason` | `[new]` `str` (`""` / `"IBKR not ready"`) | set at a readiness deferral, cleared on a successful issue; read only by the timeout handler to name the cause |
+| `TickerSession._wave_not_ready_announced` | `[new]` `bool` | one surfaced message per readiness episode (R169) |
+| `TickerSession._cancelled_history_gen` | `[new]` `dict[int, int]` | reqId → the `_history_generation` value at cancel time; pruned, never persisted. `_cancelled_history_req_ids` stays the membership set `is_superseded` reads |
+| `MainWindow._replay_serial` | `[new]` `int` | the replay deferral's epoch (a newer call supersedes the pending one) |
+| `MainWindow._backfill_parked` | `[new]` `bool` | the indicator's parked latch, derived on refresh, cleared with the existing latches |
+| `MainWindow._superseded_history_windows` / `_superseded_history_reqs` | `[new/changed]` `list[set[int]]` (≤ 2) + the flattened `set[int]` | same name and same read as today; bounded by two teardown batches |
+| `[existing]` schema | `bars` columns and the mode-aware PK | untouched — the D73 surrender is safe **because** `save_bars` is `INSERT OR REPLACE` on that key |
+
+### Integration Points
+
+- `[existing]` **TWS via `ibapi`** — no request shape is added or retuned and the phase issues no new
+  request. The replay *reduces* TWS traffic: every replay now retires the line it supersedes, so the
+  live count returns to its pre-drop value (`AC-D71.2`).
+- `[existing]` **Realtime bars** — `RealtimeBarsManager.subscribe`/`unsubscribe` and the 60/600 s budget
+  are unchanged; the replay's RT retire step calls `unsubscribe(old)`, which is also what removes the
+  old id from `RealtimeBarsManager._subscriptions`.
+- `[existing]` **Live market data (option legs + the one SPX spot line)** — reissue and retire both go
+  through `MarketDataManager.req_mkt_data` / `cancel_mkt_data`; the §7 line guard's accounting is
+  unchanged (it counts `_option_req_ids` + `_option_spot_req_id`, both repointed by the existing hooks).
+- `[existing]` **SQLite (`BarCache`)** — read/write calls are unchanged; the PK is what makes a
+  re-requested chunk's re-persist a no-op.
+- `[existing]` **Qt timers** — the session's watchdog/continuation/silence timers and the window's one
+  `QTimer.singleShot` deferral. No sleep, no thread, no event-loop re-entry.
+- No new external service, credential, endpoint or dependency of any kind.
+
+### Frozen Interfaces
+
+Every entry is `[existing]` and **unmodified by this phase** — what is frozen is a *signature, shape,
+constant or formula*; where this phase changes behaviour behind one, the changed part is listed under
+**NOT frozen**. Nothing new is frozen, and nothing under construction is frozen. Task Manager gives
+workers these contracts verbatim, never the implementation.
+
+- `ibkr/subscription_manager.py` — verbatim:
+  `def subscribe(self, symbol: str, req_id: int, req_type: str = MARKET_DATA, *, reissue: Optional[Callable[[], int]] = None, rebind: Optional[Callable[[int], None]] = None) -> None:`
+  · `def unsubscribe(self, req_id: int) -> None:` · `def unsubscribe_all_of_type(self, req_type: str) -> None:`
+  · `def has_subscription(self, symbol: str, req_type: str | None = None) -> bool:`
+  · `def entries_of_type(self, req_type: str) -> list[tuple[int, str]]:`
+  · `def replay_all(self, include_types: Optional[set[str]] = None) -> list[tuple[int, int]]:`
+  (signature and return shape frozen: `[(old_req_id, new_req_id)]`; the *behaviour* inside it is this
+  phase's change) · the tags `RT_BARS = "rt_bars"`, `MARKET_DATA = "market_data"`,
+  `S0_TICKS = "s0_ticks"`, `OPTION_LEGS = "option_legs"` · the `_Entry` field set
+  (`symbol, req_type, reissue, rebind` — no field is added). Owner: `ibkr/subscription_manager.py`.
+  The `include_types` set the window passes (`{RT_BARS, S0_TICKS, OPTION_LEGS}`) is frozen: two suites
+  assert it exactly.
+- `ibkr/pacing.py` — verbatim: `class PacingExceeded(Exception)` with `self.wait_seconds` (a float,
+  `max(0.0, float(wait_seconds))`) · `def request_wait_seconds(self) -> float:` ·
+  `def throttle(self):` (outside a batch: unchanged — raises `PacingExceeded(wait)` when the
+  minimum interval has not elapsed, else stamps and returns) ·
+  `def realtime_available_slots(self) -> int:` · `def realtime_wait_for_slots(self, n: int) -> float:`
+  · `def realtime_wait_seconds(self) -> float:` · `def record_realtime_slot(self) -> None:` ·
+  `def historical_wait_seconds(self) -> float:` · `def record_historical_slot(self) -> None:` ·
+  `def refund_historical_slot(self) -> bool:` · `def reset_for_tests(self) -> None:` ·
+  the singleton `pacing_manager`. Owner: `ibkr/pacing.py`.
+- `ui/ticker_session.py` — verbatim:
+  `def per_load_historical_cap() -> int:` (body frozen: max(1, int(settings.MAX_HISTORICAL_PER_600S) // 4)) ·
+  `def queue_wave_plans(self, plans, contract, timeframe: str, extended_hours: bool) -> None:` ·
+  `def _issue_wave_chunks(self, max_per_wave: int | None = None) -> None:` ·
+  `def _wave_may_complete(self) -> bool:` (`not self._history_req_ids and not self._wave_plan_queue`) ·
+  `def _schedule_wave_continuation(self, wait_s: float) -> None:` (the existing *call form* stays valid;
+  one keyword-only parameter is appended) ·
+  `def _history_wave_watchdog_bound_ms(self, wait_s: float = 0.0) -> int:` — **the formula is frozen**:
+  `max(base_ms, wait_ms + margin_ms)`, `base_ms = int(window_s * _WATCHDOG_BASE_WINDOW_FRACTION * 1000.0)`,
+  `margin_ms = int(window_s * _WATCHDOG_MARGIN_WINDOW_FRACTION * 1000.0)`, with the fractions at one
+  fifth and one twentieth (the numeric bindings 1/5 and 1/20),
+  `window_s = pacing_manager._hist_window` (600 s) ·
+  `def _arm_history_wave_watchdog(self, wait_s: float = 0.0) -> None:` (signature frozen) ·
+  `def _disarm_history_wave_watchdog(self) -> None:` ·
+  `def on_historical_bar(self, req_id: int, bar) -> None:` ·
+  `def on_historical_data_end(self, req_id: int) -> None:` ·
+  `def on_historical_error(self, req_id: int, code: int, msg: str) -> None:` ·
+  `def is_superseded(self, req_id: int) -> bool:` ·
+  `def flush_pending_bars(self) -> int:` ·
+  `def mark_history_request_issued(self, req_id: int) -> None:` · `def register_history_request(self, req_id: int) -> None:`.
+  Owner: `ui/ticker_session.py`. `_wave_may_complete`'s definition is frozen — the park is expressed
+  beside it, never by redefining it.
+- `ui/main_window.py` — verbatim:
+  `def _replay_subscriptions(self):` ·
+  `def _finalize_stranded_history_wave(self, session: TickerSession, reason: str = "") -> bool:` ·
+  `def _on_session_history_wave_timeout(self, session: TickerSession) -> None:` ·
+  `def set_backfill_state(self, in_flight: int, queued: int, elapsed_s: float, req_ids: list[int]) -> None:`
+  (signature frozen — it is called directly by the D53/D54 suites) ·
+  `def clear_backfill_indicator(self) -> None:` ·
+  `def _is_superseded_history_req(self, req_id: int) -> bool:` ·
+  `def _finalize_history_wave(self, session: TickerSession | None = None) -> None:`
+  (signature frozen; the `[reason]` suffix and the AC-D16.4 wording stay). Owner: `ui/main_window.py`.
+- `ibkr/realtime_bars.py` — verbatim: `def subscribe(self, symbol: str, contract: Contract) -> int:` ·
+  `def unsubscribe(self, req_id: int):` · `def cancel_all(self) -> None:`. Owner:
+  `ibkr/realtime_bars.py`. Unmodified this phase.
+- `ibkr/market_data.py` — verbatim: `def req_mkt_data(self, contract: Contract, generic_ticks: str = "") -> int:`
+  · `def cancel_mkt_data(self, req_id: int | None):` · `def req_historical_data(self, contract: Contract, timeframe: str = "5 mins", endDateTime: str = "", whatToShow: str = "TRADES", useRTH: int = 1, extended_hours: bool = False, bar_size: str | None = None, duration: str | None = None) -> int:`
+  · `def cancel_historical_data(self, req_id: int | None):`. Owner: `ibkr/market_data.py`. Unmodified.
+- `ui/main_window.py` — the D54 verdict block's contract, verbatim in effect:
+  `_on_backfill_expiry` stays armed once per wave at raise (`_BACKFILL_EXPIRY_BOUND_MS`), no-ops when
+  nothing is in flight, and never finalises the wave (`AC-D54.*`). Owner: `ui/main_window.py`.
+- `ibkr/error_codes.py` — `IBKRNotReady` and `classify_error`/the inventoried historical codes
+  (`_SUPERSEDED_HISTORICAL_ACK_CODES`'s source) are unmodified. Owner: `ibkr/error_codes.py`.
+
+**NOT frozen (changed or created this phase; no worker may assume the old contract):**
+`SubscriptionManager.replay_all`'s **behaviour** (transaction + union budget + retire step; signature
+and return shape frozen above) and the new `set_cancel_hook` / `_cancel_hooks`; `PacingManager`'s new
+`generic_wait_for_batch` / `generic_batch` and `throttle()`'s reservation branch; `TickerSession`'s
+`_wave_parked` / `_wave_deferral_reason` / `_wave_not_ready_announced` / `_cancelled_history_gen` /
+`_settle_parked_wave` / `_surrender_chunk_bars`, `_issue_wave_chunks`'s cap and readiness branches,
+`_schedule_wave_continuation`'s appended keyword-only parameter, `on_historical_data_end`'s and
+`on_historical_error`'s park/surrender steps, `queue_wave_plans`' resets and prune,
+`_cancel_history_requests`'s tag bookkeeping; `MainWindow`'s `_replay_serial`/`_backfill_parked`/
+`_superseded_history_windows`, the coalesce branch's resume, the parked guard in the watchdog-timeout path, the
+timeout handler's reason selection, `set_backfill_state`'s marker list (one word added; signature
+frozen) and `_teardown_session`'s merge; the four new suites and the `docs/codebase-map.md` P26 note.
+
+### Non-Functional Approach
+
+- **Never sleep on the GUI thread (AC-D71.1, AC-D76.2).** Every deferral remains a Qt timer: the
+  replay's one `QTimer.singleShot`, the session's continuation/watchdog/silence timers. The batch
+  reservation deliberately converts a burst into *bookkeeping* (n sends occupy n intervals of the
+  pacing timeline) rather than into a wait, so a 17-line replay neither sleeps nor spins.
+- **No duplicate live line, bounded line count (AC-D71.2, Journey 68).** The retire step runs after
+  every reissue has succeeded, so no direction has a window in which the registry claims a line that
+  is already dead; a mid-pass raise unwinds by retiring the *new* ids (the old ones were never
+  cancelled) and restoring routing. Net effect: the live subscription count after a reconnect equals
+  the pre-drop count, and repeated replays cannot grow TWS's line count.
+- **Bounded memory (D74, AC-D74.1/AC-D74.2).** The cancel-tag set is bounded by two generations of
+  cancelled ids and the window's merged set by two teardown batches; the failure set is one wave's.
+  Correctness is preserved on purpose: the current and previous generation stay, so a late ack for the
+  wave just cancelled still classifies as superseded (debug, no status-bar error) — R168's mitigation
+  stated as a rule, not as a number.
+- **The park is a state, not an absence (AC-D72.1/AC-D72.3, A227, DG130).** Parked is derived
+  (`_wave_parked and not _history_req_ids`), so the indicator cannot disagree with the session, and a
+  resuming load makes it leave the state by construction. Elapsed keeps its D53 meaning (a pure read of
+  the wave's T0 baseline) and is never reset by a coalesced resume.
+- **Stalls are still bounded (AC-D72.2, R166).** The disarm happens only when a cap-yielded queue has
+  **nothing in flight**; a parked wave whose last members never answer keeps its armed bound and is
+  finalised once with the stranded reason, exactly as today. The timeout handler refuses only the
+  parked-and-idle case.
+- **Readiness is bounded by the existing bound (AC-D76.1/AC-D76.2, R169).** A readiness episode arms the
+  bound once and re-ticks the continuation without touching it, so the count of retries is bounded by
+  the bound (≈120 at a 1 s tick) instead of growing with elapsed time; the surfacing is one AC-D16.4
+  line whose `[reason]` names the transport.
+- **One rule for both retry paths (AC-D73.1/AC-D73.2).** The surrender helper is called before any
+  re-queue, so `_pending_bars` holds at most one bar per `(symbol, timeframe, ts)` after a 162 retry and
+  after a silence retry — the same code path, so the two fixtures cannot drift.
+- **Security / privacy / ops.** No new I/O, credential, endpoint, order path or persistence; nothing is
+  logged beyond the existing debug/warning lines; no migration; no settings key; the planner, the
+  request shapes and the D54 target are untouched.
+
+### Architecture Risks
+
+| Risk | Severity | Likelihood | Mitigation |
+|---|---|---|---|
+| AR-P26-1 — the union gate is later read as "one throttled option leg blocks the chart's RT replay" and "fixed" by splitting the pass (R165/DG131) | H | M | the coupling is written into `replay_all`'s class docstring and S-P26-1's rationale; a suite case asserts a throttled generic gate defers an RT-containing pass as a whole; the RT budget and the generic gate are counted separately, so a mixed-up implementation reddens `AC-D71.1`'s fixture |
+| AR-P26-2 — the batch reservation leaks (a batch left open) and silently widens pacing for every other caller | H | L | the reservation lives only inside a `with` whose `finally` clears it; `throttle()` outside a batch is unchanged; an over-spend falls through to the clock gate (fail-closed); `reset_for_tests` clears it; a case asserts `throttle()` still raises after a batch closes |
+| AR-P26-3 — the unwind leaves a live orphan line or a dead routing pointer | H | M | the retire phase never runs when a reissue raised, so old lines are still live; the unwind retires the new ids and rebinds the old ones; the suite asserts per-id retire counts and a zero duplicate-live count on the fake client |
+| AR-P26-4 — the park is implemented as "skip the finalise", so a real stall inside a parked wave is never bounded (R166) | H | M | the disarm requires `not _history_req_ids`; `AC-D72.2`'s fixture stalls a member of a cap-yielded wave and asserts one stranded finalise; the timeout handler's guard is the same predicate |
+| AR-P26-5 — coalescing a parked wave resumes it twice (the load path and the pending prefetch both issue) | M | M | the resume goes through the one `_issue_wave_chunks` gate (allowance from `_wave_issued_this_load`, reset once per resume); the prefetch evaluator's own gate is unchanged and `_pending_prefetch` is consumed only on completion; the suite asserts the issued order and count across both loads |
+| AR-P26-6 — the resume re-arms nothing, so a resumed wave that stalls is unbounded | M | M | the coalesce branch re-arms the watchdog for the resumed work (base bound) inside the same step that clears the flag; a case asserts `_history_wave_timer.isActive()` after the resume |
+| AR-P26-7 — the generation-bounded tag prune turns a late ack into a user-visible error (R168) | M | M | the prune keeps the current **and** previous generation at each new wave; `AC-D74.1`'s second clause drives an ack for a current-wave id and asserts debug-only; the window keeps two batches |
+| AR-P26-8 — the phase drifts into P27's planner/pacing territory while "fixing the wave" | M | M | the non-goals are restated per wave as a do-not list (no `services/backfill_service.py`, no `TIMEFRAME_CONFIG`, no new settings constant, no D54 change); the fence suite asserts the request shapes and the D54 block are untouched |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P26-1 | **The reconnect replay is one transaction over the union of every budget it will spend.** `replay_all` computes the pending list once, derives `rt_n` (entries tagged `RT_BARS`) and `generic_n` (everything else pending, i.e. the entries whose reissue goes through `req_mkt_data`'s minimum-interval gate), and raises a single `PacingExceeded(max(realtime_wait_for_slots(rt_n), generic_wait_for_batch(generic_n)))` **before** any reissue or registry mutation — zero sends, one deferral for the reported wait. It then reissues **every** pending entry in registry (registration) order inside one `generic_batch(generic_n)` reservation; only after the last reissue returns does it rebind, retire each superseded id, and move the registry key. Any raise during the reissue phase retires the new ids, rebinds the old ones and re-raises, so the registry and the live lines are exactly as before. Rationale: the docstrings are the contract (D71's own words), a partial pass followed by a whole-pass retry is precisely what duplicates live subscriptions, and the union is the only pre-check that can gate a mixed pass (A225). The coupling is deliberate and documented (DG131): one throttled option leg defers the RT lines too, because a split pass reintroduces the partial replay. Alternative: counting option legs into the realtime budget (rejected — R165: it would spend realtime slots for market-data lines and change a different budget); per-type sub-passes (rejected — DG131); deferring the *remainder* instead of the whole pass (rejected — a pass that reissues some entries and defers others is the defect restated). | `[new in P26]` — implements `AC-D71.1`, `AC-D71.2`, `AC-D71.3`, A225, A226, R165, DG131 |
+| S-P26-2 | **The generic minimum-interval gate gains a batch reservation, owned by the pacing manager.** `PacingManager.generic_wait_for_batch(count)` is a pure read: `0.0` when `count <= 1`, else `max(0.0, (count - 1) * (1 / MAX_REQ_PER_SEC) - (now - _last_req_time))` — n back-to-back sends are accounted as n intervals of the pacing timeline, so the batch is admissible exactly when that much interval has elapsed since the last send. `PacingManager.generic_batch(count)` re-checks the wait (raising before entering the body), sets a `_batch_remaining` counter, and clears it and stamps the clock in `finally`. `throttle()` consumes one reserved unit while a batch is open and otherwise behaves byte-identically; a send beyond the reservation falls through to the unchanged gate (admitted only if the interval has genuinely elapsed since the last real stamp, and raising otherwise), so the reservation itself can never be spent twice — fail-closed. Rationale: a synchronous loop cannot pass a 20 ms spacing gate, and the two alternatives — sleeping or weakening the gate — are respectively forbidden (GUI thread) and a global regression for one caller; converting the burst into pacing-timeline bookkeeping keeps `PacingManager` the single owner and leaves every other caller untouched. Alternative: `time.sleep`/blocking wait (forbidden); raising `MAX_REQ_PER_SEC` during replay (rejected — a neighbouring constant retuned to serve one pass); a replay-local limiter in `main_window` (rejected — a second pacing owner, exactly what D28.1 forbids). | `[new in P26]` — implements `AC-D71.1`, `AC-D71.3`, A225 |
+| S-P26-3 | **The replay retires the lines it supersedes, through one per-type resolver.** `SubscriptionManager` gains `cancel_hooks: dict[str, Callable[[int], None]]` and `set_cancel_hook(req_type, fn)`; `MainWindow.__init__` installs `RT_BARS` (routing unregister + `rt_manager.unsubscribe(old)`) and `OPTION_LEGS` (`_option_req_ids.pop(old)` + `md_manager.cancel_mkt_data(old)`), both best-effort. `replay_all` calls the resolver for the old id in its retire phase, i.e. **after** every reissue succeeded — so an unwind never has to resurrect a dead line — and moves the registry key last. `subscribe`'s signature and `_Entry`'s fields are untouched, so every existing test double still constructs a valid manager. Rationale: A226 puts the cancel on the reissue hook's caller, and the registry is the single source of truth for what is live, so it must be able to retire what it replays; per-type is sufficient because cancellation is by reqId (`cancel_mkt_data`, `unsubscribe`). Alternative: a `cancel=` keyword on `subscribe` (rejected — four doubles carry the five-argument shape and `AC-D71.3` asks the replay suites to stay unchanged); each hook cancelling its own predecessor (rejected — the old line's death becomes invisible to the registry, and the transactional unwind has nothing to restore); a window-side post-pass cancel (rejected — a non-owner mutating the registry, and a raise mid-pass leaves it inconsistent). | `[revises P23: the OPTION_LEGS replay entries leave no superseded line live]`, `[new in P26]` — implements `AC-D71.2`, A226 |
+| S-P26-4 | **Parked is a session state, and the watchdog bounds only work that is not progressing.** `_issue_wave_chunks`' cap branch sets `_wave_parked` (queue kept, status message unchanged, no continuation scheduled) and calls `_settle_parked_wave()`, which disarms the strand bound and stops the continuation timer **only when nothing is in flight**; `on_historical_data_end` and `on_historical_error` call the same settle step before their `_wave_may_complete()` checks, so a parked wave becomes watchdog-free when its last member ends and stays bounded while members are outstanding. `_on_session_history_wave_timeout` refuses to strand a parked-and-idle wave (belt), and `_finalize_stranded_history_wave` is unchanged in shape. `_wave_parked` is cleared by `queue_wave_plans`, `_cancel_history_requests` and `_finalize_history_wave`, so no terminal path can leave a stale park. The D53 indicator derives `parked` from `_wave_parked and not _history_req_ids` on every refresh — a state word beside `partial`/`retry`, no new widget (A227/DG130). Rationale: D72's outcome ("no timeout finalise, queue preserved, indicator parked") is about *not stranding healthy work*, while R166 warns that a premature disarm hides a real stall; the in-flight test is the exact distinction. Alternative: disarming at the cap-yield return itself (rejected — R166's hazard: members are still in flight at that instant); a `MainWindow`-side park latch driving the disarm (rejected — two owners of one state, and the indicator would have to trust the window); a new timer for parking (rejected — no new timer; the existing bound's `stop()` is the mechanism). | `[new in P26]`, `[revises P7: S-P7-3's arming rule — the bound no longer re-arms for work that is parked]` — implements `AC-D72.1`, `AC-D72.2`, A227, DG130, R166 |
+| S-P26-5 | **A re-requested chunk surrenders its partial bars — one helper, both retry paths.** `_surrender_chunk_bars(req_id)` pops `_req_bars[req_id]` and identity-removes exactly those `Bar` objects from `_pending_bars`; `_retry_silent_chunk` calls it (replacing its inline block, behaviour identical) and the error-162 branch calls it **before** re-queueing the plan, so a retried chunk's bars cannot be counted twice when the re-issue redelivers the same timestamps. Persisted rows are untouched: completed chunks were saved per-chunk, and a re-fetch replaces rows through the mode-aware PK. Rationale: the required invariant is "one bar per `(symbol, timeframe, ts)` in the in-memory wave list" (D73's Note), and sharing one helper makes the two paths identical by construction rather than by review. Alternative: dedupe `_pending_bars` by timestamp before persisting/flushing (rejected — it hides the accounting error and would also mask genuine duplicate chunks that P27 owns); clearing `_pending_bars` on a retry (rejected — other members' bars are still owed); a per-chunk buffer only (rejected — `_pending_bars` is the wave record the finaliser reports on). | `[extends P17: the silence retry's surrender block, extracted]`, `[extends P7-W1: S-P7-2's per-chunk persist-and-render]` — implements `AC-D73.1`, `AC-D73.2`, A228 |
+| S-P26-6 | **The retry ledger is scoped to a bounded generation window.** `queue_wave_plans` resets `_backfill_failed_req_ids` (per wave, beside `_retried_plans`), clears `_wave_parked` and the deferral reason, and prunes `_cancelled_history_req_ids` to the ids tagged at the current or previous `_history_generation` (each tag records the generation it was added at, in `_cancelled_history_gen`); `MainWindow._teardown_session` merges into a two-batch window and keeps `_superseded_history_reqs` as the flattened union. Rationale: A229 fixes the shape ("the current and previous generation") and `AC-D74.1`'s second clause fixes the correctness floor (a current-wave ack must still classify as superseded); `AC-D74.2` then follows from the per-wave reset — a wave's shortfall names only its own failures. Alternative: clearing the tag set at every wave (rejected — R168: a benign ack becomes a status-bar error); an LRU of N ids (rejected — an arbitrary N unrelated to a wave); a wall-clock TTL (rejected — the generation already orders the waves, and a TTL would need a clock seam for state nobody else reads). | `[new in P26]` — implements `AC-D74.1`, `AC-D74.2`, A229, R168 |
+| S-P26-7 | **Coalescing a parked wave resumes it.** The coalesce gate becomes "(in-flight ids **or** a non-empty plan queue) **and** the same triple", and the coalesce branch leaves the queue's identity intact while, for a parked session, resetting `_wave_issued_this_load`, clearing `_wave_parked`, re-arming the watchdog and calling `_issue_wave_chunks()` — the same resume a fresh load's `queue_wave_plans` performs for a new plan list, without cancelling, without advancing the generation, and without re-planning. A non-parked in-flight wave keeps today's no-op coalesce (message + indicator refresh). Rationale: D72's "resumed by the next load" and D75's "a queue-only wave qualifies for coalescing" are one behaviour — a coalesce that merely returns leaves the parked wave parked forever, which would make the park a silent stop; and AC-D72.3's measurable requires the oldest queued plan to be issued. Alternative: cancel-and-replan for a parked wave (rejected — D75: the queue and `_pending_prefetch` are lost and the replan re-spends; `AC-D75.1`'s cancel spy fails); a park-only no-op coalesce (rejected — contradicts `AC-D72.3`); resuming from the prefetch evaluator (rejected — a second issuance path for the same queue). | `[new in P26]`, `[revises P7: S-P7-1's "resume on a later load" — the parked queue survives the load]` — implements `AC-D72.3`, `AC-D75.1`, `AC-D75.2` |
