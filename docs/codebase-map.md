@@ -646,7 +646,7 @@ their P5/P6 status; P29 changed those seven files in place, as the table above r
 **Test rows, all on disk and green.** `[new in P29]` — tests/test_d96_d100_store_atomicity.py,
 tests/test_d98_outage_baseline.py, tests/test_d99_page_ready_delivery.py, tests/test_p29_fence.py (the fence
 is 13 tests: it pins the requirements record plus the phase's live decisions). `[changed in P29]` — the three
-**named re-baselines**: tests/test_alarm_service.py::TestBoundaryAndState::test_exactly_on_alert_price_above_counts,
+**named re-baselines**: tests/test_alarm_service.py::TestBoundaryAndState::test_exactly_on_alert_price_above_counts (P29-T2 renamed it to test_arrival_on_the_level_is_a_touch_not_a_cross — 9.5 → 10.0 is a touch, 10.0 → 10.01 fires; the retired id stays listed because tests/test_p29_fence.py's REBASELINED_CASES pins this literal),
 tests/test_d40_tws_lifecycle.py::test_d40_4_transient_drop_no_pause_ui and
 tests/test_lwc_bridge.py::TestBatchShape::test_queue_until_ready_holds_pre_ready_ops, plus **five**
 `_pause_start` reads in four D40 cases — four renames (`:199`, `:364`, `:375`, `:402`) and one assertion
@@ -667,11 +667,49 @@ order was P29-01 ∥ P29-02 ∥ P29-04 → P29-03 → P29-05. **Selection:** a c
 root row as a slash-suffixed (root) token, which the map lint reads as a path and rejects; the row is kept in
 its slash-free form below — `update_codebase_map.py` should emit it that way.
 
+**P30 note (2026-11-20) — D101–D104: UI surface integrity; no new module, and the six suites are planned, not yet on disk.** Skeleton re-run against the **P29 build tree** (HEAD `dcfdd60`, base `3b92ce6`): **303 code files, 23 test-impact rows**. **P30 adds no production module and no dependency, migration, settings key or envelope-version bump**, so the index shape is unchanged; the file count moves only when P30's four `tests/` suites and its two new `chart_assets/lwc/` node suites land (`test_d101_control_cluster`, `test_d102_d103_surface_state`, `test_d104_stale_claims`, `test_p30_fence`, `interaction.controls.test.js`, `controls.test.js`).
+
+| Row moved by P30 | What the row now means | Status |
+|---|---|---|
+| `chart_assets/lwc/chart.html` | a `#controls` toolbar container + its CSS (absolutely positioned in the price-scale gutter); the script list and the offline policy are unchanged | `[changed in P30]` |
+| `chart_assets/lwc/interaction.js` | `mountControls` is idempotent per container and applies the three-branch latch rule (refusal → pre-click, mode → pressed iff `ZOOMING`, no answer → leave it); `syncControlState(op)` added and exported; `CONTROL_BUTTONS`, `zoomBy`, `reportZoomRefused` and the router mirror unchanged | `[changed in P30]` |
+| `chart_assets/lwc/chart.js` | `init()` mounts the cluster once per load; a press applies the page's own `zoom()` / `fitAndFollow()` and then reports on the bridge's `controlPressed` slot (returning nothing); `applyChannel`'s interaction branch calls `syncControlState`; no consumer was added for the published `zoom`/`reset_view` ops (deliberate — a replayed log must not re-apply a step) | `[changed in P30]` |
+| `ui/chart_controls.py` | gains `CONTROL_SPECS` (id, signal, intent, toggle) — the one declaration; `ChartControls` stays and is still constructed nowhere (Q118 restored the page surface, not the widget) | `[changed in P30]` |
+| `ui/lwc_bridge.py` | one more Q-20 slot: `controlPressed(str)` → `pageControlPressed(dict)`; `ENVELOPE_VERSION`, `CHANNELS`, `send_channel`, `handle_page_ready` and `_replay_channels` untouched | `[changed in P30]` |
+| `ui/lwc_view.py` | `CONTROL_IDS` derives from `CONTROL_SPECS` (and the module imports `ui.chart_controls`, so the signal surface is no longer test-only); `_on_page_control_pressed` calls the unchanged `handle_control` and emits `zoom_refused` once on a TR-9 refusal; `release_resources` also clears the bridge's `_channel_logs` and `_channel_queue` | `[changed in P30]` |
+| `ui/watchlist_panel.py` | a collapse dismisses the search-results popup (`_apply_collapsed_visual`), and a result arriving after the collapse no longer re-opens it (`show_search_results` refuses while collapsed) | `[changed in P30]` |
+| `ui/drawing_groups_dialog.py` | `reload()` restores the drawings selection by id around its rebuild, so a group checkbox toggle no longer wipes the selection the Assign/Ungroup/Delete actions read | `[changed in P30]` |
+| `ui/main_window.py`, `ui/popout_window.py` | docstrings/comments only: no module claims a second engine or a factory "stub"; the dead re-host branch stays | `[changed in P30]` |
+| `services/chart_model.py` | one docstring sentence only: the Heikin-Ashi docstring no longer claims a pyqtgraph item "keeps its identical local copy until P6-13" (the engine was removed there); the module's Qt-free boundary and every function are untouched | `[changed in P30]` |
+
+**Stale status cells (this note is the authority):** the `ui/` combined row and the P6 LWC row still show
+their P5/P6 status for the seven `ui/` files above (and the `chart_assets/lwc/` row still lists `chart.js` /
+`interaction.js` as P6 assets); P30 changes them in place without moving any path. The `services/` combined
+row likewise still shows its P5/P6 status for `services/chart_model.py`'s one-line docstring fix.
+
+**Test rows / selection for P30.** No existing case is re-baselined and **no existing suite is edited**: the
+page-glue evidence lands in two new node files (chart_assets/lwc/interaction.controls.test.js and
+chart_assets/lwc/controls.test.js, named without backticks until they land), so the shared `chart.test.js`
+harness is untouched (AR-P30-7 — the cost is one duplicated minimal fake, paid to keep nine existing cases
+unperturbed). A
+change to `chart_assets/lwc/*` should select the whole node `--test` set under `chart_assets/lwc` plus
+`test_lwc_router_mirror`, `test_lwc_page_wiring`, `test_lwc_bridge`, `test_chart_mouse_router`,
+`test_p11_replace`, `test_lwc_alarms`, `test_lwc_drawing_tool`, `test_lwc_e2e_data`, `test_d57_chevron` and
+`test_d101_control_cluster`; a change to `ui/watchlist_panel.py` should select `test_d39_burst_search`,
+`test_watchlist_collapsed_bar_d44`, `test_dock_widths_collapsed_d44` and `test_d102_d103_surface_state`; a
+change to `ui/drawing_groups_dialog.py` should select `test_drawing_store`, `test_p9_group_dialog`,
+`test_p9_group_payload`, `test_p9_active_group`, `test_p10_groups_dialog_lock` and
+`test_d102_d103_surface_state`; a change to `ui/lwc_view.py`'s `release_resources` should select
+`test_lwc_popouts`, `test_d24_popouts`, `test_d85_d91_popout_ownership` and `test_d104_stale_claims`.
+**G7 is owner-run and not claimed:** the painted page (a real `QWebEngineView` render, a click inside
+Chromium) is asserted by no suite here, because offscreen Chromium cannot rasterise on this box
+(`tests/test_lwc_render_smoke.py`'s measured note).
+
 
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
-- (root) — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
+- `(root)` — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
 - `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, follow_offset.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, tz_format.test.js, volume_scale.test.js
 - `config/` — __init__.py, instance_lock.py, paths.py, settings.py
 - `data/` — __init__.py, alarm_store.py, bar_aggregator.py, bar_cache.py, db.py, db_backup.py, drawing_store.py, models.py, popout_store.py, study_store.py

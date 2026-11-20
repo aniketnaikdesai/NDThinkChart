@@ -169,7 +169,7 @@ until it reconnects.
 ### TWS Daily Lifecycle (Phase D40)
 - When TWS goes away (e.g. overnight close), the badge shows amber `Monitoring paused — TWS disconnected` — never green; while paused no alarm is evaluated and nothing can fire
 - Log into TWS in the morning with no app restart: the app reconnects, resubscribes, and resumes monitoring; the status bar reports the gap (e.g. `ES, NQ unmonitored 22:14–09:40`)
-- Resume never triggers alarms by itself — prices re-seed quietly and an alarm fires only if the live price then crosses its level; brief intraday drops reconnect in the background with no pause badge
+- Resume never triggers alarms by itself, and this holds for every drop, brief or long: on reconnect the first tick for each symbol only re-seeds the price and nothing is evaluated on it, the gap is reported as an unmonitored interval on the status bar (as above), and an alarm fires only once a later live price crosses its level; a brief intraday drop still reconnects in the background with no pause badge
 
 ### Weekly & Monthly Timeframes (Phase D48)
 - The timeframe picker offers `1 week` (2 years of history) and `1 month` (10 years of history) after `1 day`; daily-and-coarser loads ignore the Ext Hours toggle

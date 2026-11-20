@@ -8912,3 +8912,656 @@ nothing with either (one bridge, envelope assertions) and opens beside them.
   a "monitoring never started" interval, which is a different (and less truthful) claim.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P30 — UI surface integrity: the cluster that never mounts, a floating result popup, a selection wiped by a checkbox, words that describe a retired engine (D101–D104) — drafted 2026-11-20
+
+> Companion: `docs/architecture.md` § *Phase P30* (Relationship to prior phases, Codebase Summary,
+> tech-stack decisions, System Components, Data Model, Integration Points, Frozen Interfaces,
+> Non-Functional Approach, AR-P30-1…11, S-P30-1…5). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — **Phase P30 (D101–D104)**, Journeys
+> 82–85, `AC-D101.1`–`AC-D104.3`, A246–A250, R186–R191, **DG128** (resolved 2026-11-19 by **Q118 =
+> RESTORE**, verbatim *"Restore them (Recommended)"*).
+>
+> **Baseline: HEAD `dcfdd60`** (P29 build, base `3b92ce6`). P29 changed `ui/lwc_bridge.py`,
+> `ui/lwc_view.py` and `ui/main_window.py`, all three of which this phase edits, so every wave re-reads its
+> own site at the phase baseline before touching it.
+>
+> **The work is four rules behind four defects:** **a control press is a page-local view action plus one
+> reported intent, and only durable state comes back** (D101.1), **a control's advertised state follows the
+> answer** (D101.2), **a transient surface is dismissed by the state that owns it and re-created content
+> restores what the user owns by identity** (D102 + D103), and **a docstring describes the shipped engine
+> while the release does what its docstring claims** (D104). Hard constraints: D1–P29 are read-only; **no
+> new module, dependency, migration, settings key, wire version bump or order path**; sizes S/M only; every
+> `[existing]` interface this phase leans on is frozen verbatim (and every one it changes is named under
+> **not frozen**); **no live gate** — every AC is offscreen-assertable, and the only thing offscreen cannot
+> show (the painted page) is owner-run **G7**, named and never claimed.
+
+### Revision notes (answers `docs/plan_review_P30.md` § Required Changes)
+
+- **RC-1 — the D104 sweep now enumerates every hit with its class, and the one stale present-tense claim is
+  rewritten instead of allow-listed.** The scan over `ui/`, `services/`, `data/`, `ibkr/` has **twenty**
+  `pyqtgraph` hits in twelve files on the delivered tree, in three classes. **Allow-listed — negative
+  assertion (8):** `ui/dock_layout.py:7`, `ui/lwc_view.py:2002`, `services/time_collapse_service.py:33`,
+  `services/market_calendar.py:17`, `services/backfill_service.py:44`, `services/option_ladder.py:43`,
+  `services/option_spread_engine.py:98`, `services/chart_model.py:11`. **Allow-listed — marked history (4):**
+  `ui/chart_view.py:8`, `:12`, `ui/drawing_tools.py:3`, `services/chart_model.py:41`. **Must disappear (8):**
+  `ui/main_window.py:15`, `:305`, `:308`, `ui/popout_window.py:10`, `:64`, `:75`, `:96`, and
+  `services/chart_model.py:273` — "the pyqtgraph item keeps its identical local copy until P6-13" is a
+  present-tense claim whose stated bound has passed, so P30-03 **rewrites that one docstring sentence**
+  (a new deliverable-1 bullet) and the sweep gains a positive assertion that the fragment is gone.
+  Rewritten: P30-03 deliverables 1 and 3(a), its **Files** line and its diff allowlist (one file added,
+  comment-only), and the map's P30 note.
+- **RC-2 — `FI-P30-1`'s promise is now true and precise, and the case it named exists.** A zoom press with no
+  visible range leaves the viewport untouched and produces **no refusal report**, but the press is still
+  reported to Python and still publishes `{"op": "zoom", "step": ±1}` with `refused: false` — only the
+  viewport change is guarded by `if (range)`, not the report. Deliverable 8 gains case (g) asserting exactly
+  that (no range change, no `zoomRefused`, one report, the op present), and the FI's sentence now says so
+  instead of claiming the step "changes nothing and reports nothing". Rewritten: P30-01 deliverable 8 and
+  `FI-P30-1`.
+- **RC-3 — the map's P30 note counts six new suites.** "five suites" → "six", "the one new
+  `chart_assets/lwc/` suite" → "its two new `chart_assets/lwc/` node suites", with `controls.test.js` added
+  to the parenthetical enumeration, and the note's stale-status paragraph corrected to count eight touched
+  files (the new `services/chart_model.py` row is listed too). Rewritten: `docs/codebase-map.md` § P30 note.
+- **RC-4 — deliverable 9(a)'s node mount now states the `document` stub it needs.** The stdin script defines
+  `globalThis.document` (deliverable 7's stub shape) **before** calling `mountControls`, because the shipped
+  guard returns `[]` when `typeof document === "undefined"`; the negative case then removes a button from a
+  real mount. Rewritten: P30-01 deliverable 9(a).
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey | Architecture | Wave |
+|---|---|---|
+| **AC-D101.1** (container exists; `mountControls` ran exactly once per load and once per recovery; every mirror id in the DOM; each activates its router action) | **S-P30-1** (container + one mount inside `init()` + idempotence per container + the press reported), AR-P30-4/8 | **P30-01** |
+| **AC-D101.2** (a refused toggle never advertises the refused state; refusal reported once; both starting states) | **S-P30-2** (three-branch latch; `syncControlState`) + the Python refusal reporter, AR-P30-2 | **P30-01** |
+| **AC-D101.3** (every mirror id reachable in the page; no test-only control surface; negative case goes red) | **S-P30-1** (the four-way join: page ids → mounted ids → `CONTROL_IDS` → `CONTROL_SPECS`) + DG128, AR-P30-5 | **P30-01** |
+| **AC-D101.4** (the keyboard path still works unchanged) | frozen `bindKeyboard` / `mapToGlobal`-free page keyboard path (the page's own `zoom`) — no edit | **P30-01** (asserted, not modified) |
+| **AC-D101.5** (a click reaches `handle_control` through the bridge; no Python control surface referenced only by tests) | **S-P30-1** (`LwBridge.controlPressed` → `pageControlPressed` → `_on_page_control_pressed`) + `CONTROL_SPECS` imported by production | **P30-01** |
+| **AC-D102.1** (collapse hides the popup and clears its items) | **S-P30-3** (`_apply_collapsed_visual`) | **P30-02** |
+| **AC-D102.2** (a late result does not re-open it) | **S-P30-3** (`show_search_results` refuses while collapsed), AR-P30 (A248) | **P30-02** |
+| **AC-D103.1** (two selected drawings survive a group toggle; the next action receives them) | **S-P30-4** (`reload()` restores by id) | **P30-02** |
+| **AC-D103.2** (the restored selection is a set of surviving ids, nothing else) | **S-P30-4** (id match; a vanished id is skipped) | **P30-02** |
+| **AC-D104.1** (no module states pyqtgraph is present, default or selectable; history marked) | **S-P30-5** (the seven wording sites + the release; the two-class allow-list), AR-P30-10 | **P30-03** |
+| **AC-D104.2** (`release_resources`'s docstring lists exactly what it clears; every listed item asserted cleared) | **S-P30-5** (clear `_channel_logs` + `_channel_queue`), AR-P30-6 | **P30-03** |
+| **AC-D104.3** (history intact — D41–D100, AC-D1.1–AC-D100.3, A1–A245, R1–R185, marker, tech stack) | *Relationship to prior phases* (`[existing]` read-only inputs) | **P30-04** |
+| **Journey 82** (use the restored cluster, including a refused toggle) | S-P30-1, S-P30-2, AR-P30-1/3 | **P30-01** |
+| **Journey 83** (type a search, then collapse the watchlist) | S-P30-3, AR-P30 (A248) | **P30-02** |
+| **Journey 84** (select drawings, then toggle a group's visibility) | S-P30-4, AR-P30-9 | **P30-02** |
+| **Journey 85** (read the docs the code actually matches) | S-P30-5 | **P30-03** |
+| A246–A250 | S-P30-1, S-P30-2, S-P30-3, S-P30-4 | 01/02 |
+| R186–R191 | *Architecture Risks* AR-P30-1…10 | all waves |
+| DG128 | S-P30-1 (reachability join as a permanent guard) | 01 |
+
+### Phases
+
+Dependency shape: **`P30-01` ∥ `P30-02` → `P30-03` → `P30-04`.**
+
+`P30-01` and `P30-02` share no file and may open together. `P30-03` follows `P30-01` because both edit
+`ui/lwc_view.py` (the restore touches `CONTROL_IDS`, the page-slot connections and
+`_on_page_control_pressed`; D104 touches `release_resources`) — one file, one wave at a time. `P30-04` is
+last because it records what the other three made true (and its fence compares the final tree).
+
+**Why this grouping, not one task per defect.**
+
+- **D101 is one wave and cannot be split.** A246 (Q118's binding sentence) forbids the mixed arms: restoring
+  the buttons without the page→Qt shim, or keeping the mirror while the page has nothing to mount, is the
+  declined arm. The reachability evidence (`AC-D101.3`, `AC-D101.5`) is a *join* across the page, the DOM
+  and Python, so a page-only wave would leave a wave whose exit condition reads "four buttons exist and
+  nothing hears them". Splitting by language would also put the latch fix (`AC-D101.2`, page-side) in one
+  wave and its production trigger (the `router_mode` op that only exists once the press crosses) in the
+  next — two halves of one criterion that cannot be asserted apart.
+- **D102 and D103 are one wave, and that is a decision, not a default.** They are the same failure class —
+  *a UI element outliving the operation that should have closed or cleared it* — with the same instrument
+  (offscreen Qt state read before and after an operation: `isVisible()`/`count()` for the popup,
+  `selectedItems()` ids for the list), no clock, no I/O, no shared file (`ui/watchlist_panel.py` vs
+  `ui/drawing_groups_dialog.py`), and the same size (S). Splitting them would give two waves whose exit
+  conditions assert the same invariant with two copies of the Qt fixture, and neither would be big enough to
+  be a milestone on its own. They are **not** merged on the *fix* though: the two halves are different
+  rules (dismiss vs restore-by-identity) and each carries its own decision (**S-P30-3**, **S-P30-4**), so a
+  reviewer can reject one without touching the other.
+- **D104 is its own wave** because it edits a third file set (`ui/main_window.py`, `ui/popout_window.py`,
+  `ui/lwc_view.py::release_resources`) and because its sweep must run against the **final** tree: a
+  “pyqtgraph is gone” assertion is only meaningful once P30-01's page changes have landed.
+- **The fence is a wave, not a checklist item** (the P26–P29 precedent): `AC-D104.3` is a criterion and
+  needs a suite that fails.
+
+#### P30-01 — D101: the cluster mounts, acts, and tells the truth — size M
+
+- **Covers:** AC-D101.1, AC-D101.2, AC-D101.3, AC-D101.4 (asserted unmodified), AC-D101.5, Journey 82,
+  A246, A247, A250, R186, R191, DG128; `[extends P6/D47: the Q-20 page→Python slot family gains one member;
+  ENVELOPE_VERSION, the op set and the channel transports are unchanged]`.
+- **Depends on:** nothing (may open with P30-02).
+- **Files:** `chart_assets/lwc/chart.html`, `chart_assets/lwc/interaction.js`, `chart_assets/lwc/chart.js`,
+  `ui/chart_controls.py`, `ui/lwc_bridge.py`, `ui/lwc_view.py`; new
+  `chart_assets/lwc/interaction.controls.test.js` and `chart_assets/lwc/controls.test.js`; a new
+  `tests/test_d101_control_cluster.py`. **No existing suite is edited** — the shipped
+  `chart_assets/lwc/chart.test.js` harness is left untouched (AR-P30-7).
+- **Deliverables, in this order:**
+  1. **The declaration (S-P30-1).** In `ui/chart_controls.py`, above the class:
+     ```python
+     class ControlSpec(NamedTuple):
+         """One in-page control: its DOM id, ChartControls' signal, the page's intent."""
+         id: str
+         signal: str
+         intent: str
+         toggle: bool
+
+     #: The four controls, in the order the page mounts them and the shim accepts them.
+     CONTROL_SPECS = (
+         ControlSpec("zoom-out", "zoom_out", "zoom_out", False),
+         ControlSpec("zoom-in", "zoom_in", "zoom_in", False),
+         ControlSpec("magnifier", "magnify_toggled", "magnify_toggle", True),
+         ControlSpec("reset", "reset", "reset", False),
+     )
+     ```
+     `ChartControls` and its stylesheet are untouched. Module docstring gains one sentence: *"`CONTROL_SPECS`
+     is the one declaration of the control contract — the page's buttons, the page's intents, and
+     `ChartControls`' signals — and `ui/lwc_view.py` derives the ids the page and the shim share from it."*
+  2. **The container (`AC-D101.1`, R186).** In `chart_assets/lwc/chart.html`, beside `#goToLatest`:
+     ```html
+     <!-- D101/S-P30-1: the restored control cluster. The page mounts the four
+          buttons into this container once per load (chart.js::init); the
+          Python half is ui/lwc_view.py::handle_control through the bridge's
+          controlPressed slot. Absolutely positioned inside the price-scale
+          gutter, so #chart's box (and the plot) is unchanged. -->
+     <div id="controls" role="toolbar" aria-label="Chart controls"></div>
+     ```
+     and in the existing `<style>` block a rule set that (a) positions `#controls` absolute, `top: 6px`,
+     `right: 80px`, `display: flex`, `gap: 2px`, `z-index: 5`, (b) styles `.lw-control` with `ChartControls`'
+     metrics — `min-width: 28px; min-height: 24px; padding: 2px 6px; border: 1px solid #4b5563;
+     border-radius: 6px; background: rgba(30,30,30,180); color: #e5e7eb; font-size: 14px; font-weight: 700`,
+     (c) `#control-magnifier { font-size: 21px; }`, and (d) `.lw-control[aria-pressed="true"] { background:
+     rgba(59,130,246,0.5); }`. No `<script>` order change, no new asset, nothing from a remote host.
+  3. **The latch and the mount (`AC-D101.1`, `AC-D101.2` — S-P30-2).** Rewrite
+     `interaction.js::mountControls` (and only it, plus one new exported function):
+     - **idempotence per container:** first line after the guard, `if (container.__lwControls) return
+       container.__lwControls;` and `container.__lwControls = made;` before returning — a second call returns
+       the mounted buttons and appends nothing. Extend the existing guard to
+       `if (!container || typeof container.appendChild !== "function" || typeof document === "undefined") return [];`
+       (a harness container stays inert).
+     - **the click handler (three branches, no optimistic write):**
+       ```js
+       btn.addEventListener("click", function () {
+         var value = null;
+         if (spec.toggle) {
+           value = btn.getAttribute("aria-pressed") !== "true";   // the request
+         }
+         var result = (typeof onControl === "function")
+           ? onControl(spec.id, value)
+           : null;
+         if (spec.toggle) {
+           if (result && result.refused) {
+             /* TR-9: the router declined — the attribute describes what is
+              * true, so a refusal never leaves it "pressed". */
+             btn.setAttribute("aria-pressed", value ? "false" : "true");
+           } else if (result && typeof result.mode === "string") {
+             /* drive-from-return: the mode the shim reports is the truth. */
+             btn.setAttribute("aria-pressed", result.mode === "ZOOMING" ? "true" : "false");
+           }
+           /* no synchronous answer (the production bridge): leave it — the
+            * authoritative router_mode op sets it via syncControlState. */
+         }
+         if (result && result.refused) reportZoomRefused(spec.intent, bridge, result.mode);
+       });
+       ```
+       (The refusal branch restores the pre-click value exactly: `value === true` → `"false"`, `value ===
+       false` → `"true"`.)
+     - **`syncControlState(op)`, exported:** `if (!op || (op.op !== "router_mode" && op.op !== "reset_view")
+       || typeof op.mode !== "string") return false;` then, when `document` exists, look up
+       `document.getElementById("control-magnifier")`, set `aria-pressed` to `op.mode === "ZOOMING" ? "true" :
+       "false"`, return `true`; return `false` when nothing is mounted. Docstring: *"the latch is owned by
+       the mode the app reports; a `zoom` op carries no mode and changes nothing."*
+     `CONTROL_BUTTONS`, `zoomBy`, `reportZoomRefused`, `resolveTransition`, `routeGesture`, `releaseFocus`
+     and every router-mirror row are byte-identical.
+  4. **The page wiring (`AC-D101.1`, `AC-D101.5` — S-P30-1).** In `chart.js`:
+     - `function controlPressed(controlId, value)` — the viewport action first, then the report, and
+       **return `undefined`** (this is the production shape the latch rule depends on):
+       ```js
+       function controlPressed(controlId, value) {
+         if (chart) {
+           if (controlId === "zoom-in" || controlId === "zoom-out") {
+             var range = chart.timeScale().getVisibleLogicalRange();
+             if (range) zoom(range, controlId === "zoom-in" ? 0.8 : 1.25);
+           } else if (controlId === "reset") {
+             fitAndFollow();       // the page's default framing (D51/D60 rules, unchanged)
+           }
+         }
+         var target = pageBridgeTarget();          // window.lwBridge, the reportKey pattern
+         if (target && typeof target.controlPressed === "function") {
+           target.controlPressed(JSON.stringify({ control: String(controlId), value: value }));
+         }
+         return undefined;
+       }
+       ```
+       (`zoom()` and `fitAndFollow()` are the existing internal functions — the keyboard handler's own — so
+       the button and the keyboard cannot diverge; `pageBridgeTarget()` is the two-line lazy lookup
+       `reportKey` already performs, factored once.)
+     - `function mountControlCluster()` — `var container = document.getElementById("controls"); var li =
+       moduleHandle("LwInteraction"); if (!container || !li || typeof li.mountControls !== "function") return
+       []; return li.mountControls(container, controlPressed);` — **no bridge argument**: `mountControls`
+       resolves `window.lwBridge` lazily through `pageBridge()` at report time (the shipped pattern), so a
+       press made before `bindChannel` completes still reports once the channel exists.
+     - called once from `init()`, after `ensureChevronButton()` and before `bindChannel()` (so a press made in
+       the first frame has the local action even if the channel is not up yet), with the comment naming
+       `AC-D101.1`'s "exactly once per page load: a recovery is a reload, and a reload is a fresh document".
+     - in `applyChannel`'s `interaction` branch, after the `op.mode`/`op.tool` bookkeeping and **before**
+       `gestures.applyRouterOp(op)`: `var li2 = moduleHandle("LwInteraction"); if (li2 && typeof
+       li2.syncControlState === "function") li2.syncControlState(op);` (function-guarded: the node harness's
+       stub module has no such method).
+     - **no** new consumer for `zoom` / `reset_view`: the published ops stay a record of the intent, and the
+       viewport change happens at the click (see **S-P30-1** and AR-P30-1). State that in the new comment so
+       a later editor cannot "fix" it into a double application.
+  5. **The bridge slot (`AC-D101.5`).** In `ui/lwc_bridge.py`, with the other Q-20 slots:
+     ```python
+     pageControlPressed = pyqtSignal(dict)
+
+     @pyqtSlot(str)
+     def controlPressed(self, payload: str = "") -> None:
+         """JS slot: a restored chart-control button was pressed (D101).
+
+         Payload ``{"control": <id>, "value": <bool|null>}`` — one JSON
+         string, the mirror of every other Q-20 slot. Nothing is returned
+         to the page: the answer is the interaction channel's router op.
+         """
+         self.pageControlPressed.emit(self._payload(payload))
+     ```
+     `ENVELOPE_VERSION`, `CHANNELS`, `send_channel`, `_payload`, `handle_page_ready` and `_replay_channels`
+     untouched.
+  6. **The view (`AC-D101.3`, `AC-D101.5`).** In `ui/lwc_view.py`:
+     - `from ui.chart_controls import CONTROL_SPECS` at module scope, and
+       `CONTROL_IDS = tuple(spec.id for spec in CONTROL_SPECS)` replacing the literal (same order, same four
+       ids) — the import is what stops `ChartControls`' signal surface being a test-only contract
+       (`AC-D101.5`); the comment above it says so and cites Q118/A246 (the widget is kept, and is
+       deliberately constructed nowhere: the page owns the buttons).
+     - connect `self._bridge.pageControlPressed.connect(self._on_page_control_pressed)` beside the other
+       page slots (`:2012-2025`).
+     - ```python
+       def _on_page_control_pressed(self, payload: dict) -> None:
+           """A restored cluster button crossed from the page (D101).
+
+           The page cannot see the shim's answer (a QWebChannel call returns
+           nothing), so the refusal is reported here — once — and the router
+           op the shim publishes is what drives the page's pressed state.
+           An unknown id is ignored: a stale page must never raise across the
+           bridge.
+           """
+           data = payload if isinstance(payload, dict) else {}
+           control = str(data.get("control") or "")
+           if control not in CONTROL_IDS:
+               return
+           result = self.handle_control(control, data.get("value"))
+           if result.get("refused"):
+               self.zoom_refused.emit()
+       ```
+     - `handle_control`'s body is untouched; its docstring gains one sentence naming the production caller
+       (`LwBridge.controlPressed` → `pageControlPressed` → `_on_page_control_pressed`).
+  7. **The page suite** `chart_assets/lwc/interaction.controls.test.js` (new, `node --test`, no npm, no
+     network, a stub `document` the file builds itself): `globalThis.document = {createElement(tag),
+     getElementById(id), ...}` returning plain fakes with `setAttribute`/`getAttribute`/`appendChild`/
+     `addEventListener`/`click`. Cases: (a) **mount** — four buttons, ids `control-zoom-out` … `control-reset`
+     in `CONTROL_BUTTONS` order, appended in that order, the magnifier alone carrying `aria-pressed="false"`;
+     (b) **idempotence** — a second `mountControls(container, …)` returns the same buttons and appends
+     nothing (`container.children.length === 4`); (c) **AC-D101.2 off→refused** — click with `onControl`
+     returning `{refused: True, mode: "ALARM_PLACING"}`: attribute `"false"`, one `zoomRefused` call on the
+     recorder bridge; (d) **AC-D101.2 on→refused** — attribute pre-set `"true"`, same refusing `onControl`:
+     afterwards **not** `"true"`, one report; (e) **accepted** — `{refused: False, mode: "ZOOMING"}` →
+     `"true"`, then `{mode: "IDLE"}` → `"false"`; (f) **no synchronous answer** — `onControl` returns
+     `undefined` and records `("magnifier", true)`: the attribute is unchanged, no `zoomRefused` call;
+     (g) **`syncControlState`** — `{op: "router_mode", mode: "ZOOMING"}` → `"true"`;
+     `{op: "reset_view", mode: "IDLE"}` → `"false"`; `{op: "zoom", step: 1}` returns `false` and changes
+     nothing; `{op: "set_timezone", mode: "12h"}` returns `false`; with nothing mounted it returns `false`
+     and does not throw; (h) **container guard** — `mountControls({}, …)` returns `[]` and throws nothing.
+  8. **The page-glue suite** `chart_assets/lwc/controls.test.js` (new, `node --test`, no npm, no network, its
+     **own** minimal stub environment — the shipped `chart.test.js` is not touched): `globalThis.document` is a
+     per-id element map (`chart` → the fake container with `clientWidth`/`clientHeight`, `goToLatest` → a fake
+     button, `controls` → a fake toolbar whose `appendChild` records children, everything else `null`) with
+     `createElement`, `getElementById` and `readyState = "complete"`; `globalThis.LightweightCharts` is a fake
+     tree sized to `init()` (`createChart`, the five series ctors, `timeScale().get/setVisibleLogicalRange`,
+     `fitContent`, `priceScale().applyOptions`, `applyOptions`, `resize`); `globalThis.window.LwInteraction` is
+     the **real** `require("./interaction.js")`, and `window.lwBridge` is a recorder
+     (`controlPressed(payload)`, `zoomRefused()`). Cases: (a) after load,
+     `controls.children.length === 4` with ids `control-zoom-out` … `control-reset` in mirror order; (b)
+     clicking `control-zoom-in` sends exactly `{"control": "zoom-in", "value": null}` and narrows the fake
+     visible range **once** about the midpoint (0.8) — and nothing else in the same turn applies a second
+     change; (c) clicking `control-reset` after an arrow-key pan re-frames the series and
+     `page.lwIsFollowing()` is `true`; (d) `page.lwApplyChannel("interaction", {v: 1, ops: [{op:
+     "router_mode", mode: "ZOOMING"}]})` sets `#control-magnifier`'s `aria-pressed` to `"true"`, and
+     `{op: "reset_view", mode: "IDLE"}` sets it back to `"false"`, while `{op: "zoom", step: 1}` leaves it
+     alone; (e) a refused path through the **real** page dispatcher: a `router_mode` op carrying
+     `refused: true` and `mode: "ALARM_PLACING"` leaves the attribute `"false"`; (f) a second load into a fresh
+     document mounts four buttons, and a second `mountControls` call into the same container appends nothing;
+     (g) **a zoom press with no visible range** (`timeScale().getVisibleLogicalRange()` returns `null` — a page
+     with no bars): clicking `control-zoom-in` leaves the fake range untouched (`null` stays `null` or the
+     sentinel is unchanged) and emits **no** `zoomRefused`, **and** the press is still reported exactly once
+     with `{"control": "zoom-in", "value": null}` — the report is unconditional and only the viewport change is
+     guarded by `if (range)`. This is the case `FI-P30-1` relies on: a data-limit press is a no-op **on the
+     viewport** and produces **no refusal**, never a fabricated one.
+  9. **The Python suite** `tests/test_d101_control_cluster.py` (new): (a) **the join (AC-D101.3)** — the stdin
+     script defines `globalThis.document` **before** it requires `interaction.js` (the same stub shape
+     deliverable 7 builds: `createElement` returning a button fake with `setAttribute`/`getAttribute`/
+     `appendChild`/`addEventListener`/`click`, plus `getElementById`), because `mountControls` returns `[]`
+     when `typeof document === "undefined"` — a bare node run would mount nothing and the join would compare
+     two empty tuples; it then reads `interaction.js`'s `CONTROL_BUTTONS` and mounts them into a stub
+     container, exactly as `tests/test_lwc_router_mirror.py` drives the module (`_NODE` + a stdin script), and
+     asserts the mounted id tuple == the page's id tuple == `LV.CONTROL_IDS` ==
+     `[s.id for s in CONTROL_SPECS]` **and** that each row's `intent`/`toggle`/`signal` agree across the three
+     declarations; **the negative case** — remove one **mounted** button from the stub container and assert
+     the join function reports that id missing (the check is a small helper in the test module so the negative
+     case drives the same code the positive case does).
+     (b) **AC-D101.5** — construct `LV.LwcChartView()` (no host: the `test_lwc_router_mirror.py` pattern), and
+     for each id call `view._bridge.controlPressed(json.dumps({"control": id, "value": value}))`: assert
+     `view._interaction_log[-1]` is the expected op (`{"op": "zoom", "step": ±1}` / `router_mode` /
+     `reset_view`), `interactionOpsEmitted` fired once per press, and the router mode matches
+     (`magnifier` → `ZOOMING`, `reset` → `IDLE`). (c) **the refusal** — `view._router.enter_alarm_placing()`,
+     then `controlPressed({"control": "magnifier", "value": true})`: one `zoom_refused` emission (a counter on
+     the signal), the op carries `refused: true` and `mode: "ALARM_PLACING"`. (d) **a hostile id** —
+     `controlPressed({"control": "no-such-control"})` and `controlPressed("not json")`: no exception, no new
+     op, no refusal. (e) **AC-D101.3's production-reference leg** — `ui/lwc_view.py` imports
+     `ui.chart_controls` (read the AST, not the text) and `handle_control` has a production caller
+     (`_on_page_control_pressed` in `ui/lwc_view.py`), so neither can drift back to test-only.
+- **Exit condition:** `node --test chart_assets/lwc/` green (every existing file plus the two new ones);
+  `tests/test_d101_control_cluster.py`, `tests/test_lwc_router_mirror.py`, `tests/test_lwc_page_wiring.py`,
+  `tests/test_lwc_bridge.py`, `tests/test_chart_mouse_router.py`, `tests/test_p11_replace.py`,
+  `tests/test_lwc_alarms.py`, `tests/test_lwc_drawing_tool.py`, `tests/test_lwc_e2e_data.py`,
+  `tests/test_d57_chevron.py` green, **unchanged**;
+  `git diff --name-only` ⊆ `chart_assets/lwc/chart.html` + `chart_assets/lwc/interaction.js` +
+  `chart_assets/lwc/chart.js` + `chart_assets/lwc/interaction.controls.test.js` +
+  `chart_assets/lwc/controls.test.js` + `ui/chart_controls.py` + `ui/lwc_bridge.py` +
+  `ui/lwc_view.py` + `tests/test_d101_control_cluster.py`.
+- **Do not:** construct a Qt `ChartControls` instance, or delete the class/module (the declined arm);
+  add a second bridge transport, a second QWebChannel object or an envelope change; bump
+  `ENVELOPE_VERSION`; touch `ui/chart_mouse_router.py`, its TR table or its precedence; give the page a
+  consumer for `zoom`/`reset_view` (double application, AR-P30-1); change `handle_control`'s body or its
+  return shape; change `bindKeyboard`, `zoom`'s factors or `fitToWidth`/`fitAndFollow`'s rules (D51/D60);
+  queue or retry a press that arrives before `lwBridge` exists (AR-P30-3); claim **G7** — no case asserts a
+  painted page, a real `QWebEngineView` render or a click inside Chromium.
+
+#### P30-02 — D102 + D103: state that must not outlive its trigger — size S
+
+- **Covers:** AC-D102.1, AC-D102.2, AC-D103.1, AC-D103.2, Journey 83, Journey 84, A248, A249, R188, R189;
+  `[extends D21.11/D44: the collapse contract and its collapsed_changed signal are unchanged; D102 adds the
+  popup to what a collapse dismisses]`.
+- **Depends on:** nothing (may open with P30-01).
+- **Files:** `ui/watchlist_panel.py`, `ui/drawing_groups_dialog.py`; a new
+  `tests/test_d102_d103_surface_state.py`.
+- **Deliverables, in this order:**
+  1. **D102 — dismissal where the collapse is applied (S-P30-3).** In
+     `WatchlistPanel._apply_collapsed_visual`, after the four `setVisible` calls:
+     ```python
+     # D102: the results popup is a top-level Qt.Popup window parented to the
+     # panel, so hiding header_bar/table cannot hide it. Any state that removes
+     # the search box from view dismisses its results (and their items), or a
+     # floating list outlives the query that produced it.
+     if collapsed:
+         self.clear_search_results()
+     ```
+     and in `show_search_results`, first statement:
+     ```python
+     # D102 / AC-D102.2: a result that arrives after the collapse must not
+     # re-open the popup — the display decision is this widget's, not the
+     # search service's (A248).
+     if self._collapsed:
+         self.clear_search_results()
+         return
+     ```
+     Docstrings on both methods gain the rule (one sentence each). `clear_search_results`,
+     `set_search_enabled`, `_on_search_text_changed`, `_on_search_item_clicked`, the debounce, the service
+     and `MainWindow._on_search_finished` are untouched. (The popup and its list are created at `:475-492`,
+     before the initial `_apply_collapsed_visual()` call at `:565` — verified, so the collapse-side call is
+     safe at construction time; a `getattr(self, "_search_popup", None)` guard is permitted but not needed.)
+  2. **D103 — restore the selection around the rebuild (S-P30-4).** In `DrawingGroupsDialog.reload`, capture
+     before the group table is rebuilt and re-apply after the drawings list is repopulated:
+     ```python
+     selected = set(self._selected_drawing_ids())
+     ...
+     self.drawings_list.clear()
+     for drawing in drawings:
+         ...
+         item.setData(Qt.ItemDataRole.UserRole, drawing.id)
+         self.drawings_list.addItem(item)
+         if drawing.id in selected:
+             item.setSelected(True)
+     ```
+     Docstring: *"The drawings list is re-created on every reload, so the selection the Assign / Ungroup /
+     Delete actions read is restored **by drawing id** — a reload may reorder or shrink the list, and an id
+     that no longer exists is simply absent from the restored set (D103/A249)."* `_on_group_item_changed`,
+     `_commit`, `_selected_drawing_ids`, `_selected_group_ids` and every action are unchanged. The groups
+     table's own row selection is **not** restored (a different table, and the checkbox click leaves the row
+     current) — say so in the docstring so the omission is deliberate.
+  3. **The suite** `tests/test_d102_d103_surface_state.py` — two classes, no shared fixture:
+     `TestWatchlistPopupDismissal` (a `WatchlistPanel` offscreen; `_desc(symbol)` helpers in the
+     `tests/test_d39_burst_search.py` shape): (a) **AC-D102.1** — `show_search_results([...])` then
+     `set_collapsed(True)`: `panel._search_popup.isVisible() is False` and
+     `panel._search_list.count() == 0`; the same via the header toggle path (`header_button` /
+     `_on_header_toggled`) and via `toggle_collapsed()`. **Assert the case can fail first:** run it against
+     the un-fixed handler once and record that the popup survived — if the offscreen platform reports
+     `isVisible()` False in *both* states (a real risk for a `Qt.Popup` whose parent widget is never shown),
+     the assertion moves to `isHidden()` (False = showing) and the list count carries the weight; a case that
+     cannot fail is not evidence; (b) **expansion does not resurrect** — expand again:
+     still hidden, still empty; (c) **AC-D102.2** — collapse, then call `show_search_results([...])` (the
+     in-flight delivery): hidden and empty; then a *new* query while expanded shows results again (the guard
+     is not a permanent mute); (d) `set_search_enabled(False)` still clears (unchanged behaviour, asserted).
+     `TestDrawingSelectionRestore` (the temp DB from `conftest.py`; one group, three drawings, two selected):
+     (e) **AC-D103.1** — selected ids before, toggle `visible` through
+     `_on_group_item_changed(visible_item)` (or `update_group` + `reload()`), ids after are identical and in
+     the same order, and `_selected_drawing_ids()` feeds `_assign_selected`'s `assign_groups` call (record
+     with a monkeypatched `DrawingStore.assign_groups` and assert it received the two ids); (f) **`locked`**
+     the same way; (g) **AC-D103.2** — delete one of the two selected drawings between selection and reload,
+     then reload: the restored set is exactly the surviving id; (h) **shrink/reorder** — a fixture where
+     `drawings_for_symbol` returns the rows in the opposite order: the restored ids are the same set
+     (identity, not index); (i) the group row selection is independent (selecting group row 0 before a toggle
+     does not change the drawings selection).
+- **Exit condition:** the new suite green **and** `tests/test_d39_burst_search.py`,
+  `tests/test_watchlist_collapsed_bar_d44.py`, `tests/test_dock_widths_collapsed_d44.py`,
+  `tests/test_p9_group_dialog.py`, `tests/test_p9_group_payload.py`, `tests/test_p9_active_group.py`,
+  `tests/test_p10_groups_dialog_lock.py`, `tests/test_drawing_store.py` green, **unchanged**;
+  `git diff --name-only` ⊆ `ui/watchlist_panel.py` + `ui/drawing_groups_dialog.py` +
+  `tests/test_d102_d103_surface_state.py`.
+- **Do not:** cancel or debounce anything in the search service, change `search_text_changed` or
+  `search_sample_selected`; hide the popup from `_on_header_toggled` alone (the other collapse paths would
+  still leak it); restore the selection by row index; restore the groups table's row selection; change what
+  `assign_groups`/`delete_drawings` persist; add a `D` flag, a settings key or a new widget.
+
+#### P30-03 — D104: words that match the shipped engine and a release that matches its words — size S
+
+- **Covers:** AC-D104.1, AC-D104.2, Journey 85, R190, AR-P30-6; `[extends P6-13 / Phase 11: the pyqtgraph
+  removal stands — no engine code returns]`.
+- **Depends on:** P30-01 (both edit `ui/lwc_view.py`; and the sweep should see the final page/bridge state).
+- **Files:** `ui/main_window.py` (docstrings/comments only), `ui/popout_window.py` (docstrings/comments
+  only), `services/chart_model.py` (**one docstring sentence**, comment-only), `ui/lwc_view.py`
+  (`release_resources`'s body + docstring); a new `tests/test_d104_stale_claims.py`.
+- **Deliverables, in this order:**
+  1. **The engine claims — the words are wrong, the code is right.** Rewrite, leaving the code untouched:
+     - `ui/main_window.py::build_main_chart_view`'s docstring → *"Create the main chart. `ui.chart_view.
+     create_chart_view` is the one engine-selection authority and returns the LWC view unconditionally (the
+     pyqtgraph engine was removed in P6-13); the driver re-host below is a no-op kept for the pop-out's
+     parallel shape."* (state what is true: there is no second engine and no switch).
+     - `ui/main_window.py::_eastern_offset`'s `"Return pyqtgraph utcOffset for Eastern Time"` → *"Return the
+     chart's `utcOffset` for Eastern Time (positive = behind UTC)."*
+     - `ui/popout_window.py`'s module docstring (`:9-15`) → the seam resolves the LWC view; drop *"pyqtgraph
+     stays present and default"* and the *"Phase-1a seam stub"* sentence; keep the session-surface list and
+     the D24 cap/ledger paragraphs verbatim.
+     - `ui/popout_window.py::popout_view`'s docstring (`:70-80`) → the same correction.
+     - `ui/popout_window.py:64` (`BAR_BYTES`) → *"bytes budgeted per stored bar when a view reports no account
+     itself (a bare view keeps a plain list of bars, nothing else per view)"*.
+     - `ui/popout_window.py::view_memory_estimate`'s docstring (`:96`) → *"…the LWC driver's `memory_bytes` is
+     asked; a view with no account of its own is accounted from its bars list."*
+     - `services/chart_model.py::heikin_ashi`'s docstring (`:273`) — **the one stale claim outside `ui/`**:
+       *"the pyqtgraph item keeps its identical local copy until P6-13"* is present tense and its bound has
+       passed, so it is rewritten to a past-tense statement that names no live surface, e.g. *"The single value
+       source going forward (LWC phases use this); the retired renderer's local copy went with it."* One
+       sentence, no code, no signature; the module's Qt-free boundary and every function are untouched.
+  2. **The release — the code is wrong, the docstring is the contract (S-P30-5).** In
+     `LwcChartView.release_resources`, extend the bridge bucket loop:
+     ```python
+     bridge = getattr(self, "_bridge", None)
+     for name in ("_op_log", "_queued", "_outbox", "_live_buf"):
+         ...                                   # unchanged
+     # D104: the per-channel replay logs are the structure that grows with
+     # traffic on a live pop-out; the docstring promises they go, so they go.
+     channel_logs = getattr(bridge, "_channel_logs", None)
+     if isinstance(channel_logs, dict):
+         for bucket in channel_logs.values():
+             bucket.clear()
+     channel_queue = getattr(bridge, "_channel_queue", None)
+     if isinstance(channel_queue, list):
+         channel_queue.clear()
+     ```
+     Docstring: keep the promise, name the list — *"…the private series copy, the study arrays, every
+     per-channel replay log (the bar log and the staging buffers, and the five channel logs with their
+     not-ready queue) and the offline host…"*; add the residual sentence: *"`memory_bytes` still accounts the
+     bar log only; the channel logs are reported empty after this call, not before it (AR-P30-6)."*
+  3. **The sweep** `tests/test_d104_stale_claims.py`: (a) **AC-D104.1** — walk every `ui/`, `services/`,
+     `data/`, `ibkr/` module (AST-free line scan), collect each line matching `pyqtgraph`
+     (case-insensitive), and assert every hit is in the **allow-list**, keyed by `(relative path, distinctive
+     fragment)` — never by line number, so ordinary edits do not break it and a new present-tense claim does.
+     The allow-list is the **complete** enumeration below (twenty hits in twelve files on the delivered tree;
+     the wave re-runs the scan first and reconciles any drift before implementing, and a hit not in either
+     class is a red, not a runner-up):
+
+     | Class | File : line | Distinctive fragment |
+     |---|---|---|
+     | negative assertion | `ui/dock_layout.py:7` | `imports no PyQt6 / pyqtgraph / any Qt` |
+     | negative assertion | `ui/lwc_view.py:2002` | `never drags the pyqtgraph seam in at import time` |
+     | negative assertion | `services/time_collapse_service.py:33` | `No PyQt6/pyqtgraph/Qt import appears anywhere in this module` |
+     | negative assertion | `services/market_calendar.py:17` | same sentence |
+     | negative assertion | `services/backfill_service.py:44` | same sentence |
+     | negative assertion | `services/option_ladder.py:43` | same sentence |
+     | negative assertion | `services/option_spread_engine.py:98` | same sentence |
+     | negative assertion | `services/chart_model.py:11` | `No PyQt6 / pyqtgraph / Qt import may ever appear in this module` |
+     | marked history | `ui/chart_view.py:8` | `P6-13 / Phase 11 removed the pyqtgraph engine` |
+     | marked history | `ui/chart_view.py:12` | `returning to pyqtgraph is a ``git revert`` of the removal` |
+     | marked history | `ui/drawing_tools.py:3` | `The names survive the pyqtgraph removal` |
+     | marked history | `services/chart_model.py:41` | `Moved here from ``ui/candlestick_item`` when the pyqtgraph engine was` (the sentence continues at `:42`; the key is this line's own text) |
+
+     Then the **positive assertions** (these are what fail if a claim returns, and they are what makes the
+     sweep more than a rubber stamp): no line in `ui/main_window.py` or `ui/popout_window.py` matches
+     `pyqtgraph` at all (the seven hits disappear — that is the D104 fix, not an allow-list entry); no line
+     anywhere matches `keeps its identical local copy until P6-13` (the rewritten `services/chart_model.py`
+     sentence); no line anywhere matches `stays present and default` or `keeps pyqtgraph`; and exactly
+     **twelve** allow-listed hits remain (a count assertion, so an allow-listed line that quietly disappears
+     or a new one that appears is visible). (b) **AC-D104.2** — construct
+     `LwcChartView()`, push a few ops through `send_channel` on each of the five channels (so the logs are
+     non-empty), call `release_resources()`, then assert, **item by item against the docstring's list**:
+     `view._bars == []`, `_plotted == []`, `_logical == []`, `_study_overlays == {}`, `_study_log == []`,
+     `_study_envelopes == []`, `_interaction_log == []`, `_interaction_envelopes == []`, `_alarm_log == []`,
+     `_alarm_envelopes == []`, `_drawing_items == []`, `_drawing_log == []`, `_drawing_envelopes == []`,
+     `_overlay_log == []`, `_overlay_envelopes == []`, the bridge's `_op_log`/`_queued`/`_outbox`/`_live_buf`
+     empty **and** `all(not bucket for bucket in bridge._channel_logs.values())` and
+     `bridge._channel_queue == []`; a second call changes nothing (idempotence); and
+     `view.memory_bytes()["total_bytes"] == 0`. (c) `ui/chart_view.py`'s removal record is asserted
+     **unchanged** in substance (the `P6-13` sentence and the `gate_P6_T13.md` reference are present).
+- **Exit condition:** the new suite green **and** `tests/test_lwc_popouts.py`, `tests/test_d24_popouts.py`,
+  `tests/test_d85_d91_popout_ownership.py` (its release path), `tests/test_lwc_drawings.py`,
+  `tests/test_lwc_alarms.py`, `tests/test_lwc_time_parity.py` (their `_uses_pyqtgraph` scans),
+  `tests/test_d28_2_load_chart_button.py` green, **unchanged**; `git diff --name-only` ⊆
+  `ui/main_window.py` + `ui/popout_window.py` + `services/chart_model.py` + `ui/lwc_view.py` +
+  `tests/test_d104_stale_claims.py`.
+- **Do not:** restore or re-import pyqtgraph; delete the dead re-host branches; change `memory_bytes`'s
+  bucket set (AR-P30-6); rewrite `ui/chart_view.py`'s removal record or `docs/build/gate_P6_T13.md`; touch
+  any function, signature or import in `services/chart_model.py` (the docstring sentence is the whole edit);
+  change any behaviour except the two new `clear()` calls; touch `_publish_*`, `handle_control`, or the
+  control path added by P30-01.
+
+#### P30-04 — the fence, the map and the phase record — size S
+
+- **Covers:** AC-D104.3, the phase's evidence record, `docs/codebase-map.md`'s P30 note.
+- **Depends on:** all.
+- **Files:** a new `tests/test_p30_fence.py`; `docs/codebase-map.md`. **No production file.**
+- **Deliverables:**
+  1. **The fence suite** `tests/test_p30_fence.py`, one assertion per named artefact: `requirements.md` still
+     carries `This is an existing repository.`; the `D41`–`D100` record present per id in *a* heading;
+     P30's own `#### D101`–`#### D104`; `Journey 82`–`Journey 85`; `AC-D1.1`–`AC-D100.3` plus
+     `AC-D101.1`–`AC-D104.3`; `A1`–`A245` plus `A246`–`A250`; `R1`–`R185` plus `R186`–`R191`; the
+     `Current Tech Stack` section; and Q118's answer sentence still present in `docs/requirements/
+     open_questions.md` and in the P30 requirements header.
+  2. **The pinning assertions** (read off the live modules, not prose): `ENVELOPE_VERSION == 1`; `CHANNELS`
+     unchanged (five names); `LV.CONTROL_IDS == ("zoom-out", "zoom-in", "magnifier", "reset")` and
+     `tuple(s.id for s in CONTROL_SPECS) == LV.CONTROL_IDS`; the four `ChartControls` signal names still
+     present (`zoom_in`, `zoom_out`, `magnify_toggled`, `reset`); `chart.html` contains `id="controls"` and
+     loads exactly the same script list as before (the offline/airplane audit); `ui/lwc_view.py` imports
+     `ui.chart_controls`; `LwBridge` declares `controlPressed` (a `pyqtSlot`) and `pageControlPressed`;
+     `handle_control`'s signature and its three return shapes; `create_chart_view`'s signature;
+     `WatchlistPanel.show_search_results`/`clear_search_results`/`set_collapsed` signatures;
+     `DrawingGroupsDialog.reload`'s signature; `DrawingStore.update_group`'s accepted set. No file/line
+     counts, no phase hash.
+  3. **The records**: the wave records `git diff --name-only 3b92ce6` (the P29 base) and requires it to be a
+     subset of {`chart_assets/lwc/chart.html`, `chart_assets/lwc/interaction.js`, `chart_assets/lwc/chart.js`,
+     `chart_assets/lwc/interaction.controls.test.js`, `chart_assets/lwc/controls.test.js`,
+     `ui/chart_controls.py`, `ui/lwc_bridge.py`, `ui/lwc_view.py`, `ui/watchlist_panel.py`,
+     `ui/drawing_groups_dialog.py`, `ui/main_window.py`, `ui/popout_window.py`, `services/chart_model.py`,
+     the four new `tests/` suites, `docs/`}. Anything else is a scope breach to escalate, never to justify.
+  4. **The map**: `docs/codebase-map.md` gains a **P30 note** (what moved, which rows are stale, the six new
+     test files, the zero-harness-change statement, the G7 sentence) and carries every existing annotation
+     forward; the skeleton is regenerated by `update_codebase_map.py`, never hand-edited — with the
+     generator's `(root)/` row repaired back to the slash-free `(root)` form the map lint requires (the
+     P26/P29 note's standing issue).
+  5. **G7's record**: the wave records that **G7 is owner-run and not claimed** — no suite asserts a painted
+     page, a real `QWebEngineView` render, a click inside Chromium, or a live-window screenshot.
+- **Exit condition:** the fence suite green, the full offscreen suite green, `node --test chart_assets/lwc/`
+  green, and the recorded diff listing matches the allowlist.
+- **Do not:** edit `docs/requirements/**`; assert a phase commit hash, a file count or a line count; assert
+  the behaviour of a later phase; re-baseline any existing case.
+
+### Assumptions
+
+- **AP-P30-1 — baseline and re-read.** The build starts from `dcfdd60` (or a later descendant carrying only
+  P29 review fixes). P29 landed changes in `ui/lwc_view.py`, `ui/lwc_bridge.py` and `ui/main_window.py` —
+  three of this phase's sites — so every wave re-reads its own site before editing rather than trusting the
+  survey above.
+- **AP-P30-2 — "reachable in the running page" is proved by four offscreen layers, and the painted page is
+  not evidence.** The layers are the `interaction.js` DOM suite (the page's factory), the `controls.test.js`
+  glue suite (the real `init()` and the real dispatcher under a minimal stub), the pytest bridge/view cases
+  (the Python half), and the four-way join; `AC-D101.1`/`AC-D101.3`/`AC-D101.5` are
+  satisfied by those. A real `QWebEngineView` render cannot be asserted on this box
+  (`tests/test_lwc_render_smoke.py`'s measured note: offscreen Chromium cannot rasterise here), so if anyone
+  looks at the painted page that is **owner-run G7** — named, never claimed by any case, exit condition or
+  record.
+- **AP-P30-3 — "both starting states" is a constructed state, not a reachable one.** The router cannot be
+  `ZOOMING` and `ALARM_PLACING` simultaneously (TR-9's precondition is the latter), so the `on→refused` case
+  pre-sets `aria-pressed="true"` on the magnifier button and drives a refusing `onControl`. That is what
+  "tested from both starting states" means for a click-handler unit, and it is why the case lives in the
+  node suite rather than in a journey driven through the app.
+- **AP-P30-4 — TR-9 is the only refusal path** (see **FI-P30-1**). Zoom steps are never refused, and
+  `zoomBy`'s `false` return on "no data" is not a refusal report; the toggle is the one control that can be
+  declined, and `zoom_refused`'s payload carries the `trigger` that caused it.
+- **AP-P30-5 — placement is Plan's; R186's constraint is the measurement.** The strip is an absolutely
+  positioned overlay in the top-right, inside the price-scale gutter the page already reserves
+  (`chart.html`'s `#goToLatest` precedent, `right: 80px`). "No chart area lost at the minimum width" is
+  measured as: `#chart`'s `clientWidth`/`clientHeight` equal the document's at a 400 px width, and the
+  container's bounding box stays inside the gutter. That is the assertion; anything about "looking
+  uncluttered" is not.
+- **AP-P30-6 — `ChartControls` stays unconstructed, by design.** Q118 restored the *page* surface (its
+  sentence names the container, `mountControls` and the `handleControl` wiring), so the Qt widget is kept as
+  the parity reference and is never instantiated by production. `AC-D101.5`'s second clause is satisfied by
+  production importing `ui/chart_controls` for `CONTROL_SPECS`, which is what carries the four signal names
+  into a module production imports.
+- **AP-P30-7 — zero harness changes and zero re-baselined cases.** No existing suite is edited: the page-glue
+  evidence for D101 lands in a **new** `chart_assets/lwc/controls.test.js` with its own stub environment, so
+  `chart.test.js` and its nine cases are untouched (AR-P30-7 records the duplicated-fake cost). Any red in an
+  existing suite is a stop-and-escalate, not a re-baseline.
+- **AP-P30-8 — `memory_bytes` is deliberately untouched.** Its bucket set stays as shipped; AR-P30-6 records
+  the accounting residual (the channel logs are not counted while a view is live, and are empty after
+  `release_resources`). D104 is about what the release clears, and changing the ledger's shape would be a
+  different claim on a structure `tests/test_lwc_popouts.py` pins.
+
+### Flagged Issues
+
+- **FI-P30-1 — Journey 82 step 5 names a refusal that does not exist ("zoom at the data limit"), while
+  AC-D101.2 names the one that does (TR-9) — resolved by reading step 5 as the TR-9 case; non-blocking.**
+  Journey 82 step 5 reads *"Force a refusal (zoom at the data limit) and read the toggle's `aria-pressed` and
+  the reported refusal."* The shipped router has exactly one refusal: `enter_zoom` from `ALARM_PLACING`
+  (TR-9), which is what `interaction.js::reportZoomRefused` reports and what `AC-D101.2` measures ("a toggle
+  control whose action is refused (TR-9)"). There is no data-limit refusal anywhere: `zoomBy` returns
+  `false` when the chart has no visible range and never reports anything, and `handle_control`'s zoom branch
+  cannot set `refused`. P30 therefore builds and tests the TR-9 path (both starting states, the report
+  counted once) and, for the data-limit case, asserts the **precise** thing the code does: a zoom press with
+  no visible range changes **no viewport** and produces **no refusal report**, while the press is still
+  reported to Python and the shim still publishes `{"op": "zoom", "step": ±1}` (its return carries
+  `refused: false` — the zoom branch never refuses) — the report is
+  unconditional and only the viewport change is guarded (`chart.js::controlPressed`, `if (range)`). It does
+  **not** invent a refusal, a limit check or a second `zoom_refused` trigger, which would be a new behaviour
+  no requirement asks for. **Suggested direction:** read Journey 82 step 5's "refusal" as TR-9 (the only
+  refusal the phase's own criteria name); if a genuine data-limit refusal is wanted, it is a new requirement
+  (a router row plus a page report), not a silent addition here.
+
+Status: READY_FOR_TASK_MANAGER
